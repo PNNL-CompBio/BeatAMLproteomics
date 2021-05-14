@@ -1,0 +1,207 @@
+---
+title: "PTRC p3 Phosphoproteomics pipeline"
+author: "Michael Nestor"
+output: html_document
+---
+
+The phospho proteomics pipeline uses the R package [PlexedPiper](https://github.com/vladpetyuk/PlexedPiper). It also requires a connection to the DMS to access data packages.
+
+```{r, echo=F}
+library(knitr)
+knitr::opts_chunk$set(message=F, warning=F)
+t0 <- Sys.time(); print(t0)
+```
+
+```{r setup}
+library(PlexedPiper)
+library(dplyr)
+
+data_package_num <- 3723
+data_folder <- "data/Ex10_phospho_data"
+crosstab_prefix <- "ptrc_ex10"
+path_to_global_crosstab <- "data/Ex10_global_data/ptrc_ex10_crosstab_global_gene_original.txt"
+
+dir.create(data_folder)
+
+if (!is_PNNL_DMS_connection_successful()) {
+  stop("No connection to DMS.")
+}
+```
+
+# Study design
+
+Study design information in PlexedPiper is encoded in three tables: fractions, samples, and references. These tables can be made using metadata and should be stored on the DMS before processing.
+
+```{r read_study_design}
+study_design <- get_study_design_by_dataset_package(data_package_num)
+
+fractions <- study_design$fractions
+samples <- study_design$samples
+references <- study_design$references
+```
+
+# Process MS-GF+ data
+
+MS-GF+ data is processed in several steps. First, read MS-GF+ output from the DMS. (This step can take a while).
+
+```{r read_msgf_data}
+msgf_data_path <- file.path(data_folder, "msgfData_original.RData")
+
+if (file.exists(msgf_data_path)) {
+  load(msgf_data_path)
+} else {
+  msnid <- read_msms_data_from_DMS(data_package_num)
+  save(msnid, file=msgf_data_path)
+}
+
+show(msnid)
+```
+
+## AScore
+
+```{r ascore}
+ascore <- get_AScore_results(data_package_num)
+msnid <- best_PTM_location_by_ascore(msnid, ascore)
+msnid <- apply_filter(msnid, "grepl(\"\\\\*\", peptide)")
+```
+
+## Remap accessions
+
+This function remaps UniProt protein accessions to gene symbol.
+
+```{r create_conversion_table}
+path_to_FASTA <- path_to_FASTA_used_by_DMS(data_package_num)
+
+library(Biostrings)
+fst <- readAAStringSet(path_to_FASTA)
+
+library(dplyr)
+library(stringr)
+conv <- data.frame(NAME = names(fst)) %>%
+  mutate(UNIPROT = str_extract(names(fst), "^(\\S)+"),
+         SYMBOL = str_extract(names(fst), "GN=(\\S)+")) %>%
+  dplyr::select(-NAME) %>%
+  mutate(UNIPROT = sub(".*\\|(.*)\\|.*", "\\1", UNIPROT),
+         SYMBOL = sub("GN=", "", SYMBOL))
+
+head(conv)
+```
+
+```{r remap_accessions}
+msnid <- remap_accessions_uniprot_to_gene(msnid,
+                                          organism_name="Homo sapiens",
+                                          conversion_table=conv)
+table(is.na(msnid$accession))
+
+psms(msnid) %>% distinct(Protein, accession) %>%
+  group_by(is.na(accession)) %>%
+  summarize(n=n()) %>% print()
+```
+
+```{r remove_missing_accessions}
+msnid <- apply_filter(msnid, "!is.na(accession)")
+show(msnid)
+```
+
+## FDR filter
+
+We use the target-decoy search strategy method described in [(Elias 2010)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2922680/). Filtering is done first at peptide level, then at protein level, both with max FDR of 1%.
+
+```{r filter_msgf_data_peptide_level}
+msnid <- filter_msgf_data(msnid, level="peptide", fdr.max=0.01)
+show(msnid)
+```
+
+```{r apply_decoy_filter}
+msnid <- apply_filter(msnid, "!isDecoy")
+show(msnid)
+```
+
+
+## Parsimonious inference
+
+To reduce number of protein identifications, we use a parsimonious inference algorithm described in [(Zhang et al. 2007)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2810678/).
+
+```{r parsimonious_inference}
+global_crosstab <- read.table(path_to_global_crosstab)
+msnid <- infer_parsimonious_accessions(msnid, unique_only=FALSE,
+                                       prior = rownames(global_crosstab))
+show(msnid)
+```
+
+## Map mod sites
+
+```{r map_mod_sites}
+path_to_FASTA <- path_to_FASTA_used_by_DMS(data_package_num)
+path_to_FASTA <- gsub("\\\\","/",path_to_FASTA)
+path_to_FASTA_gene <- remap_accessions_uniprot_to_gene_fasta(path_to_FASTA)
+
+library(Biostrings)
+fst <- readAAStringSet(path_to_FASTA_gene)
+msnid <- map_mod_sites(msnid, fst, 
+                       accession_col = "accession", 
+                       peptide_mod_col = "peptide", 
+                       mod_char = "*",
+                       site_delimiter = "lower")
+msnid <- apply_filter(msnid, "!is.na(PepLocFirst)")
+head(psms(msnid))
+
+save(msnid, file=file.path(data_folder, "msgfData_filtered.RData"))
+```
+
+# Process MASIC data
+
+Output from the MASIC software is read from DMS, then filtered by inteference score.
+
+```{r read_masic}
+masic_data_path <- file.path(data_folder, "masicData_original.RData")
+
+if (file.exists(masic_data_path)) {
+  load(masic_data_path)
+} else {
+  masic_data <- read_masic_data_from_DMS(data_package_num,
+                                       interference_score = TRUE)
+  save(masic_data, file=masic_data_path)
+}
+
+nrow(masic_data)
+```
+
+```{r filter_masic}
+masic_data <- filter_masic_data(masic_data,
+                                interference_score_threshold = 0.5,
+                                s2n_threshold = 0)
+save(masic_data, file=file.path(data_folder, "masicData_filtered.RData"))
+
+nrow(masic_data)
+```
+
+# Create crosstab
+
+The quantitative crosstab combines MS/MS identifications with reporter ion intensities. Abundances are taken relative to the reference channel and then log-transformed.
+
+```{r create_phospho_site_crosstab}
+aggregation_level <- c("SiteID")
+crosstab <- create_crosstab(msnid, masic_data,
+                            aggregation_level,
+                            fractions, samples, references)
+dim(crosstab)
+
+write.table(signif(crosstab, 3),
+            file=file.path(data_folder, paste(crosstab_prefix, "crosstab_phospho_siteID_original.txt", sep="_")),
+            quote=F, sep="\t")
+```
+
+```{r create_phospho_peptide_crosstab}
+aggregation_level <- c("SiteID", "peptide")
+crosstab <- create_crosstab(msnid, masic_data,
+                            aggregation_level,
+                            fractions, samples, references)
+dim(crosstab)
+
+write.table(signif(crosstab, 3),
+            file=file.path(data_folder, paste(crosstab_prefix, "crosstab_phospho_peptide_original.txt", sep="_")),
+            quote=F, sep="\t")
+
+t1 <- Sys.time(); print(t1); print(t1 - t0)
+```

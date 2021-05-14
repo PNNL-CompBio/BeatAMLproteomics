@@ -1,0 +1,107 @@
+---
+title: "Functional Enrichment Tests"
+author: "Sara Gosline"
+date: "4/19/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Use of this document
+
+This is an R Markdown document to carry out basic functional analysis on proteomics and phopshporotepomics data. We use basic functional enrichment tools. This type of analysis requires distinct knowledge of the samples at hand so is difficult to generalize.
+
+```{r libraries}
+library(leapr)
+library(dplyr)
+library(amlresistancenetworks)
+source("../util/synapseUtil.R")
+
+
+```
+
+## Get test dataset
+
+For any analysis we need to first collect the data of interest.
+
+
+```{r pressure, echo=FALSE}
+prot.dat <- querySynapseTable('syn25572200')
+phos.dat <- querySynapseTable('syn25572214')
+
+##from here we can select just the metadata of interest
+metadata.columns = c('Sample','cellLine','Treatment','Time (minutes)')
+summary <- prot.dat%>%
+  select(metadata.columns)%>%
+  distinct()
+
+print(summary)
+
+```
+
+These are the samples for which we have proteomics and phosphoprotoemics. There are numerous comparisons we can do. For now we will focus on Gilteritinib treated at two time points. 
+
+## Compute differentially expressed proteins
+
+First we can start with those samples that are differentially expressed between treated cells and untreated/DMSO cells at 180 minutes.
+```{r treated 180 min}
+##select the samples of interest
+treated <- subset(summary,Treatment=='Gilteritinib')%>%
+  subset(`Time (minutes)`==180)%>%
+  select(Sample)%>%
+  unique()
+  
+untreated <- subset(summary,Treatment%in%c('none','DMSO'))%>%
+  subset(`Time (minutes)`==0)%>%
+  select(Sample)%>%
+  unique()
+
+##then we spread the proteomics data into a matrix
+prot.mat <- prot.dat%>%
+  select(LogRatio,Sample,Gene)%>%
+  tidyr::pivot_wider(values_from='LogRatio',names_from='Sample',
+                      values_fn=list(LogRatio=mean),values_fill=0.0)%>%
+  tibble::column_to_rownames('Gene')
+
+  prot.diffex <- amlresistancenetworks::limmaTwoFactorDEAnalysis(prot.mat,treated$Sample,untreated$Sample)
+  
+  gsea.res<-prot.diffex%>%
+      tibble::rownames_to_column('Gene')%>%
+      dplyr::select(Gene,value='logFC')%>%
+      amlresistancenetworks::plotOldGSEA(.,prefix='gseaTest',0.05) ##TODO: update with leapr
+```
+
+We have _very_ few genes that are differentially expressed, namely due to the fact that 180 minutes is not that long. 
+
+## Compute differentially expressed phosphosites
+
+Next we can compute differnetially expressed phosphosites.
+
+```{r diffex phospho}
+##then we spread the proteomics data into a matrix
+phos.mat <- phos.dat%>%
+  select(LogRatio,Sample,site)%>%
+  tidyr::pivot_wider(values_from='LogRatio',names_from='Sample',
+                      values_fn=list(LogRatio=mean),values_fill=0.0)%>%
+  tibble::column_to_rownames('site')
+
+  phos.diffex <- amlresistancenetworks::limmaTwoFactorDEAnalysis(phos.mat,treated$Sample,untreated$Sample)
+  gene.to.site<-dplyr::select(phos.dat,Gene,site,Peptide)%>%distinct()%>%
+    dplyr::mutate(residue=stringr::str_replace(site,paste0(Gene,'-'),''))%>%
+    dplyr::mutate(residue=stringr::str_replace_all(residue,"([STY])", ";\\1"))%>%
+    dplyr::mutate(residue=stringr::str_replace(residue,"^;", ""))%>%
+    dplyr::mutate(residue=stringr::str_replace_all(residue,"([sty])", ""))
+
+  ksea.res=phos.diffex%>%      
+    tibble::rownames_to_column('site')%>%
+    left_join(gene.to.site)%>%
+    dplyr::select(Gene,Peptide,residue,value='logFC',p_adj='adj.P.Val')%>%
+      amlresistancenetworks::computeKSEA(.,prefix='phosphoDiffex',0.05) #TODO: update with leapr
+```
+
+
+## Compress proteins and phosphosites into networks
+
+Currently there are examples of using proteimcs, phosphosites, or both in the PCSF framework. This is on Sara to move into this framework.

@@ -1,0 +1,175 @@
+---
+title: "PTRC p3 Batch correction and normalization"
+author: "Michael Nestor"
+output: html_document
+---
+
+```{r setup}
+library(vp.misc)
+library(sva)
+library(dplyr)
+library(tibble)
+library(tidyr)
+
+library(devtools)
+source_url("https://raw.githubusercontent.com/sgosline/beatAMLproteomics/main/dataProcessing/proteomicsNormalizationMethods.R")
+```
+
+```{r processing_parameters}
+path_to_global_data <- "data/p3_test_global_data/"
+path_to_phospho_data <- "data/p3_test_phospho_data/"
+
+path_to_phenodata <- "data/p3_test_phenodata.txt"
+
+path_to_global_crosstab <- file.path(path_to_global_data, "ptrc_p3_test_crosstab_global_gene_original.txt")
+
+
+# Batch correction
+removed_covariates <- c("Plex", "Loading Mass")
+```
+
+# Load metadata
+
+```{r load_metadata}
+library(readxl)
+
+phenodata <- read_xlsx("../TMTmappingTable.xlsx") %>%
+  as.data.frame() %>%
+  mutate(Plex = as.factor(Plex)) %>%
+  filter(`Sample ID \r\n(abbrev)` != "Ref")
+
+phenodata <- read_xlsx("../CPTAC_FLT3cohort_UniquePatients_BestSamples_wYield.xlsx") %>%
+  select(lab_id, specimen_type, specimen_location, Specimen_access_group_concatenated) %>%
+  mutate(`InitialAMLDiagnosis?` = grepl("Initial Acute Leukemia Diagnosis", Specimen_access_group_concatenated),
+         `PostChemotherapy?`    = grepl("Post-Chemotherapy", Specimen_access_group_concatenated)) %>%
+  left_join(phenodata, ., by = c("Barcode ID" = "lab_id"))
+
+rownames(phenodata) <- phenodata$`Sample ID \r\n(abbrev)`
+
+write.table(phenodata, file=path_to_phenodata,
+            quote=F,)
+```
+
+# Normalize and batch correct global data
+
+```{r normalize_global_data}
+normalize_global_data <- function(path_to_crosstab, path_to_phenodata, n.sigfig=3) {
+
+  # Make MSnSet
+  crosstab <- read.table(path_to_crosstab, check.names = F)
+  m <- MSnSet(as.matrix(crosstab))
+  phenodata <- read.table(path_to_phenodata)
+  pData(m) <- phenodata[sampleNames(m),]
+  
+  # Medpolish and save
+  m <- normalizeByMedpolish(m)
+  new_path_to_crosstab <- sub("_original", "_medpolish", path_to_crosstab)
+  write.table(signif(exprs(m), n.sigfig),
+              file = new_path_to_crosstab,
+              quote=F, sep="\t")
+  
+  # Missing value filter
+  m <- m %>%
+      filterByProportionMissingValues(least_proportion_threshold = 0.5) %>%
+      filterByMissingPerBatch("Plex", least_count_threshold = 1L)
+      
+  # Batch correction
+  m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
+  
+  # Medpolish and save
+  m <- normalizeByMedpolish(m)
+  new_path_to_crosstab <- sub("_original", "_corrected", path_to_crosstab)
+  write.table(signif(exprs(m), n.sigfig),
+              file = new_path_to_crosstab,
+              quote=F, sep="\t")
+}
+```
+
+# Normalize phospho data
+
+```{r normalize_phospho_data}
+normalize_phospho_data <- function(path_to_crosstab, path_to_phenodata,
+                                   path_to_global_crosstab, n.sigfig=3) {
+  # Make MSnSet
+  crosstab <- read.table(path_to_crosstab, check.names = F)
+  m <- MSnSet(as.matrix(crosstab))
+  phenodata <- read.table(path_to_phenodata)
+  pData(m) <- phenodata[sampleNames(m),]
+  
+  # Fetch global sample medians
+  global_crosstab <- read.table(path_to_global_crosstab, check.names = F)
+  global_coeffs <- apply(global_crosstab,
+                         MARGIN = 2, FUN = median, na.rm = T)
+  
+  # Normalize by global sample medians
+  exprs(m) <- sweep(exprs(m), 2, global_coeffs)
+  m <- normalizeByMedpolish(m)
+  new_path_to_crosstab <- sub("_original", "_medpolish", path_to_crosstab)
+  write.table(signif(exprs(m), n.sigfig),
+              file = new_path_to_crosstab,
+              quote=F, sep="\t")
+  
+  # Missing value filter
+  m <- m %>%
+      filterByProportionMissingValues(least_proportion_threshold = 0.5) %>%
+      filterByMissingPerBatch("Plex", least_count_threshold = 1L)
+      
+  # Batch correction
+  m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
+  
+  # Medpolish and save
+  m <- normalizeByMedpolish(m)
+  new_path_to_crosstab <- sub("_original", "_corrected", path_to_crosstab)
+  write.table(signif(exprs(m), n.sigfig),
+              file = new_path_to_crosstab,
+              quote=F, sep="\t")
+  
+  
+    # Make MSnSet
+  crosstab <- read.table(path_to_crosstab, check.names = F)
+  m <- MSnSet(as.matrix(crosstab))
+  pData(m) <- phenodata[sampleNames(m),]
+  
+  # Normalize by phospho coefficients
+  m <- normalizeByMedpolish(m)
+  new_path_to_crosstab <- sub("_original", "_medpolish_phospho_coeffs", path_to_crosstab)
+  write.table(signif(exprs(m), n.sigfig),
+              file = new_path_to_crosstab,
+              quote=F, sep="\t")
+  
+  # Missing value filter
+  m <- m %>%
+      filterByProportionMissingValues(least_proportion_threshold = 0.5) %>%
+      filterByMissingPerBatch("Plex", least_count_threshold = 1L)
+      
+  # Batch correction
+  m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
+  
+  # Medpolish and save
+  m <- normalizeByMedpolish(m)
+  new_path_to_crosstab <- sub("_original", "_corrected_phospho_coeffs", path_to_crosstab)
+  write.table(signif(exprs(m), n.sigfig),
+              file = new_path_to_crosstab,
+              quote=F, sep="\t")
+}
+
+```
+
+# Main function calls
+
+```{r main_loop}
+t0 <- Sys.time(); print(t0)
+
+lapply(list.files(path_to_global_data, "_original.txt",
+                  full.names=T),
+       normalize_global_data,
+       path_to_phenodata)
+
+lapply(list.files(path_to_phospho_data, "_original.txt",
+                  full.names=T),
+       normalize_phospho_data,
+       path_to_phenodata, path_to_global_crosstab)
+
+
+t1 <- Sys.time(); print(t1); print(t1-t0)
+```

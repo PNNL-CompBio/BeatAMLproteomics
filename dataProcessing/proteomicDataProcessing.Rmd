@@ -1,0 +1,83 @@
+---
+title: "Proteomic data processing"
+author: "Sara Gosline"
+date: "4/19/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(dplyr)
+```
+
+## Data formats
+
+Using the data available in the crosstabs and a second metadata file, we can create a Synapse table that is in 'long form' and has all the protein/phosphosite values together with their relevant metadata.
+
+```{r synapselogin}
+source("../util/synapseUtil.R")
+
+syn <- synapseLogin()
+
+##CUSTOMIZE THIS FOR YOUR PROJECT
+global.syn<-'syn25572051' 
+##CUSTOMIZE THIS FOR YOUR PROJECT
+phos.syn<- 'syn25572049'
+
+##CUSTOMIZE THIS FOR YOUR PROJECT
+metadata.syn <- 'syn25572050'
+
+```
+
+
+
+## Merge metadata and proteomics data
+
+Now we can merge 
+
+```{r pressure, echo=FALSE}
+##CUSTOMIZE THIS FOR YOUR PROJECT - what columsn do we want? 
+  meta.tab <- readxl::read_xlsx(syn$get(metadata.syn)$path)%>%
+    dplyr::select(cellLine='Sample description',Ligand,Treatment, 
+                  'Time (minutes)', Sample='SampleName')%>%
+    distinct()
+
+  print(head(meta.tab))
+  
+  mat <- read.csv(syn$get(global.syn)$path,sep='\t',header=T)
+  
+  ##LogRatio and Sample might be updated to something else
+  mat<-mat%>%tidyr::pivot_longer(cols=c(5:ncol(mat)),names_to='Sample',
+                        values_to='LogRatio')%>%
+    left_join(meta.tab)%>%
+        subset(!is.na(LogRatio))
+  print(head(mat))
+
+```
+
+Now we have the proteomics and metadata joined in a single table.
+
+## Merge metadata and phosphoproteomics data
+
+```{r phospho, echo=FALSE}
+
+ pmat <- read.csv(syn$get(phos.syn)$path,sep='\t',header=T)
+
+     ##LogRatio and Sample might be updated to something else
+  phos.mat<-pmat%>%tidyr::pivot_longer(cols=c(6:ncol(pmat)),names_to='Sample',
+                        values_to='LogRatio')%>%
+     left_join(meta.tab)%>%
+    subset(!is.na(LogRatio))
+  print(head(phos.mat))
+```
+
+Now we have the phospho data as well.  The last thing that needs to be done is to store them both to a synapse table. This requires knowing the synapse project (in our case, the [P3 Project](http://synapse.org/p3)).
+
+```{r store tables}
+
+##UPDATE TABLE NAME! UPDATE SYNAPSE ID!
+pt<-synTableStore(mat,"Test proteomics data",parentId='syn25005572')
+pht<-synTableStore(phos.mat,"Test phosphoproteomics data",parentId='syn25005572')
+
+
+```

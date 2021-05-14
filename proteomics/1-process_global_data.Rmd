@@ -1,0 +1,180 @@
+---
+title: "PTRC p3 Global proteomics pipeline"
+author: "Michael Nestor"
+output: html_document
+---
+
+The global proteomics pipeline uses the R package [PlexedPiper](https://github.com/vladpetyuk/PlexedPiper). It also requires a connection to the DMS to access data packages.
+
+```{r, echo=F}
+library(knitr)
+knitr::opts_chunk$set(message=F, warning=F)
+t0 <- Sys.time(); print(t0)
+```
+
+```{r setup}
+library(PlexedPiper)
+library(dplyr)
+data_package_num <- 3676
+data_folder <- "data/p3_test_global_data/"
+crosstab_prefix <- "ptrc_p3_test"
+
+dir.create(data_folder)
+
+if (!is_PNNL_DMS_connection_successful()) {
+  stop("No connection to DMS.")
+}
+```
+
+
+# Study design
+
+Study design information in PlexedPiper is encoded in three tables: fractions, samples, and references. These tables can be made using metadata and should be stored on the DMS before processing.
+
+```{r read_study_design}
+study_design <- get_study_design_by_dataset_package(data_package_num)
+
+fractions <- study_design$fractions
+samples <- study_design$samples
+references <- study_design$references
+```
+
+# Process MS-GF+ data
+
+MS-GF+ data is processed in several steps. First, read MS-GF+ output from the DMS. (This step can take a while).
+
+```{r read_msgf}
+msgf_data_path <- file.path(data_folder, "msgfData_original.RData")
+if (file.exists(msgf_data_path)) {
+  load(msgf_data_path)
+} else {
+  msnid <- read_msms_data_from_DMS(data_package_num)
+  save(msnid, file=msgf_data_path)
+}
+show(msnid)
+```
+
+## Remap accessions
+
+This function remaps UniProt protein accessions to gene symbol.
+
+```{r remap_accessions}
+path_to_FASTA <- path_to_FASTA_used_by_DMS(data_package_num)
+
+library(Biostrings)
+fst <- readAAStringSet(path_to_FASTA)
+
+library(dplyr)
+library(stringr)
+conv <- data.frame(NAME = names(fst)) %>%
+  mutate(UNIPROT = str_extract(names(fst), "^(\\S)+"),
+         SYMBOL = str_extract(names(fst), "GN=(\\S)+")) %>%
+  dplyr::select(-NAME) %>%
+  mutate(UNIPROT = sub(".*\\|(.*)\\|.*", "\\1", UNIPROT),
+         SYMBOL = sub("GN=", "", SYMBOL))
+
+head(conv)
+
+msnid <- remap_accessions_uniprot_to_gene(msnid,
+                                          organism_name="Homo sapiens",
+                                          conversion_table = conv)
+
+table(is.na(msnid$accession))
+msnid <- apply_filter(msnid, "!is.na(accession)")
+show(msnid)
+```
+
+## FDR filter
+
+We use the target-decoy search strategy method described in [(Elias 2010)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2922680/). Filtering is done first at peptide level, then at protein level, both with max FDR of 1%.
+
+```{r peptide_filter}
+msnid <- filter_msgf_data(msnid, level="peptide", fdr.max=0.01)
+show(msnid)
+```
+
+```{r protein_level_filter }
+path_to_FASTA <- path_to_FASTA_used_by_DMS(data_package_num)
+path_to_FASTA <- gsub("\\\\", "/", path_to_FASTA)
+path_to_FASTA_gene <- remap_accessions_uniprot_to_gene_fasta(path_to_FASTA)
+msnid <- compute_num_peptides_per_1000aa(msnid, path_to_FASTA_gene)
+head(msnid$peptides_per_1000aa)
+
+msnid <- filter_msgf_data(msnid, level="accession", fdr.max=0.01)
+show(msnid)
+```
+
+```{r remove_decoys}
+msnid <- apply_filter(msnid, "!isDecoy")
+show(msnid)
+```
+
+
+## Parsimonious inference
+
+To reduce number of protein identifications, we use a parsimonious inference algorithm described in [(Zhang et al. 2007)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2810678/).
+
+```{r parsimonious_inference}
+msnid <- infer_parsimonious_accessions(msnid, unique_only=FALSE)
+save(msnid, file=file.path(data_folder, "msgfData_filtered.RData"))
+show(msnid)
+```
+
+# Process MASIC data
+
+Output from the MASIC software is read from DMS, then filtered by inteference score.
+
+```{r read_masic}
+masic_data_path <- file.path(data_folder, "masicData_original.RData")
+
+if (file.exists(masic_data_path)) {
+  load(masic_data_path)
+} else {
+  masic_data <- read_masic_data_from_DMS(data_package_num,
+                                       interference_score = TRUE)
+  save(masic_data, file=masic_data_path)
+}
+
+nrow(masic_data)
+```
+
+```{r filter_masic}
+masic_data <- filter_masic_data(masic_data,
+                                interference_score_threshold = 0.5,
+                                s2n_threshold = 0)
+save(masic_data, file=file.path(data_folder, "masicData_filtered.RData"))
+
+nrow(masic_data)
+```
+
+# Create crosstab
+
+The quantitative crosstab combines MS/MS identifications with reporter ion intensities. Abundances are taken relative to the reference channel and then log-transformed.
+
+```{r create_global_gene_crosstab}
+aggregation_level <- c("accession")
+crosstab <- create_crosstab(msnid, masic_data,
+                            aggregation_level,
+                            fractions, samples, references)
+dim(crosstab)
+
+write.table(crosstab,
+            file=file.path(data_folder, paste(crosstab_prefix, "crosstab_global_gene_original.txt", sep="_")),
+            quote=F, sep="\t")
+```
+
+```{r create_global_peptide_crosstab}
+aggregation_level <- c("accession", "peptide")
+crosstab <- create_crosstab(msnid, masic_data,
+                            aggregation_level,
+                            fractions, samples, references)
+dim(crosstab)
+
+write.table(crosstab,
+            file=file.path(data_folder, paste(crosstab_prefix, "crosstab_global_peptide_original.txt", sep="_")),
+            quote=F, sep="\t")
+
+t1 <- Sys.time(); print(t1); print(t1 - t0)
+```
+
+

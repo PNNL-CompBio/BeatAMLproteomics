@@ -1,0 +1,26 @@
+---
+title: "PTRC p3 Push to synapse"
+author: "Michael Nestor (michael.nestor@pnnl.gov)"
+output: html_document
+---
+
+```{r login}
+library(amlresistancenetworks)
+library(reticulate)
+
+syn = reticulate::import("synapseclient")
+sync = syn$login()
+```
+
+```{r upload}
+synapse_id_map <- c("synXXXXXXXX" = "data/p3_test_global_data/",
+                    "synXXXXXXXX" = "data/p3_test_phospho_data/")
+
+for (i in seq_along(synapse_id_map)) {
+  crosstabs <- list.files(path = synapse_id_map[i],
+                          pattern = "crosstab.*.txt",
+                          full.names = T)
+  lapply(crosstabs, synapseStore,
+         parentId = names(synapse_id_map)[i])
+}
+```

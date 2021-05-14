@@ -1,0 +1,84 @@
+---
+title: "PTRC p3 Study design tables"
+author: "Michael Nestor (michael.nestor@pnnl.gov)"
+output: html_document
+---
+
+```{r setup}
+library(PlexedPiper)
+library(stringr)
+library(dplyr)
+```
+
+```{r}
+path_to_global_study_design <- "study_design/p3_test_global_study_design/"
+path_to_phospho_study_design <- "study_design/p3_test_phospho_study_design/"
+
+dir.create(path_to_global_study_design)
+dir.create(path_to_phospho_study_design)
+
+global_data_package_num <- 3676
+phospho_data_package_num <- 3723
+```
+
+```{r global_fractions}
+job_records <- get_job_records_by_dataset_package(global_data_package_num)
+
+fractions <- job_records %>%
+  select(Dataset) %>%
+  distinct() %>%
+  mutate(PlexID = str_extract(Dataset, "Plex_\\d\\d"))
+head(fractions)
+
+write.table(fractions, file=file.path(path_to_global_study_design, "fractions.txt"),
+            quote=F, sep="\t", row.names=F)
+```
+
+```{r phospho_fractions}
+job_records <- get_job_records_by_dataset_package(phospho_data_package_num)
+
+fractions <- job_records %>%
+  select(Dataset) %>%
+  distinct() %>%
+  mutate(PlexID = str_extract(Dataset, "Plex_\\d\\d"))
+head(fractions)
+
+write.table(fractions, file=file.path(path_to_phospho_study_design, "fractions.txt"),
+            quote=F, sep="\t", row.names=F)
+```
+
+Samples and fractions table must be created from study-specific metadata. See `r help(read_study_design)` for more information.
+
+```{r samples}
+library(readxl)
+
+samples <- read_xlsx("../TMTmappingTable.xlsx") %>%
+  select(ReporterAlias=`Sample ID \r\n(abbrev)`,
+         PlexID=Plex,
+         ReporterName=Channel) %>%
+  mutate(MeasurementName = if_else(ReporterAlias=="Ref",
+                                                 NA_character_,
+                                                 ReporterAlias),
+         PlexID = paste0("Plex_", sprintf("%02d", PlexID))) %>%
+  select(PlexID, ReporterName, ReporterAlias, MeasurementName)
+head(samples)
+
+write.table(samples, file=file.path(path_to_global_study_design, "samples.txt"),
+            quote=F, sep="\t", row.names=F)
+write.table(samples, file=file.path(path_to_phospho_study_design, "samples.txt"),
+            quote=F, sep="\t", row.names=F)
+```
+
+```{r references}
+references <- samples %>%
+  filter(is.na(MeasurementName)) %>%
+  select(PlexID, Reference=ReporterAlias)
+
+head(references)
+
+write.table(references, file=file.path(path_to_global_study_design, "references.txt"),
+            quote=F, sep="\t", row.names=F)
+write.table(references, file=file.path(path_to_phospho_study_design, "references.txt"),
+            quote=F, sep="\t", row.names=F)
+
+```
