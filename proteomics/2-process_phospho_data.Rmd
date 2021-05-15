@@ -1,7 +1,8 @@
 ---
-title: "PTRC p3 Phosphoproteomics pipeline"
+title: "PTRC Ex10 Phosphoproteomics pipeline"
 author: "Michael Nestor"
-output: html_document
+date: "`r format(Sys.Date(), '%m/%d/%Y')`"
+output: rmarkdown::github_document
 ---
 
 The phospho proteomics pipeline uses the R package [PlexedPiper](https://github.com/vladpetyuk/PlexedPiper). It also requires a connection to the DMS to access data packages.
@@ -21,14 +22,12 @@ data_folder <- "data/Ex10_phospho_data"
 crosstab_prefix <- "ptrc_ex10"
 path_to_global_crosstab <- "data/Ex10_global_data/ptrc_ex10_crosstab_global_gene_original.txt"
 
-dir.create(data_folder)
-
 if (!is_PNNL_DMS_connection_successful()) {
   stop("No connection to DMS.")
 }
 ```
 
-# Study design
+## 1. Read study design information
 
 Study design information in PlexedPiper is encoded in three tables: fractions, samples, and references. These tables can be made using metadata and should be stored on the DMS before processing.
 
@@ -40,7 +39,7 @@ samples <- study_design$samples
 references <- study_design$references
 ```
 
-# Process MS-GF+ data
+## 2 Processing MS-GF+ data
 
 MS-GF+ data is processed in several steps. First, read MS-GF+ output from the DMS. (This step can take a while).
 
@@ -57,7 +56,7 @@ if (file.exists(msgf_data_path)) {
 show(msnid)
 ```
 
-## AScore
+### 2.1 AScore
 
 ```{r ascore}
 ascore <- get_AScore_results(data_package_num)
@@ -65,7 +64,7 @@ msnid <- best_PTM_location_by_ascore(msnid, ascore)
 msnid <- apply_filter(msnid, "grepl(\"\\\\*\", peptide)")
 ```
 
-## Remap accessions
+### 2.1 Remap accessions
 
 This function remaps UniProt protein accessions to gene symbol.
 
@@ -103,7 +102,7 @@ msnid <- apply_filter(msnid, "!is.na(accession)")
 show(msnid)
 ```
 
-## FDR filter
+### 2.2 FDR filter
 
 We use the target-decoy search strategy method described in [(Elias 2010)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2922680/). Filtering is done first at peptide level, then at protein level, both with max FDR of 1%.
 
@@ -118,7 +117,7 @@ show(msnid)
 ```
 
 
-## Parsimonious inference
+### 2.3 Parsimonious inference
 
 To reduce number of protein identifications, we use a parsimonious inference algorithm described in [(Zhang et al. 2007)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2810678/).
 
@@ -129,7 +128,7 @@ msnid <- infer_parsimonious_accessions(msnid, unique_only=FALSE,
 show(msnid)
 ```
 
-## Map mod sites
+### Map mod sites
 
 ```{r map_mod_sites}
 path_to_FASTA <- path_to_FASTA_used_by_DMS(data_package_num)
@@ -149,7 +148,7 @@ head(psms(msnid))
 save(msnid, file=file.path(data_folder, "msgfData_filtered.RData"))
 ```
 
-# Process MASIC data
+## 3 Process MASIC data
 
 Output from the MASIC software is read from DMS, then filtered by inteference score.
 
@@ -176,11 +175,11 @@ save(masic_data, file=file.path(data_folder, "masicData_filtered.RData"))
 nrow(masic_data)
 ```
 
-# Create crosstab
+## 4 Create crosstab
 
 The quantitative crosstab combines MS/MS identifications with reporter ion intensities. Abundances are taken relative to the reference channel and then log-transformed.
 
-```{r create_phospho_site_crosstab}
+```{r create_global_gene_crosstab}
 aggregation_level <- c("SiteID")
 crosstab <- create_crosstab(msnid, masic_data,
                             aggregation_level,
@@ -192,7 +191,7 @@ write.table(signif(crosstab, 3),
             quote=F, sep="\t")
 ```
 
-```{r create_phospho_peptide_crosstab}
+```{r create_global_peptide_crosstab}
 aggregation_level <- c("SiteID", "peptide")
 crosstab <- create_crosstab(msnid, masic_data,
                             aggregation_level,
