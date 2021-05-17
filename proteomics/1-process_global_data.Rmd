@@ -1,8 +1,11 @@
 ---
-title: "PTRC p3 Global proteomics pipeline"
+title: "PTRC Ex10 Global proteomics pipeline"
 author: "Michael Nestor"
+date: "`r format(Sys.Date(), '%m/%d/%Y')`"
 output: html_document
 ---
+
+# Global Proteomics analysis
 
 The global proteomics pipeline uses the R package [PlexedPiper](https://github.com/vladpetyuk/PlexedPiper). It also requires a connection to the DMS to access data packages.
 
@@ -16,10 +19,8 @@ t0 <- Sys.time(); print(t0)
 library(PlexedPiper)
 library(dplyr)
 data_package_num <- 3676
-data_folder <- "data/p3_test_global_data/"
-crosstab_prefix <- "ptrc_p3_test"
-
-dir.create(data_folder)
+data_folder <- "data/Ex10_global_data/"
+crosstab_prefix <- "ptrc_ex10"
 
 if (!is_PNNL_DMS_connection_successful()) {
   stop("No connection to DMS.")
@@ -27,7 +28,7 @@ if (!is_PNNL_DMS_connection_successful()) {
 ```
 
 
-# Study design
+## 1. Read study design information
 
 Study design information in PlexedPiper is encoded in three tables: fractions, samples, and references. These tables can be made using metadata and should be stored on the DMS before processing.
 
@@ -39,7 +40,7 @@ samples <- study_design$samples
 references <- study_design$references
 ```
 
-# Process MS-GF+ data
+## 2 Processing MS-GF+ data
 
 MS-GF+ data is processed in several steps. First, read MS-GF+ output from the DMS. (This step can take a while).
 
@@ -54,7 +55,7 @@ if (file.exists(msgf_data_path)) {
 show(msnid)
 ```
 
-## Remap accessions
+### 2.1 Remap accessions
 
 This function remaps UniProt protein accessions to gene symbol.
 
@@ -84,7 +85,7 @@ msnid <- apply_filter(msnid, "!is.na(accession)")
 show(msnid)
 ```
 
-## FDR filter
+### 2.2 FDR filter
 
 We use the target-decoy search strategy method described in [(Elias 2010)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2922680/). Filtering is done first at peptide level, then at protein level, both with max FDR of 1%.
 
@@ -110,7 +111,7 @@ show(msnid)
 ```
 
 
-## Parsimonious inference
+### 2.3 Parsimonious inference
 
 To reduce number of protein identifications, we use a parsimonious inference algorithm described in [(Zhang et al. 2007)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2810678/).
 
@@ -120,7 +121,7 @@ save(msnid, file=file.path(data_folder, "msgfData_filtered.RData"))
 show(msnid)
 ```
 
-# Process MASIC data
+## 3 Process MASIC data
 
 Output from the MASIC software is read from DMS, then filtered by inteference score.
 
@@ -147,7 +148,7 @@ save(masic_data, file=file.path(data_folder, "masicData_filtered.RData"))
 nrow(masic_data)
 ```
 
-# Create crosstab
+## 4 Create crosstab
 
 The quantitative crosstab combines MS/MS identifications with reporter ion intensities. Abundances are taken relative to the reference channel and then log-transformed.
 

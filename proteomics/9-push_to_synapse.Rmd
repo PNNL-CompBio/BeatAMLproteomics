@@ -1,5 +1,5 @@
 ---
-title: "PTRC p3 Push to synapse"
+title: "PTRC Ex10 Push to synapse"
 author: "Michael Nestor (michael.nestor@pnnl.gov)"
 output: html_document
 ---
@@ -12,9 +12,14 @@ syn = reticulate::import("synapseclient")
 sync = syn$login()
 ```
 
-```{r upload}
-synapse_id_map <- c("synXXXXXXXX" = "data/p3_test_global_data/",
-                    "synXXXXXXXX" = "data/p3_test_phospho_data/")
+```{r upload_phenodata}
+synapseStore(path="data/Ex10_phenodata.txt",
+             parentId = "syn24171150")
+```
+
+```{r upload_crosstabs}
+synapse_id_map <- c("syn25714186" = "data/Ex10_global_data/",
+                    "syn25714185" = "data/Ex10_phospho_data/")
 
 for (i in seq_along(synapse_id_map)) {
   crosstabs <- list.files(path = synapse_id_map[i],

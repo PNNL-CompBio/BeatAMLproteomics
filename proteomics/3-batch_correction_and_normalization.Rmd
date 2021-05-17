@@ -1,6 +1,7 @@
 ---
-title: "PTRC p3 Batch correction and normalization"
+title: "PTRC Ex10 Batch correction and normalization"
 author: "Michael Nestor"
+date: "`r format(Sys.Date(), '%m/%d/%Y')`"
 output: html_document
 ---
 
@@ -12,20 +13,7 @@ library(tibble)
 library(tidyr)
 
 library(devtools)
-source_url("https://raw.githubusercontent.com/sgosline/beatAMLproteomics/main/dataProcessing/proteomicsNormalizationMethods.R")
-```
-
-```{r processing_parameters}
-path_to_global_data <- "data/p3_test_global_data/"
-path_to_phospho_data <- "data/p3_test_phospho_data/"
-
-path_to_phenodata <- "data/p3_test_phenodata.txt"
-
-path_to_global_crosstab <- file.path(path_to_global_data, "ptrc_p3_test_crosstab_global_gene_original.txt")
-
-
-# Batch correction
-removed_covariates <- c("Plex", "Loading Mass")
+source("../dataProcessing/proteomicsNormalizationMethods.R")
 ```
 
 # Load metadata
@@ -46,7 +34,7 @@ phenodata <- read_xlsx("../CPTAC_FLT3cohort_UniquePatients_BestSamples_wYield.xl
 
 rownames(phenodata) <- phenodata$`Sample ID \r\n(abbrev)`
 
-write.table(phenodata, file=path_to_phenodata,
+write.table(phenodata, file="data/Ex10_phenodata.txt",
             quote=F,)
 ```
 
@@ -58,7 +46,8 @@ normalize_global_data <- function(path_to_crosstab, path_to_phenodata, n.sigfig=
   # Make MSnSet
   crosstab <- read.table(path_to_crosstab, check.names = F)
   m <- MSnSet(as.matrix(crosstab))
-  phenodata <- read.table(path_to_phenodata)
+  phenodata <- read.table(path_to_phenodata, colClasses="character")
+  phenodata$`Loading Mass` <- as.numeric(phenodata$`Loading Mass`)
   pData(m) <- phenodata[sampleNames(m),]
   
   # Medpolish and save
@@ -74,6 +63,7 @@ normalize_global_data <- function(path_to_crosstab, path_to_phenodata, n.sigfig=
       filterByMissingPerBatch("Plex", least_count_threshold = 1L)
       
   # Batch correction
+  removed_covariates <- c("Plex", "Loading Mass")
   m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
   
   # Medpolish and save
@@ -93,7 +83,8 @@ normalize_phospho_data <- function(path_to_crosstab, path_to_phenodata,
   # Make MSnSet
   crosstab <- read.table(path_to_crosstab, check.names = F)
   m <- MSnSet(as.matrix(crosstab))
-  phenodata <- read.table(path_to_phenodata)
+  phenodata <- read.table(path_to_phenodata, colClasses="character")
+  phenodata$`Loading Mass` <- as.numeric(phenodata$`Loading Mass`)
   pData(m) <- phenodata[sampleNames(m),]
   
   # Fetch global sample medians
@@ -115,6 +106,7 @@ normalize_phospho_data <- function(path_to_crosstab, path_to_phenodata,
       filterByMissingPerBatch("Plex", least_count_threshold = 1L)
       
   # Batch correction
+  removed_covariates <- c("Plex", "Loading Mass")
   m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
   
   # Medpolish and save
@@ -143,6 +135,7 @@ normalize_phospho_data <- function(path_to_crosstab, path_to_phenodata,
       filterByMissingPerBatch("Plex", least_count_threshold = 1L)
       
   # Batch correction
+  removed_covariates <- c("Plex", "Loading Mass")
   m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
   
   # Medpolish and save
@@ -160,16 +153,18 @@ normalize_phospho_data <- function(path_to_crosstab, path_to_phenodata,
 ```{r main_loop}
 t0 <- Sys.time(); print(t0)
 
-lapply(list.files(path_to_global_data, "_original.txt",
+lapply(list.files("data/Ex10_global_data/", "_original.txt",
                   full.names=T),
        normalize_global_data,
-       path_to_phenodata)
+       path_to_phenodata = "data/Ex10_phenodata.txt")
 
-lapply(list.files(path_to_phospho_data, "_original.txt",
+lapply(list.files("data/Ex10_phospho_data/", "_original.txt",
                   full.names=T),
        normalize_phospho_data,
-       path_to_phenodata, path_to_global_crosstab)
+       path_to_phenodata = "data/Ex10_phenodata.txt",
+       path_to_global_crosstab="data/Ex10_global_data/ptrc_ex10_crosstab_global_gene_original.txt")
 
+t0 <- Sys.time(); print(t0)
 
 t1 <- Sys.time(); print(t1); print(t1-t0)
 ```
