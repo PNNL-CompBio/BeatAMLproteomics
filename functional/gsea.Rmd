@@ -1,0 +1,55 @@
+---
+title: "GSEA for Ex10"
+author: "Michael Nestor"
+date: "6/2/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Read data from Synapse
+
+```{r}
+library(amlresistancenetworks)
+syn = reticulate::import("synapseclient")
+syn$login()
+# Molm14 proteomics
+globalData <- querySynapseTable('syn25813133') %>%
+  mutate(SampleID = sprintf("%02d", SampleID))
+```
+
+# Load data into `MSnSet`
+
+```{r}
+library(dplyr)
+phenoData <- globalData %>%
+  select(-Gene, -LogRatio) %>%
+  distinct()
+rownames(phenoData) <- phenoData$SampleID
+
+library(tidyr)
+exprsData <- globalData %>%
+  select(Gene, LogRatio, SampleID) %>%
+  pivot_wider(id_cols="Gene",
+              names_from="SampleID",
+              values_from="LogRatio",
+              values_fill=NA_real_) %>%
+  as.data.frame()
+rownames(exprsData) <- exprsData$Gene
+exprsData <- exprsData %>% select(-Gene)
+
+library(MSnbase)
+msnset <- MSnSet(as.matrix(exprsData))
+pData(msnset) <- phenoData
+```
+
+# Limma test
+
+```{r}
+library(MSnSet.utils)
+
+
+
+```

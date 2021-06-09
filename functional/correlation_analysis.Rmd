@@ -1,0 +1,202 @@
+---
+title: "BeatAML Pathway Enrichment Analysis"
+author: "Michael Nestor"
+date: "6/8/2021"
+output:
+  html_document
+---
+
+```{r setup, message=F, warning=F}
+knitr::opts_chunk$set(echo = F, message=F, warning=F)
+
+library(dplyr)
+library(tidyr)
+library(MSnbase)
+library(kableExtra)
+library(ggplot2)
+
+library(amlresistancenetworks)
+library(leapr)
+
+data(msigdb)
+data(ncipid)
+```
+
+```{r}
+syn = reticulate::import("synapseclient")
+syn$login()
+
+globalData <- querySynapseTable('syn25808020') %>%
+  mutate(Sample = sprintf("%02d", Sample))
+
+phenoData <- globalData %>%
+  select(-Gene, -LogRatio) %>%
+  distinct()
+rownames(phenoData) <- phenoData$Sample
+
+exprsData <- globalData %>%
+  select(Gene, LogRatio, Sample) %>%
+  pivot_wider(id_cols="Gene",
+              names_from="Sample",
+              values_from="LogRatio",
+              values_fill=NA_real_) %>%
+  as.data.frame()
+rownames(exprsData) <- exprsData$Gene
+exprsData <- exprsData %>% select(-Gene)
+
+msnset <- MSnSet(as.matrix(exprsData))
+pData(msnset) <- phenoData
+```
+
+# Summary statistics 
+
+```{r}
+pData(msnset) %>%
+  group_by(specimen.type, PostChemotherapy) %>%
+  summarize(n = n()) %>%
+  ggplot(aes(x = specimen.type, y = n, fill = PostChemotherapy)) + 
+    geom_bar(position="dodge", stat="identity") +
+  xlab("Specimen type") +
+  ylab("Count") +
+  ggtitle("BeatAML Patient Cohort Summary Statistics") +
+  theme_bw()
+```
+
+# Correlation enrichment
+
+This section applies the correlation enrichment algorithm from the `leapR` package. The pathways are from the NCI’s Pathway Interaction Database (PID). We report the
+pathways with a Benjamini-Hochberg-adjusted p-value less than 5%.
+
+```{r}
+x <- exprs(msnset)
+x <- sweep(x, 1, apply(x, 1, mean), "-")
+x <- sweep(x, 1, apply(x, 1, sd), "/")
+leapR_out <- leapR(geneset=ncipid,
+             enrichment_method = "correlation_enrichment",
+             datamatrix = x)
+```
+
+```{r}
+res <- leapR_out
+res <- res[order(res[,"pvalue"]),]
+
+res$pathway <- rownames(res)
+rownames(res) <- NULL
+res <- select(res, pathway, everything())
+
+res <- res[res$BH_pvalue<0.05,]
+res <- filter(res_sig, !is.na(BH_pvalue))
+
+res <- res %>% select(pathway, ingroup_n, ingroup_mean, outgroup_n, 
+                          outgroup_mean, pvalue, BH_pvalue)
+
+kbl(res) %>%
+  kable_paper("hover", full_width = F)
+```
+
+```{r, fig.width=6, fig.height=20}
+ggplot(res, aes(x=-log10(BH_pvalue), y=reorder(pathway, -BH_pvalue))) + geom_bar(stat="identity") +
+  ggtitle("Top significantly correlated pathways") +
+  xlab("Negative log p-value") +
+  ylab("Pathway")
+```
+
+# Comparison of pre- and post- chemotherapy samples
+
+This section applies the enrichment comparison algorithm from the `leapR` package. We compare chemotherapy-treated samples in bone marrow aspirate and peripheral
+blood samples independently. (The leukapheresis samples don't appear to have a
+large enough sample size for this analysis). Once again we report the
+pathways with a Benjamini-Hochberg-adjusted p-value less than 5%.
+
+## Bone marrow aspirate
+
+```{r}
+m <- msnset[,msnset$specimen.type=="Bone Marrow Aspirate"]
+
+group1 = which(grepl("Post-Chemotherapy", m$Specimen.access.group.concatenated))
+group2 = which(!grepl("Post-Chemotherapy", m$Specimen.access.group.concatenated))
+
+x <- exprs(m)
+x <- sweep(x, 1, apply(x, 1, mean), "-")
+x <- sweep(x, 1, apply(x, 1, sd), "/")
+
+leapR_out = leapR(geneset=ncipid,
+                  enrichment_method='enrichment_comparison',
+                  datamatrix=x,
+                  primary_columns=group1,
+                  secondary_columns=group2)
+```
+
+```{r}
+res <- leapR_out
+res <- res[order(res[,"pvalue"]),]
+
+res <- res[res$BH_pvalue<0.05,]
+res <- filter(res, !is.na(BH_pvalue))
+
+res$pathway <- rownames(res)
+rownames(res) <- NULL
+res <- select(res, pathway, everything())
+
+res_tab <- res %>% select(pathway, ingroup_n, ingroup_mean, outgroup_n, 
+                          outgroup_mean, zscore, oddsratio,
+                          pvalue, BH_pvalue)
+library(kableExtra)
+kbl(res_tab) %>%
+  kable_paper("hover", full_width = F)
+```
+
+```{r, fig.width=6.5, fig.height=20}
+ggplot(res, aes(x=-log10(BH_pvalue), y=reorder(pathway, -BH_pvalue))) + geom_bar(stat="identity") +
+  ggtitle("Top significant pathways before/after chemo\n (bone marrow aspirate)") +
+  xlab("Negative log p-value") +
+  ylab("Pathway")
+#ggsave("correlation_enrichment_ex10.png", height=10)
+```
+
+
+## Peripheral blood
+
+```{r}
+m <- msnset[,msnset$specimen.type=="Peripheral Blood"]
+
+group1 = which(grepl("Post-Chemotherapy", m$Specimen.access.group.concatenated))
+group2 = which(!grepl("Post-Chemotherapy", m$Specimen.access.group.concatenated))
+
+x <- exprs(m)
+x <- sweep(x, 1, apply(x, 1, mean), "-")
+x <- sweep(x, 1, apply(x, 1, sd), "/")
+
+leapR_out = leapR(geneset=ncipid,
+                  enrichment_method='enrichment_comparison',
+                  datamatrix=x,
+                  primary_columns=group1,
+                  secondary_columns=group2)
+```
+
+```{r}
+res <- leapR_out
+res <- res[order(res[,"pvalue"]),]
+
+res <- res[res$BH_pvalue<0.05,]
+res <- filter(res, !is.na(BH_pvalue))
+
+res$pathway <- rownames(res)
+rownames(res) <- NULL
+res <- select(res, pathway, everything())
+
+res_tab <- res %>% select(pathway, ingroup_n, ingroup_mean, outgroup_n, 
+                          outgroup_mean, zscore, oddsratio,
+                          pvalue, BH_pvalue)
+kbl(res_tab) %>%
+  kable_paper("hover", full_width = F)
+```
+
+```{r, fig.width=6.5, fig.height=20}
+ggplot(res, aes(x=-log10(BH_pvalue), y=reorder(pathway, -BH_pvalue))) + geom_bar(stat="identity") +
+  ggtitle("Top significant pathways before/after chemo\n (peripheral blood)") +
+  xlab("Negative log p-value") +
+  ylab("Pathway")
+```
+
+
