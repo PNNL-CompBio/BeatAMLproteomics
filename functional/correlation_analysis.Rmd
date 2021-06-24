@@ -6,6 +6,10 @@ output:
   html_document
 ---
 
+```{r, include=FALSE}
+knitr::opts_chunk$set(message=F, warning=F, echo=F)
+```
+
 ```{r setup, message=F, warning=F}
 knitr::opts_chunk$set(echo = F, message=F, warning=F)
 
@@ -22,7 +26,7 @@ data(msigdb)
 data(ncipid)
 ```
 
-```{r}
+```{r, cache=T}
 syn = reticulate::import("synapseclient")
 syn$login()
 
@@ -54,12 +58,17 @@ pData(msnset) <- phenoData
 pData(msnset) %>%
   group_by(specimen.type, PostChemotherapy) %>%
   summarize(n = n()) %>%
-  ggplot(aes(x = specimen.type, y = n, fill = PostChemotherapy)) + 
-    geom_bar(position="dodge", stat="identity") +
-  xlab("Specimen type") +
-  ylab("Count") +
-  ggtitle("BeatAML Patient Cohort Summary Statistics") +
-  theme_bw()
+  ggplot(aes(x = "", y = n, fill = PostChemotherapy)) + 
+    geom_bar(stat = "identity", position = position_fill()) +
+    geom_text(aes(label = n), position = position_fill(vjust = 0.5)) +
+    coord_polar(theta = "y") +
+    facet_wrap(~ specimen.type)  +
+    theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank()) + 
+    theme(legend.position='bottom') + 
+    guides(fill=guide_legend(nrow=2, byrow=TRUE)) +
+  ggtitle("Chemotherapy Status by Specimen Type")
+
 ```
 
 # Correlation enrichment
@@ -78,24 +87,26 @@ leapR_out <- leapR(geneset=ncipid,
 
 ```{r}
 res <- leapR_out
-res <- res[order(res[,"pvalue"]),]
+res <- res[order(-res[,"ingroup_mean"]),]
 
 res$pathway <- rownames(res)
 rownames(res) <- NULL
 res <- select(res, pathway, everything())
 
 res <- res[res$BH_pvalue<0.05,]
-res <- filter(res_sig, !is.na(BH_pvalue))
+res <- filter(res, !is.na(BH_pvalue))
 
 res <- res %>% select(pathway, ingroup_n, ingroup_mean, outgroup_n, 
                           outgroup_mean, pvalue, BH_pvalue)
+
+res <- res[1:20,]
 
 kbl(res) %>%
   kable_paper("hover", full_width = F)
 ```
 
-```{r, fig.width=6, fig.height=20}
-ggplot(res, aes(x=-log10(BH_pvalue), y=reorder(pathway, -BH_pvalue))) + geom_bar(stat="identity") +
+```{r, fig.width=6, fig.height=6}
+ggplot(res, aes(x=-log10(BH_pvalue), y=reorder(pathway, -ingroup_mean))) + geom_bar(stat="identity") +
   ggtitle("Top significantly correlated pathways") +
   xlab("Negative log p-value") +
   ylab("Pathway")
@@ -137,6 +148,7 @@ res <- filter(res, !is.na(BH_pvalue))
 res$pathway <- rownames(res)
 rownames(res) <- NULL
 res <- select(res, pathway, everything())
+res <- res[1:20,]
 
 res_tab <- res %>% select(pathway, ingroup_n, ingroup_mean, outgroup_n, 
                           outgroup_mean, zscore, oddsratio,
@@ -146,7 +158,7 @@ kbl(res_tab) %>%
   kable_paper("hover", full_width = F)
 ```
 
-```{r, fig.width=6.5, fig.height=20}
+```{r, fig.width=6.5, fig.height=6}
 ggplot(res, aes(x=-log10(BH_pvalue), y=reorder(pathway, -BH_pvalue))) + geom_bar(stat="identity") +
   ggtitle("Top significant pathways before/after chemo\n (bone marrow aspirate)") +
   xlab("Negative log p-value") +
@@ -185,6 +197,8 @@ res$pathway <- rownames(res)
 rownames(res) <- NULL
 res <- select(res, pathway, everything())
 
+res <- res[1:20,]
+
 res_tab <- res %>% select(pathway, ingroup_n, ingroup_mean, outgroup_n, 
                           outgroup_mean, zscore, oddsratio,
                           pvalue, BH_pvalue)
@@ -192,7 +206,7 @@ kbl(res_tab) %>%
   kable_paper("hover", full_width = F)
 ```
 
-```{r, fig.width=6.5, fig.height=20}
+```{r, fig.width=6.5, fig.height=6}
 ggplot(res, aes(x=-log10(BH_pvalue), y=reorder(pathway, -BH_pvalue))) + geom_bar(stat="identity") +
   ggtitle("Top significant pathways before/after chemo\n (peripheral blood)") +
   xlab("Negative log p-value") +
