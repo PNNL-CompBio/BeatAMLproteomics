@@ -1,27 +1,6 @@
 
-# Script to make patient/drug heatmaps and PCA plots in the 
-# chosen output directory.
-output_dir <- "./patient_drug_plots/"
-if (!dir.exists(output_dir)) dir.create(output_dir)
-
-
-library(dplyr)
-library(ggplot2)
-library(ggrepel)
-library(MSnbase)
-library(purrr)
-library(readxl)
-library(pheatmap)
-
-source("../load_beatAML_data.R")
-source("patient_drug_helper_functions.R")
-
-
-msnset_gl <- load_beataml_global_msnset()
-msnset_ph <- load_beataml_phospho_msnset()
-funcData <- querySynapseTable("syn25830473")
-feature_table <- read_xlsx("supplemental_tables.xlsx",
-                           sheet=2)
+# Collection of functions using pheatmap and ggplot to
+# make nice drug-specific heatmaps and PCA.
 
 #' @param m (MSnSet) msnset for plotting
 #' @param funcData (data.frame) patient response data
@@ -32,21 +11,19 @@ feature_table <- read_xlsx("supplemental_tables.xlsx",
 #' @param ... additional arguments to pheatmap
 #' 
 #' @return (pheatmap) heatmap for plotting
+library(MSnbase)
+library(pheatmap)
 plot_patient_drug_heatmap <- function(m, funcData, data_type, drug, model, filename=NA, ...) {
   
   m <- attach_msnset_with_drug_data(m, funcData, data_type, drug,model)
   x <- exprs(m)
   ann.dat <- get_annotation_data(m)
-  
-  
-  if (is.na(filename)) {
-    filename <- file.path("patient_drug_heatmaps",
-                          paste(drug_i, model_i,
-                                "predictors_heatmap.pdf", sep="_"))
-  }
+
   
   cellheight = max(10, 40 - 3*dim(x)[1]) # makes cells larger
   # when there are less of them.
+  if (!is.na(filename)) message("Saving ", filename)
+  
   
   try(pheatmap(x,
                cellwidth = 10,
@@ -59,7 +36,6 @@ plot_patient_drug_heatmap <- function(m, funcData, data_type, drug, model, filen
                clustering_method = 'ward.D2',
                filename=filename, ...),
       silent= TRUE)
-  message("Saving ", filename)
 }
 
 #' @param m (MSnSet) msnset for plotting
@@ -71,6 +47,9 @@ plot_patient_drug_heatmap <- function(m, funcData, data_type, drug, model, filen
 #' @param ... additional arguments to pheatmap
 #' 
 #' @return None
+library(MSnbase)
+library(ggplot2)
+library(RColorBrewer)
 plot_patient_drug_pca <- function(m, funcData, data_type, drug, model, filename=NA, ...) {
   
   m <- attach_msnset_with_drug_data(m, funcData, data_type, drug,model)
@@ -95,61 +74,54 @@ plot_patient_drug_pca <- function(m, funcData, data_type, drug, model, filename=
   ann.dat <- cbind(ann.dat, scores)
   ggdata <- ann.dat
   
-  
-  pdf(filename)
-  message("Saving ", filename)
-  p <- ggplot(ann.dat) + geom_point(aes(x = PC1, y = PC2, color = AUC, shape=`FLT3 Variant`), size=2) +
-    scale_colour_gradientn(colours = colorRampPalette(rev(brewer.pal(11, "Spectral")))(8))
-  print(p)
-  dev.off()
-  
-  
-  
-  
-  
-  
-  
-  x <- feature_table
-  
-  purrr::pmap(list(drug=x$Drug,
-                   features=x$features,
-                   model=x$Model,
-                   filename=file.path(output_dir,
-                                      paste(x$Drug, x$Model,
-                                            "proteinLevels_predictors_heatmap.pdf", sep="_"))),
-              plot_patient_drug_heatmap,
-              m = msnset_gl,
-              data_type="proteinLevels")
-  
-  purrr::pmap(list(drug=x$Drug,
-                   features=x$features,
-                   model=x$Model,
-                   filename=file.path(output_dir,
-                                      paste(x$Drug, x$Model,
-                                            "phosphosite_predictors_heatmap.pdf", sep="_"))),
-              plot_patient_drug_heatmap,
-              m = msnset_ph,
-              data_type="Phosphosite")
-  
-  
-  
-  
-  purrr::pmap(list(drug=x$Drug,
-                   features=x$features,
-                   model=x$Model,
-                   filename=file.path(output_dir,
-                                      paste(x$Drug, x$Model,
-                                            "proteinLevels_predictors_pca.pdf", sep="_"))),
-              function(...) try(plot_patient_drug_pca(...)),
-              m = msnset_gl,
-              data_type="proteinLevels")
-  
-  purrr::pmap(list(drug=x$Drug,
-                   features=x$features,
-                   model=x$Model,
-                   filename=file.path(output_dir,
-                                      paste(x$Drug, x$Model,
-                                            "phosphosite_predictors_pca.pdf", sep="_"))),
-              function(...) try(plot_patient_drug_pca(...)),
-              m = msnset_ph,
-              data_type="Phosphosite")
+  p <- ggplot(ann.dat)
+  if ("FLT3 Variant" %in% names(ann.dat)) {
+    p <- p + 
+      geom_point(aes(x = PC1, y = PC2, color = AUC, shape=`FLT3 Variant`),
+                 size=2)
+  } else {
+    p <- p + 
+      geom_point(aes(x = PC1, y = PC2, color = AUC),
+                 size=2)
+  }
+  p <- p +
+    scale_colour_gradientn(colours = colorRampPalette(rev(brewer.pal(11, "Spectral")))(8)) +
+    stat_ellipse(aes(x = PC1, y = PC2, fill = Resistance), 
+                 geom = "polygon", type = "norm", level = 0.5, 
+                        alpha = 0.1, show.legend = TRUE) #+ guides(color = guide_legend(phenotype_str), 
+                                                       #           fill = guide_legend(phenotype_str))
+  if (!is.na(filename)) {
+    ggsave(filename)
+  }
+  return(p)
+}
+
+
+
+
+
+
+#' @param feature_table (data.frame) contains output of previous models
+#' @param output_dir (character) output path for figures
+#' @param suffix (character) file name description
+#' @param fn (function) plotting function to call
+#' @param (...) additional arguments to `fn`
+#' 
+#' @return None
+make_plots <- function(feature_table,
+                       output_dir,
+                       suffix, fn, ...) {
+  filename.l <- file.path(output_dir,
+                          paste(feature_table$Drug,
+                                feature_table$Model,
+                                "predictors",
+                                paste0(suffix, ".pdf"),
+                                sep="_"))
+  .l <- list(drug = feature_table$Drug,
+             features = feature_table$features,
+             model = feature_table$Model,
+             filename = filename.l)
+  purrr::pmap(.l = .l,
+              .f = fn,
+              ...)
+}

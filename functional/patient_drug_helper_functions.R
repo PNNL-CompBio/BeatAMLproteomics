@@ -15,7 +15,7 @@ fetch_AUC_drug_data <- function(funcData, drug) {
                                        "Resistant",
                                        "Sensitive")) %>%
     # Select only single and multi plate
-    dplyr::filter(type %in% c("single_plate", "multi_plate"),
+    dplyr::filter(type != "qc_salvage_data",
                   inhibitor == drug)
   
   # Check if the mapping was successful
@@ -91,4 +91,10 @@ get_annotation_data <- function(m) {
                                         "Wild Type"))) %>%
     dplyr::rename(`FLT3 Variant` = FLT3.ITD) %>%
     dplyr::rename(AUC = auc)
+  # Extra step: If the dataset contains only one
+  # FLT3 variant, drop that column
+  if (length(unique(ann.dat$`FLT3 Variant`)) == 1) {
+    ann.dat <- ann.dat %>% select(-`FLT3 Variant`)
+  }
+  return(ann.dat)
 }
