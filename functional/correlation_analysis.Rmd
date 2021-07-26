@@ -86,6 +86,99 @@ leapR_out <- leapR(geneset=ncipid,
 ```
 
 ```{r}
+# Split the msnset by FLT 3 status and perform LEAPR each time separately
+leapR_out <- list(msnset,
+     msnset[,msnset$FLT3.ITD],
+     msnset[,!msnset$FLT3.ITD]) %>%
+  lapply(function(msnset, dataset) {
+    leapR(geneset = ncipid,
+          enrichment_method = "correlation_enrichment",
+          datamatrix = exprs(msnset)) %>%
+      mutate(Pathway = rownames(.)) %>%
+      select(Pathway, everything())
+  })
+
+leapR_out[[1]]$Dataset = "FLT3.All"
+leapR_out[[2]]$Dataset = "FLT3.ITD"
+leapR_out[[3]]$Dataset = "FLT3.WT"
+
+leapR_out <- do.call(rbind, leapR_out)
+```
+
+
+```{r}
+res <- leapR_out
+res <- res[order(-res[,"ingroup_mean"]),]
+
+res <- res[res$BH_pvalue<0.05,]
+res <- filter(res, !is.na(BH_pvalue))
+
+res <- res %>% select(Pathway, ingroup_n, ingroup_mean, outgroup_n, 
+                          outgroup_mean, pvalue, BH_pvalue, Dataset)
+
+res <- res[1:20,]
+
+kbl(res) %>%
+  kable_paper("hover", full_width = F)
+```
+
+```{r, fig.width=10, fig.height=10}
+
+
+# pdf(file="beataml_proteomics_correlation_enrichment.pdf",
+#     width=6,height=6)
+res %>% filter(Dataset == "FLT3.All") %>%
+  ggplot(aes(x=ingroup_mean, y=reorder(Pathway, ingroup_mean))) +
+  geom_bar(position="dodge", stat="identity") +
+  ggtitle("BeatAML Proteomics Top Correlated Pathways") +
+  xlab("In-Group Mean Correlation") +
+  ylab("Pathway")
+# dev.off()
+```
+
+```{r, fig.width=10, fig.height=10}
+
+
+# pdf(file="beataml_proteomics_correlation_enrichment.pdf",
+#     width=6,height=6)
+ggplot(res, aes(x=ingroup_mean, y=reorder(Pathway, ingroup_mean), fill=Dataset)) +
+  geom_bar(position="dodge", stat="identity") +
+  ggtitle("BeatAML Proteomics Top Correlated Pathways") +
+  xlab("In-Group Mean Correlation") +
+  ylab("Pathway")
+# dev.off()
+```
+
+## KEGG pathways
+
+```{r}
+data(krbpaths)
+idx.kegg <- grepl("^KEGG_", krbpaths$names)
+names.kegg <- krbpaths$names[idx.kegg]
+names.kegg <- sub("KEGG_", "", names.kegg)
+names.kegg <- gsub("_", " ", names.kegg)
+names.kegg <- sapply(names.kegg, function(y) paste(strwrap(y, 45), 
+                                          collapse = "\n"), 
+                     USE.NAMES = FALSE)
+desc.kegg <- krbpaths$desc[idx.kegg]
+sizes.kegg <- krbpaths$sizes[idx.kegg]
+matrix.kegg <- krbpaths$matrix[idx.kegg, 1:max(sizes.kegg)]
+keggpaths <- list(names = names.kegg,
+                 desc = desc.kegg,
+                 sizes = sizes.kegg,
+                 matrix = matrix.kegg)
+```
+
+```{r}
+x <- exprs(msnset)
+x <- sweep(x, 1, apply(x, 1, mean), "-")
+x <- sweep(x, 1, apply(x, 1, sd), "/")
+leapR_out <- leapR(geneset=keggpaths,
+             enrichment_method = "correlation_enrichment",
+             datamatrix = x)
+```
+
+```{r}
 res <- leapR_out
 res <- res[order(-res[,"ingroup_mean"]),]
 
@@ -105,11 +198,16 @@ kbl(res) %>%
   kable_paper("hover", full_width = F)
 ```
 
-```{r, fig.width=6, fig.height=6}
-ggplot(res, aes(x=-log10(BH_pvalue), y=reorder(pathway, -ingroup_mean))) + geom_bar(stat="identity") +
-  ggtitle("Top significantly correlated pathways") +
-  xlab("Negative log p-value") +
+```{r, fig.width=6, fig.height=10}
+res0 <- res
+res$pathway <- sub("(_?)pathway", "", res$pathway)
+pdf(file="beataml_proteomics_kegg_correlation_enrichment.pdf",
+    width=8.5,height=6)
+ggplot(res, aes(x=ingroup_mean, y=reorder(pathway, ingroup_mean))) + geom_bar(stat="identity") +
+  ggtitle("BeatAML Proteomics Top Correlated KEGG Pathways") +
+  xlab("In-Group Mean Correlation") +
   ylab("Pathway")
+dev.off()
 ```
 
 # Comparison of pre- and post- chemotherapy samples

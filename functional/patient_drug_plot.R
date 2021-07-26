@@ -74,17 +74,9 @@ plot_patient_drug_pca <- function(m, funcData, data_type, drug, model, filename=
   ann.dat <- cbind(ann.dat, scores)
   ggdata <- ann.dat
   
-  p <- ggplot(ann.dat)
-  if ("FLT3 Variant" %in% names(ann.dat)) {
-    p <- p + 
-      geom_point(aes(x = PC1, y = PC2, color = AUC, shape=`FLT3 Variant`),
-                 size=2)
-  } else {
-    p <- p + 
-      geom_point(aes(x = PC1, y = PC2, color = AUC),
-                 size=2)
-  }
-  p <- p +
+  p <- ggplot(ann.dat) + 
+    geom_point(aes(x = PC1, y = PC2, color = AUC),
+               size=2) +
     scale_colour_gradientn(colours = colorRampPalette(rev(brewer.pal(11, "Spectral")))(8)) +
     stat_ellipse(aes(x = PC1, y = PC2, fill = Resistance), 
                  geom = "polygon", type = "norm", level = 0.5, 
