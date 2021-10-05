@@ -1,0 +1,119 @@
+---
+title: "BeatAML Proteomics GSEA"
+author: "Michael Nestor, Camilo Posso"
+date: "6/24/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=F, warning=F, echo=F, cache=T)
+```
+
+# Read data from Synapse
+
+```{r}
+library(amlresistancenetworks)
+library(dplyr)
+library(tidyr)
+library(leapr)
+syn = reticulate::import("synapseclient")
+syn$login()
+
+globalData <- querySynapseTable('syn25808020')
+```
+
+```{r}
+prot.mat <- globalData %>%
+  select(Gene, Sample, LogRatio) %>%
+  tidyr::pivot_wider(values_from='LogRatio', names_from='Sample') %>%
+  as.data.frame()
+rownames(prot.mat) <- prot.mat$Gene
+prot.mat <- prot.mat %>% select(-Gene)
+
+FLT3_status <- globalData %>% distinct(Sample, FLT3.ITD)
+```
+
+```{r}
+res <- limmaTwoFactorDEAnalysis(prot.mat,
+                                which(!FLT3_status$FLT3.ITD),
+                                which(FLT3_status$FLT3.ITD))
+```
+
+# KEGG GSEA
+
+```{r}
+data(ncipid)
+data("krbpaths")
+idx.kegg <- grepl("^KEGG_", krbpaths$names)
+names.kegg <- krbpaths$names[idx.kegg]
+names.kegg <- sub("KEGG_", "", names.kegg)
+names.kegg <- gsub("_", " ", names.kegg)
+names.kegg <- sapply(names.kegg, function(y) paste(strwrap(y, 45), 
+                                          collapse = "\n"), 
+                     USE.NAMES = FALSE)
+desc.kegg <- krbpaths$desc[idx.kegg]
+sizes.kegg <- krbpaths$sizes[idx.kegg]
+Max <- max(sizes.kegg)
+matrix.kegg <- krbpaths$matrix[idx.kegg, 1:Max]
+keggpaths <- list(names = names.kegg,
+                 desc = desc.kegg,
+                 sizes = sizes.kegg,
+                 matrix = matrix.kegg)
+term.2.gene <- as.data.frame(keggpaths$matrix) %>%
+  mutate(term = keggpaths$names) %>%
+  pivot_longer(!term, names_to = "Column", values_to = "gene") %>%
+  filter(!(gene == "null")) %>%
+  select(term, gene)
+
+term.2.name <- data.frame(term = keggpaths$names, name = keggpaths$names)
+```
+
+```{r, fig.height=12, fig.width=10}
+
+x <- res %>% select(value = logFC)
+x$Gene <- rownames(x)
+
+pdf(file="beataml_proteomics_kegg_gsea.pdf",
+    width=10,height=12)
+plotGSEA(x, prefix="BeatAML Proteomics KEGG GSEA",
+              term.2.gene=term.2.gene,
+              term.2.name = term.2.name)
+dev.off()
+```
+
+# Reactome GSEA
+
+```{r}
+idx.reactome <- grepl("^REACTOME_", krbpaths$names)
+names.reactome <- krbpaths$names[idx.reactome]
+names.reactome <- sub("REACTOME_", "", names.reactome)
+names.reactome <- gsub("_", " ", names.reactome)
+names.reactome <- sapply(names.reactome, function(y) paste(strwrap(y, 45), 
+                                          collapse = "\n"), 
+                         USE.NAMES = FALSE)
+desc.reactome <- krbpaths$desc[idx.reactome]
+sizes.reactome <- krbpaths$sizes[idx.reactome]
+Max <- max(sizes.reactome)
+matrix.reactome <- krbpaths$matrix[idx.reactome, 1:Max]
+reactomepaths <- list(names = names.reactome,
+                 desc = desc.reactome,
+                 sizes = sizes.reactome,
+                 matrix = matrix.reactome)
+term.2.gene <- as.data.frame(reactomepaths$matrix) %>%
+  mutate(term = reactomepaths$names) %>%
+  pivot_longer(!term, names_to = "Column", values_to = "gene") %>%
+  filter(!(gene == "null")) %>%
+  filter(!(gene == "")) %>%
+  select(term, gene)
+term.2.name <- data.frame(term = reactomepaths$names, name = reactomepaths$names)
+```
+
+```{r, fig.height=12, fig.width=10}
+x <- res %>% select(value = logFC)
+x$Gene <- rownames(x)
+pdf(file="beataml_proteomics_reactome_gsea.pdf",
+    width=10, height=12)
+plotGSEA(x, term.2.gene = term.2.gene, 
+         term.2.name = term.2.name, prefix = "BeatAML Proteomics Reactome GSEA")
+dev.off()
+```

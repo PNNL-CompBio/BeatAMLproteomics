@@ -21,21 +21,32 @@ source("../dataProcessing/proteomicsNormalizationMethods.R")
 ```{r load_metadata}
 library(readxl)
 
-phenodata <- read_xlsx("../TMTmappingTable.xlsx") %>%
+phenodata <- read_xlsx("./data/TMTmappingTable.xlsx") %>%
   as.data.frame() %>%
   mutate(Plex = as.factor(Plex)) %>%
   filter(`Sample ID \r\n(abbrev)` != "Ref")
 
-phenodata <- read_xlsx("../CPTAC_FLT3cohort_UniquePatients_BestSamples_wYield.xlsx") %>%
+names(phenodata) <- make.names(names(phenodata))
+
+phenodata <- read_xlsx("data/CPTAC_FLT3cohort_UniquePatients_BestSamples_wYield.xlsx") %>%
   select(lab_id, specimen_type, specimen_location, Specimen_access_group_concatenated) %>%
-  mutate(`InitialAMLDiagnosis?` = grepl("Initial Acute Leukemia Diagnosis", Specimen_access_group_concatenated),
-         `PostChemotherapy?`    = grepl("Post-Chemotherapy", Specimen_access_group_concatenated)) %>%
-  left_join(phenodata, ., by = c("Barcode ID" = "lab_id"))
+  mutate(InitialAMLDiagnosis = grepl("Initial Acute Leukemia Diagnosis", Specimen_access_group_concatenated),
+         PostChemotherapy    = grepl("Post-Chemotherapy", Specimen_access_group_concatenated)) %>%
+  left_join(phenodata, ., by = c("Barcode.ID" = "lab_id")) %>%
+  dplyr::rename(SampleID.full = Sample.ID..full.,
+                SampleID.abbrev = Sample.ID....abbrev.)
+
+phenodata <- phenodata %>%
+  select(-New.Top.ID..for.Labeling,
+         -Total.peptide....µg.,
+         -Volume...uL.,
+         -PlexMass)
+names(phenodata) <- gsub("_", "\\.", names(phenodata)) 
 
 rownames(phenodata) <- phenodata$`Sample ID \r\n(abbrev)`
 
-write.table(phenodata, file="data/Ex10_phenodata.txt",
-            quote=F,)
+write.table(phenodata, file="data/Ex10_metadata.txt",
+            quote=F,sep="\t",row.names=F)
 ```
 
 # Normalize and batch correct global data
@@ -47,7 +58,7 @@ normalize_global_data <- function(path_to_crosstab, path_to_phenodata, n.sigfig=
   crosstab <- read.table(path_to_crosstab, check.names = F)
   m <- MSnSet(as.matrix(crosstab))
   phenodata <- read.table(path_to_phenodata, colClasses="character")
-  phenodata$`Loading Mass` <- as.numeric(phenodata$`Loading Mass`)
+  phenodata$`Loading.Mass` <- as.numeric(phenodata$`Loading.Mass`)
   pData(m) <- phenodata[sampleNames(m),]
   
   # Medpolish and save
@@ -63,7 +74,7 @@ normalize_global_data <- function(path_to_crosstab, path_to_phenodata, n.sigfig=
       filterByMissingPerBatch("Plex", least_count_threshold = 1L)
       
   # Batch correction
-  removed_covariates <- c("Plex", "Loading Mass")
+  removed_covariates <- c("Plex", "Loading.Mass")
   m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
   
   # Medpolish and save
@@ -84,7 +95,7 @@ normalize_phospho_data <- function(path_to_crosstab, path_to_phenodata,
   crosstab <- read.table(path_to_crosstab, check.names = F)
   m <- MSnSet(as.matrix(crosstab))
   phenodata <- read.table(path_to_phenodata, colClasses="character")
-  phenodata$`Loading Mass` <- as.numeric(phenodata$`Loading Mass`)
+  phenodata$`Loading.Mass` <- as.numeric(phenodata$`Loading.Mass`)
   pData(m) <- phenodata[sampleNames(m),]
   
   # Fetch global sample medians
@@ -106,7 +117,7 @@ normalize_phospho_data <- function(path_to_crosstab, path_to_phenodata,
       filterByMissingPerBatch("Plex", least_count_threshold = 1L)
       
   # Batch correction
-  removed_covariates <- c("Plex", "Loading Mass")
+  removed_covariates <- c("Plex", "Loading.Mass")
   m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
   
   # Medpolish and save
@@ -135,7 +146,7 @@ normalize_phospho_data <- function(path_to_crosstab, path_to_phenodata,
       filterByMissingPerBatch("Plex", least_count_threshold = 1L)
       
   # Batch correction
-  removed_covariates <- c("Plex", "Loading Mass")
+  removed_covariates <- c("Plex", "Loading.Mass")
   m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
   
   # Medpolish and save

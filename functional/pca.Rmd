@@ -1,0 +1,297 @@
+---
+title: "BeatAML FLT3 mutation status PCA"
+author: "Michael Nestor"
+date: "6/15/2021"
+output: html_document
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(message=F, warning=F, echo=F)
+```
+
+```{r, message=F, warning=F}
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(MSnbase)
+```
+
+
+
+```{r, cache=T}
+# Grab data from synapse
+library(amlresistancenetworks)
+syn = reticulate::import("synapseclient")
+syn$login()
+
+globalData <- querySynapseTable('syn25808020')
+phosphoData <- querySynapseTable('syn25808662')
+```
+
+```{r, echo=F}
+library(dplyr)
+library(tidyr)
+library(MSnbase)
+
+# Load data into MSnSet
+
+phenoData <- globalData %>%
+  mutate(Sample = sprintf("%02d", Sample)) %>%
+  select(-Gene, -LogRatio) %>%
+  distinct()
+rownames(phenoData) <- phenoData$Sample
+
+exprsData <- globalData %>%
+  mutate(Sample = sprintf("%02d", Sample)) %>%
+  select(Gene, LogRatio, Sample) %>%
+  pivot_wider(id_cols="Gene",
+              names_from="Sample",
+              values_from="LogRatio",
+              values_fill=NA_real_) %>%
+  as.data.frame()
+rownames(exprsData) <- exprsData$Gene
+exprsData <- exprsData %>% select(-Gene)
+
+msnset_gl <- MSnSet(as.matrix(exprsData))
+pData(msnset_gl) <- phenoData
+
+########################################
+
+phenoData <- phosphoData %>%
+  mutate(Sample = sprintf("%02d", Sample)) %>%
+  select(-Gene, -SiteID, -LogRatio) %>%
+  distinct()
+rownames(phenoData) <- phenoData$Sample
+
+exprsData <- phosphoData %>%
+  mutate(Sample = sprintf("%02d", Sample)) %>%
+  select(SiteID, LogRatio, Sample) %>%
+  pivot_wider(id_cols="SiteID",
+              names_from="Sample",
+              values_from="LogRatio",
+              values_fill=NA_real_) %>%
+  as.data.frame()
+rownames(exprsData) <- exprsData$SiteID
+exprsData <- exprsData %>% select(-SiteID)
+
+msnset_ph <- MSnSet(as.matrix(exprsData))
+pData(msnset_ph) <- phenoData
+```
+
+```{r}
+# Fetch FLT3  mutation status
+library(readxl)
+barcode_to_flt3_map <- read_xlsx("../proteomics/data/CPTAC_FLT3cohort_UniquePatients_BestSamples_wYield.xlsx", sheet=1) %>%
+  select(Barcode.ID=lab_id, `FLT3 Status`=FLT3_ITD) %>%
+  mutate(`FLT3 Status` = as.factor(`FLT3 Status`))
+library(tibble)
+
+p <- left_join(pData(msnset_gl), barcode_to_flt3_map)
+rownames(p) <- p$Sample
+pData(msnset_gl) <- p
+
+p <- left_join(pData(msnset_ph), barcode_to_flt3_map)
+rownames(p) <- p$Sample
+pData(msnset_ph) <- p
+```
+
+# PCA plots
+
+```{r, echo=F}
+plot_pca_ex10 <- function(eset, colorBy, shapeBy) {
+  
+  eset <- eset[complete.cases(exprs(eset)), ]
+  z <- t(exprs(eset))
+  z <- sweep(z, 1, rowMeans(z), FUN = "-")
+  z <- sweep(z, 1, apply(z, 1, sd), FUN = "/")
+  pca1 <- prcomp(z, scale. = F)
+  scores <- as.data.frame(pca1$x)
+  exp_var <- 100 * summary(pca1)$importance[2, ][c(1, 2)]
+  axes <- paste0("PC", c(1, 2))
+  axes <- paste0(axes, " (", round(exp_var, 2), "%)")
+  
+  ggdata <- cbind(pData(eset)[,c(colorBy, shapeBy)], scores)
+  
+  p <- ggplot(ggdata) + geom_point(aes(x = PC1,
+                                       y = PC2,
+                                       color = .data[[colorBy]],
+                                       shape = .data[[shapeBy]]),
+          size = 2.5, show.legend = TRUE) + 
+          coord_fixed() + xlab(axes[1]) + ylab(axes[2]) + theme_bw()
+  p <- p + stat_ellipse(aes(x = PC1, y = PC2, color = .data[[colorBy]]), 
+              geom = "polygon", type = "norm", level = 0.5, alpha=0.1)
+  return(p)
+}
+```
+
+```{r}
+m <- msnset_gl
+pData(m) <- pData(m) %>% dplyr::rename(`Specimen Type` = specimen.type)
+plot_pca_ex10(m, colorBy="FLT3 Status", shapeBy="Specimen Type") +
+  ggtitle("BeatAML Proteomics PCA")
+```
+
+## Phosphoproteome
+
+```{r}
+m <- msnset_ph
+pData(m) <- pData(m) %>% dplyr::rename(`Specimen Type` = specimen.type)
+plot_pca_ex10(m, colorBy="FLT3 Status", shapeBy="Specimen Type") +
+  ggtitle("BeatAML Phosphoproteomics PCA")
+```
+
+# Alternative visualizations
+  
+```{r, fig.width=5,fig.height=10}
+
+plot_pca_ridges <- function(m, phenotype, top_k, ...) {
+  
+  stopifnot(top_k <= ncol(m))
+  
+  m <- m[complete.cases(exprs(m)), ]
+  z <- t(exprs(m))
+  z <- sweep(z, 1, rowMeans(z), FUN = "-")
+  z <- sweep(z, 1, apply(z, 1, sd), FUN = "/")
+  pca1 <- prcomp(z, scale. = F)
+  scores <- as.data.frame(pca1$x)
+  
+  scores <- scores[1:top_k]
+  
+  x <- scores
+  x$Sample <- sampleNames(m)
+  x <- pivot_longer(x, cols=c(everything(), -Sample), names_to="PC")
+  
+  x$PC <- factor(x$PC, levels = rev(paste0("PC", 1:top_k)))
+  
+  x <- left_join(x, pData(m)[,c("Sample", phenotype)])
+  
+  library(ggridges)
+  ggplot(x) +
+      geom_density_ridges(aes(x = value, y = PC, fill = .data[[phenotype]]),
+                          ...)
+  
+}
+
+plot_pca_ridges(msnset_gl, phenotype="FLT3 Status", top_k=10, alpha=0.5) + 
+  ggtitle("BeatAML Proteomeics PCA")
+plot_pca_ridges(msnset_ph, phenotype="FLT3 Status", top_k=10, alpha=0.5) + 
+  ggtitle("BeatAMl Phosphoproteomics PCA")
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = F, echo=F)
+```
+
+```{r}
+
+plot_pca <- function(m, cut_width=100, pc.index=c(1,2)) {
+  # pca
+  m <- m[complete.cases(exprs(m)), ]
+  z <- t(exprs(m))
+  z <- sweep(z, 1, rowMeans(z), FUN = "-")
+  z <- sweep(z, 1, apply(z, 1, sd), FUN = "/")
+  pca1 <- prcomp(z, scale. = F)
+  scores <- as.data.frame(pca1$x)
+  exp_var <- 100 * summary(pca1)$importance[2, ][pc.index]
+
+  # ggdata
+  ggdata <- data.frame(scores[, pc.index])
+  ggdata$Sample.Name <- rownames(ggdata)
+  m$Loading.Mass.Interval <- round(m$Loading.Mass, -2)
+  ggdata <- inner_join(ggdata, pData(m)) %>%
+  dplyr::rename(`Loading Mass (μg)` = Loading.Mass.Interval)
+  
+  #plot
+  axes <- paste0("PC", pc.index)
+  axes <- paste0(axes, " (", round(exp_var, 2), "%)")
+  
+  p <- ggplot(ggdata) +
+  geom_point(aes(x = ggdata[, 1], y = ggdata[, 2],
+                 color = `Loading Mass (μg)`,
+                 group= `Loading Mass (μg)`),
+                 size=1) +
+  scale_colour_gradient(low = "blue", high = "red") +
+  coord_fixed() +
+  xlab(axes[1]) +
+  ylab(axes[2]) +
+  theme_gray() +
+  theme(legend.position="right")
+ 
+
+  # p <- p + stat_ellipse(aes(x =  ggdata[, 1], y =  ggdata[, 2], group=`Fully Loaded? (yes/no)`, fill=`Fully Loaded? (yes/no)`))
+  
+    p <- p + stat_ellipse(aes(x = ggdata[, 1], y = ggdata[,
+      2],
+      fill = `Loading Mass (μg)`,
+      color=`Loading Mass (μg)`,
+      group=`Loading Mass (μg)`),
+      geom = "polygon", type = "norm",
+      level = 0.5, alpha=0)
+
+  return(p)
+}
+```
+
+```{r, fig.height=4, fig.width=8}
+load("../../Ex10/global/data/msnset_gl_peptide.RData")
+
+library(vp.misc)
+#m <- remove_batch_effect(m ,"Plex")
+pc.index=c(1,2)
+pData(m)$Sample.Name <- rownames(pData(m))
+p1 <- plot_pca(m, cut_width=75, pc.index=pc.index) +
+  ggtitle("Before batch correction")
+#print(p1)
+
+load("../../Ex10/global/data/msnset_gl_peptide_corrected.RData")
+
+library(vp.misc)
+#m <- remove_batch_effect(m ,"Plex")
+
+pData(m)$Sample.Name <- rownames(pData(m))
+p2 <- plot_pca(m, cut_width=75, pc.index=pc.index) +
+  ggtitle("After batch correction")
+ggarrange(p1,p2,ncol=2, common.legend=T,
+          legend="right")
+ggsave("ex10_pca.png", width=10, height=5)
+
+# I CANNOT get the first legend to go away
+# I'm literally going to edit this in paint
+```
+
+```{r}
+ggdata <- data.frame(PC1=scores$PC1, Fully.Loaded=m$Loading.Mass==400)
+ggplot(ggdata,aes(x=PC1, fill=Fully.Loaded)) + geom_boxplot(alpha=0.25)
+```
+
+```{r, fig.height=4, fig.width=8}
+load("../../Ex10/global/data/msnset_gl.RData")
+m$Loading.Mass.Class = cut(m$Loading.Mass, breaks=seq(100,400,75))
+library(vp.misc)
+
+plot_pca_v4(m, "Loading.Mass.Class", pc.index=c(1,4))
+#ggsave("pca_uncorrected.png", height=4, width=10)
+```
+
+
+```{r, fig.height=4, fig.width=8}
+load("../../Ex10/global/data/msnset_gl.RData")
+
+m$Loading.Mass.Group <- 
+plot_pca_v3(m, "Plex")
+```
+
+```{r, fig.height=4, fig.width=8}
+
+p1 <- plot_pca_patient_samples(msnset_global_gene_patient_only_corrected,
+                         shape=c(17, 16))
+p2 <- plot_pca_patient_samples(msnset_phospho_site_patient_data_corrected,
+                         shape=c(17,16))
+
+ggarrange(p1 + ggtitle("Global proteome"),
+               p2 + ggtitle("Phosphoproteome"),
+               ncol=2, common.legend=T,
+               legend = "right")
+ggsave("pca_patient_corrected.png", height=4, width=10)
+```
