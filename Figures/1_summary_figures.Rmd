@@ -1,0 +1,299 @@
+---
+title: "210 Patient Summary Figures"
+author: "Camilo Posso"
+date: "10/04/2021"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+```{r libraries, include=FALSE}
+library(kableExtra)
+library(gridExtra)
+library(dplyr)
+library(MSnSet.utils)
+library(ggplot2)
+library(amlresistancenetworks)
+library(tidyr)
+library(tibble)
+library(RColorBrewer)
+library(pheatmap)
+source("../util/synapseUtil.R")
+source("../util/loading_data.R")
+
+global.data <- load.global.data()
+global.meta <- global.data$Metadata
+global.data <- global.data$`Long-form global`
+
+phospho.data <- load.phospho.data()
+phospho.meta <- phospho.data$Metadata
+phospho.data <- phospho.data$`Long-form phospho`
+
+functional.data <- load.functional.data()
+functional.meta <- functional.data$Metadata %>%
+  merge(global.meta[, c("Barcode.ID", "SpecimenType", 
+                        "InitialAMLDiagnosis", "PostChemotherapy", 
+                        "FLT3.ITD")], by = "Barcode.ID")
+functional.data <- functional.data$`Long-form functional` %>%
+  merge(functional.meta, by = "Barcode.ID")
+rownames(functional.meta) <- functional.meta$Barcode.ID
+
+```
+
+In this short report we collect a few figures exploring the functional,
+global, and phospho datasets we have for the large 210 patient experiment.
+
+# Functional Data
+
+
+```{r missing data, include=FALSE}
+functional.mat <- functional.data %>%
+  filter(!is.na(auc)) %>%
+  group_by(Barcode.ID, Inhibitor) %>%
+  slice(1) %>%
+  select(Barcode.ID, AUC, Inhibitor) %>%
+  pivot_wider(names_from = "Barcode.ID", values_from = "AUC") %>%
+  column_to_rownames("Inhibitor")
+
+### Some rows (inhibitors) pairings have no overlap to compute
+### distance or correlation for the heatmap. So we omit those here.
+### Filtering so that at least ~20 patients overlap when computing the correlation.
+idx <- rowSums(is.na(functional.mat)) < 0.4*ncol(functional.mat)
+N <- sum(idx)
+
+missing.row <- rowSums(is.na(functional.mat))
+missing.col <- colSums(is.na(functional.mat))
+
+dff.row <- data.frame(row = missing.row)
+dff.col <- data.frame(col = missing.col)
+
+p1 <- ggplot(dff.row, aes(x = row)) + geom_histogram(binwidth = 7) + xlab("Number Missing") +
+  ylab("Count") + ggtitle("Missing by Inhibitor") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+p2 <- ggplot(dff.col, aes(x = col)) + geom_histogram(binwidth = 5) + xlab("Number Missing") +
+  ylab("Count") + ggtitle("Missing by Sample") +
+  theme(plot.title = element_text(hjust = 0.5))
+  
+```
+
+
+We have 210 patients and a total of `r nrow(functional.mat)` inhibitors.
+As we can see, there's a number of Inhibitors with little missing data, and quite a few
+with only a small number of samples present. Likewise, we see that most of the 210 patients
+have around ~130 Inhibitors with AUC data present.
+
+
+```{r functional missing plots, echo=FALSE}
+grid.arrange(grobs = list(p1,p2), ncol = 2)
+
+```
+
+Next we plot a histogram of the AUC values themselves (Area under curve), coloring by 
+FLT3 status and Specimen Type.
+
+```{r AUC histograms, include=FALSE}
+functional.meta <- merge(functional.meta, global.meta)
+xx <- functional.data %>%
+  filter(!is.na(AUC))
+
+p1 <- ggplot(xx, aes(x = AUC, fill = SpecimenType)) + geom_histogram(bins = 30) +
+  ylab("Total") + ggtitle("AUC Histogram by specimen type") + 
+  theme(plot.title = element_text(hjust = 0.5, size = 13),
+        legend.key.size = unit(0.5,"cm"),
+        legend.title = element_text(size = 9),
+        legend.text = element_text(size = 9))
+  
+p2 <- ggplot(xx, aes(x = AUC, fill = FLT3.ITD)) + geom_histogram(bins = 30) +
+  ylab("Total") + ggtitle("AUC Histogram by FLT3 status") + 
+  theme(plot.title = element_text(hjust = 0.5, size = 13),
+        legend.key.size = unit(0.5,"cm"),
+        legend.title = element_text(size = 9),
+        legend.text = element_text(size = 9))
+
+```
+
+
+```{r AUC show histograms}
+layout <- as.matrix(c(1,2))
+grid.arrange(grobs = list(p1,p2), layout_matrix = layout)
+
+```
+
+
+Below we have a heatmap of the AUC values. Note that we cluster the columns (samples)
+and rows (inhibitors) using correlation. Furthermore, in order to compute the distances
+required for clustering, we filter the Inhibitors in such a way that at least
+~20 observations are used when computing these distances. We are thus left with
+`r N` inhibitors and all 210 patients when making the heatmap.
+
+
+```{r include=FALSE}
+ann.labels <- functional.meta %>%
+  select("SpecimenType", "PostChemotherapy", "FLT3.ITD") %>%
+  mutate(PostChemotherapy = as.character(PostChemotherapy),
+         FLT3.ITD = as.character(FLT3.ITD))
+rownames(ann.labels) <- functional.meta$Barcode.ID
+
+ann.colors <- list(SpecimenType = c("Bone Marrow Aspirate" = "dodgerblue2", 
+                                    "Leukapheresis" = "darkorange", 
+                                    "Peripheral Blood" = "firebrick3"),
+                   FLT3.ITD = c("TRUE" = "darkorchid1", "FALSE" = "forestgreen"),
+                   PostChemotherapy = c("TRUE" = "cadetblue1", "FALSE" = "darkgoldenrod1"))
+
+functional.mat <- functional.mat[idx, ]
+
+tree_col = as.dist(1-cor(functional.mat, use = "pairwise.complete.obs")) %>%
+  hclust(method = "ward.D")
+                   
+tree_row = as.dist(1-cor(t(functional.mat), use = "pairwise.complete.obs")) %>%
+  hclust(method = "ward.D")
+
+```
+
+
+
+```{r show AUC heatmap}
+pheatmap(functional.mat, scale = "none", annotation_col = ann.labels, annotation_colors = ann.colors,
+         color = colorRampPalette(rev(brewer.pal(n = 7, name = "RdBu")))(32), fontsize = 8,
+         clustering_distance_cols = "correlation", clustering_distance_rows = "correlation",
+         clustering_method = "ward.D", cluster_rows = tree_row, cluster_cols = tree_col,
+         show_rownames = F, show_colnames = F, na_col = "gray69")
+
+```
+
+<!-- Not working, as no complete cases are present for the AUC data.
+<!-- Finally, below we show PCA plots of the functional data, coloring by Specimen Type, FLT3.ITD -->
+<!-- and Post Chemotherapy status. -->
+
+<!-- ```{r pca plots phospho, include=FALSE} -->
+<!-- m <- MSnSet(exprs = as.matrix(functional.mat), pData = functional.meta[colnames(functional.mat), ]) -->
+<!-- p1 <- plot_pca_v4(m, "FLT3.ITD", show.ellipse = F) -->
+<!-- p2 <- plot_pca_v4(m, "SpecimenType", show.ellipse = F) -->
+<!-- p3 <- plot_pca_v4(m, "PostChemotherapy", show.ellipse = F) -->
+
+<!-- ``` -->
+
+
+<!-- ```{r, fig.width=12} -->
+<!-- grid.arrange(grobs = list(p1,p3,p2), ncol = 2) -->
+
+<!-- ``` -->
+
+
+
+# Global Data
+
+
+```{r global missing, include=FALSE}
+global.mat <- global.data %>%
+  select(Gene, Barcode.ID, LogRatio) %>%
+  pivot_wider(names_from = "Barcode.ID", values_from = "LogRatio") %>%
+  column_to_rownames("Gene")
+
+missing.row <- rowSums(is.na(global.mat))
+missing.col <- colSums(is.na(global.mat))
+
+dff.row <- data.frame(row = missing.row)
+dff.col <- data.frame(col = missing.col)
+
+p1 <- ggplot(dff.row, aes(x = row)) + geom_histogram(binwidth = 1) + xlab("Number Missing") +
+  ylab("Count") + ggtitle("Missing by Gene") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+p2 <- ggplot(dff.col, aes(x = col)) + geom_histogram(binwidth = 1) + xlab("Number Missing") +
+  ylab("Count") + ggtitle("Missing by Sample") +
+  theme(plot.title = element_text(hjust = 0.5))
+  
+m <- MSnSet(exprs = as.matrix(global.mat), pData = global.meta[colnames(global.mat), ])
+```
+
+
+Below we see a summary of the distribution of missing values in the global data.
+
+
+```{r}
+grid.arrange(grobs = list(p1,p2), ncol = 2)
+
+```
+
+
+Finally, we show PCA plots by FLT3.ITD status, Specimen Type and Post Chemotherapy status.
+
+```{r pca plots global, include=FALSE}
+p1 <- plot_pca_v4(m, "FLT3.ITD", show.ellipse = F)
+p2 <- plot_pca_v4(m, "SpecimenType", show.ellipse = F)
+p3 <- plot_pca_v4(m, "PostChemotherapy", show.ellipse = F)
+
+```
+
+
+```{r, fig.width=12}
+grid.arrange(grobs = list(p1,p3,p2), ncol = 2)
+
+```
+
+
+
+
+# Phospho Data
+
+
+```{r phospho missing, include=FALSE}
+phospho.mat <- phospho.data %>%
+  select(SiteID, Barcode.ID, LogRatio) %>%
+  pivot_wider(names_from = "Barcode.ID", values_from = "LogRatio") %>%
+  column_to_rownames("SiteID")
+
+missing.row <- rowSums(is.na(phospho.mat))
+missing.col <- colSums(is.na(phospho.mat))
+
+dff.row <- data.frame(row = missing.row)
+dff.col <- data.frame(col = missing.col)
+
+p1 <- ggplot(dff.row, aes(x = row)) + geom_histogram(binwidth = 1) + xlab("Number Missing") +
+  ylab("Count") + ggtitle("Missing by Gene") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+p2 <- ggplot(dff.col, aes(x = col)) + geom_histogram(binwidth = 3) + xlab("Number Missing") +
+  ylab("Count") + ggtitle("Missing by Sample") +
+  theme(plot.title = element_text(hjust = 0.5))
+  
+m <- MSnSet(exprs = as.matrix(phospho.mat), pData = phospho.meta[colnames(phospho.mat), ])
+```
+
+
+Below we see a summary of the distribution of missing values in the phospho data.
+
+
+```{r}
+grid.arrange(grobs = list(p1,p2), ncol = 2)
+
+```
+
+
+Finally, we show PCA plots by FLT3.ITD status, Specimen Type and Post Chemotherapy status.
+
+```{r pca plots phospho, include=FALSE}
+p1 <- plot_pca_v4(m, "FLT3.ITD", show.ellipse = F)
+p2 <- plot_pca_v4(m, "SpecimenType", show.ellipse = F)
+p3 <- plot_pca_v4(m, "PostChemotherapy", show.ellipse = F)
+
+```
+
+
+```{r, fig.width=12}
+grid.arrange(grobs = list(p1,p3,p2), ncol = 2)
+
+```
+
+
+
+
