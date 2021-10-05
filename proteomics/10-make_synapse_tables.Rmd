@@ -10,7 +10,7 @@ library(dplyr)
 library(tidyr)
 library(tibble)
 
-source("../util/synapseUtil.R")
+library(amlresistancenetworks)
 syn <- synapseLogin()
 
 make_global_table <- function(crosstab.syn, metadata.syn,
@@ -35,10 +35,6 @@ make_global_table <- function(crosstab.syn, metadata.syn,
                  names_to='Sample', values_to='LogRatio') %>%
     filter(!is.na(LogRatio)) %>%
     left_join(metadata, by = c("Sample" ="PNNL ID"))
-  # upload
-  synTableStore(tab = crosstab_long,
-                tabname = tabname,
-                parentId = parentId)
 }
 
 make_phospho_table <- function(crosstab.syn, metadata.syn,
@@ -64,37 +60,31 @@ make_phospho_table <- function(crosstab.syn, metadata.syn,
                  names_to='Sample', values_to='LogRatio') %>%
     filter(!is.na(LogRatio)) %>%
     left_join(metadata, by = c("Sample" ="PNNL ID"))
-
-  # upload
-  synTableStore(tab = crosstab_long,
-                tabname = tabname,
-                parentId = parentId)
 }
 
 ```
 
 ```{r main_loop}
 
+library(readxl)
+synapseDict <- read_xlsx("data/Ex10synapseDictionary.xlsx")
 syn <- synapseLogin()
 
-metadata.syn <- "syn25807733"
-parentId <- "syn22128879"
-
-make_global_table(crosstab.syn = "syn25714248",
-                  metadata.syn = metadata.syn,
-                  tabname      = "BeatAML Proteomics",
-                  parentId     = parentId)
-make_global_table(crosstab.syn = "syn25714252",
-                  metadata.syn = metadata.syn,
-                  tabname      = "BeatAML Proteomics uncorrected",
-                  parentId     = parentId)
-
-make_phospho_table(crosstab.syn ="syn25714921",
-                   metadata.syn = metadata.syn,
-                   tabname      ="BeatAML Phosphoproteomics",
-                   parentId     = parentId)
-make_phospho_table(crosstab.syn = "syn25714927",
-                   metadata.syn = metadata.syn,
-                   tabname      = "BeatAML Phosphoproteomics uncorrected",
-                   parentId     = parentId)
+for (i in 1:nrow(synapseDict)) {
+  
+  tabName <- synapseDict$tabName[i]
+  crosstab.syn <- synapseDict$crosstab.syn[i]
+  metadata.syn <- synapseDict$metadata.syn[i]
+  synid <- synapseDict$table.syn[i]
+  
+  if (grepl("Proteomics", tabName)) {
+    tab <- make_global_table(crosstab.syn, metadata.syn)
+  } else if (grepl("Phosphoproteomics", tabName)) {
+    tab <- make_phospho_table(crosstab.syn, metadata.syn)
+  }
+  # synTableStore(tab = tab,
+  #               tabname = "amlDrugCombos Molm14 Proteomics",
+  #               parentId = parentId)
+  synTableUpdate(tab, synid)
+}
 ```

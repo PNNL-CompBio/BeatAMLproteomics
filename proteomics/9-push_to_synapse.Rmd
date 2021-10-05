@@ -13,7 +13,7 @@ sync = syn$login()
 ```
 
 ```{r upload_phenodata}
-synapseStore(path="data/Ex10_phenodata.txt",
+synapseStore(path="data/Ex10_metadata.txt",
              parentId = "syn24171150")
 ```
 
