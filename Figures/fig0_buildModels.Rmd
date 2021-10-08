@@ -1,0 +1,58 @@
+---
+title: "Build models for use"
+author: "Sara Gosline"
+date: "7/20/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("../beatAMLdata.R")
+library(amlresistancenetworks)
+```
+
+## Load data
+We have created a standard file to load all the data needed for the analysis.
+
+```{r load data,warning=FALSE}
+loadBeatAMLData()
+```
+
+## Now we can build the models
+
+We want to build both the LASSO and logistic regression models using the following code. 
+
+```{r build models, warning=FALSE}
+ print("Phospho preds first")
+  substrate.dat<-pat.phos%>%
+    dplyr::select(`AML sample`='Sample',Gene='site',Phosphosite='LogFoldChange')
+  
+  phospho.reg.results<-drugMolRegression(auc.dat,substrate.dat,'Phosphosite')
+  phospho.lr.results<-drugMolLogReg(auc.dat,substrate.dat,'Phosphosite')
+  
+  print('Now getting gene-based preds')
+  logr.preds<-purrr::map_df(list(mRNA='mRNALevels',
+                                 protein='proteinLevels',
+                                gene='geneMutations'),~drugMolLogReg(auc.dat,pat.data,
+                                                             .x,category='Condition'))
+  
+  reg.preds<-purrr::map_df(list(mRNA='mRNALevels',
+                                protein='proteinLevels',
+                                gene='geneMutations'),~ drugMolRegression(auc.dat,
+                                                                          pat.data,
+                                                             .x,category='Condition'))
+
+  full.results<-rbind(reg.preds,phospho.reg.results)%>%
+    mutate(method='LASSO')
+
+  lr.results<-rbind(logr.preds,phospho.lr.results)%>%
+    mutate(method='LogisticReg')%>%
+    mutate(MSE=MSE*10000)
+  
+  #full.results<-rbind(full.results,lr.results)
+  saveRDS(full.results,'lassoRegPreds.rds')
+  saveRDS(lr.results,'logRegPreds.rds')
+#  saveRDS(full.results,'mostlyCompletePredictions.rds')
+  
+ ```
+Now we have all the data files and ready to go!
