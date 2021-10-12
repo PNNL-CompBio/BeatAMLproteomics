@@ -7,7 +7,8 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-source("../beatAMLdata.R")
+source("../util/synapseUtil.R")
+source("../util/loading_data.R")
 library(amlresistancenetworks)
 ```
 
@@ -15,7 +16,9 @@ library(amlresistancenetworks)
 We have created a standard file to load all the data needed for the analysis.
 
 ```{r load data,warning=FALSE}
-loadBeatAMLData()
+global.data <- load.global.data()
+phospho.data <- load.phospho.data()
+functional.data <- load.functional.data()
 ```
 
 ## Now we can build the models
