@@ -1,17 +1,25 @@
 
+load_beataml_functional_data <-function(){
+  library(amlresistancenetworks)
+  syn = reticulate::import("synapseclient")
+  syn$login()
+  querySynapseTable("syn25830473")$asDataFrame()
+  
+}
+
 
 load_beataml_global_data <- function() {
   library(amlresistancenetworks)
   syn = reticulate::import("synapseclient")
   syn$login()
-  querySynapseTable("syn25808020")
+  querySynapseTable("syn25808020")$asDataFrame()
 }
 
 load_beataml_phospho_data <- function() {
   library(amlresistancenetworks)
   syn = reticulate::import("synapseclient")
   syn$login()
-  querySynapseTable("syn25808662")
+  querySynapseTable("syn25808662")$asDataFrame()
 }
 
 
