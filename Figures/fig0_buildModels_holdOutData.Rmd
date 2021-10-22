@@ -7,18 +7,21 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-source("../util/synapseUtil.R")
-source("../util/loading_data.R")
-library(amlresistancenetworks)
+#source("../util/synapseUtil.R")
+#source("../util/loading_data.R")
+#library(amlresistancenetworks)
+
+#If unable to connect to synapse, source -
+source("../util/loading_data_local.R")
 ```
 
 ## Load data
 We have created a standard file to load all the data needed for the analysis.
 
 ```{r load data,warning=FALSE, message=FALSE}
-global.data <- load.global.data()
-phospho.data <- load.phospho.data()
-functional.data <- load.functional.data()
+global.data <- load.global.data("//Users//dann850//Desktop//CPTAC_PTRC//BeatAML_210//BeatAMLProteomics.csv")
+phospho.data <- load.phospho.data("//Users//dann850//Desktop//CPTAC_PTRC//BeatAML_210//BeatAMLPhosphoproteomics.csv")
+functional.data <- load.functional.data("//Users//dann850//Desktop//CPTAC_PTRC//BeatAML_210//FullPTCohortFunctionalData.csv")
 ```
 
 ## Now we can build the models
