@@ -7,11 +7,15 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(Matrix)
+library(amlresistancenetworks)
+
+# If you are loading data from Synapse, source -
 #source("../util/synapseUtil.R")
 #source("../util/loading_data.R")
-#library(amlresistancenetworks)
 
-#If unable to connect to synapse, source -
+# If you are unable to connect to Synapse, source -
 source("../util/loading_data_local.R")
 ```
 
@@ -19,6 +23,7 @@ source("../util/loading_data_local.R")
 We have created a standard file to load all the data needed for the analysis.
 
 ```{r load data,warning=FALSE, message=FALSE}
+# If you are reading in from Synapse then leave argument blank
 global.data <- load.global.data("//Users//dann850//Desktop//CPTAC_PTRC//BeatAML_210//BeatAMLProteomics.csv")
 phospho.data <- load.phospho.data("//Users//dann850//Desktop//CPTAC_PTRC//BeatAML_210//BeatAMLPhosphoproteomics.csv")
 functional.data <- load.functional.data("//Users//dann850//Desktop//CPTAC_PTRC//BeatAML_210//FullPTCohortFunctionalData.csv")
@@ -29,8 +34,7 @@ functional.data <- load.functional.data("//Users//dann850//Desktop//CPTAC_PTRC//
 We want to build both the LASSO and logistic regression models using the following code. This code will divide the patients into 3 batches and train/test the model holding out 1/3 of the data each time. Then we will have predictions on each of the samples. 
 
 ```{r build models, warning=FALSE, message=FALSE}
-
-all.pats <- intersect(pat.data$`AML sample`,auc.dat$`AML sample`)
+all.pats <- intersect(global.data$`Long-form global`$`AML sample`, phospho.data$`Long-form phospho`$`AML sample`)
 library(caret)
 folds<-createFolds(all.pats,k=5)
 ##separate out data?
@@ -40,39 +44,39 @@ res<-lapply(folds,function(testpats){
     train.pats<-setdiff(all.pats,test.pats)
 
  print("Phospho preds first")
-  substrate.dat<-pat.phos%>%
-    dplyr::select(`AML sample`='Sample',Gene='site',Phosphosite='LogFoldChange')
+  substrate.dat<-phospho.data$`Long-form phospho`%>%
+    dplyr::select(`AML sample`,Gene='SiteID',Phosphosite='LogRatio')
   
           tr.dat<-subset(substrate.dat,`AML sample`%in%train.pats)
       te.dat<-subset(substrate.dat,`AML sample`%in%test.pats)
       
-    phospho.reg.results<-drugMolRegressionEval(auc.dat,
+    phospho.reg.results<-drugMolRegressionEval(functional.data$`Long-form functional`,
                                                  tr.dat,
                                                'Phosphosite',
-                                               dplyr::rename(auc.dat,Sample='AML sample'),
+                                               dplyr::rename(functional.data$`Long-form functional`,Sample='AML sample'),
                                                dplyr::rename(te.dat,Sample='AML sample'))%>%
         do.call(rbind,.)
       
     
-    phospho.lr.results<-drugMolLogRegEval(auc.dat,tr.dat,'Phosphosite',
-                                          dplyr::rename(auc.dat,Sample='AML sample'),
+    phospho.lr.results<-drugMolLogRegEval(functional.data$`Long-form functional`,tr.dat,'Phosphosite',
+                                          dplyr::rename(functional.data$`Long-form functional`,Sample='AML sample'),
                                            dplyr::rename(te.dat,Sample='AML sample'))%>%
       do.call(rbind,.)
   
     
   print('Now getting gene-based preds')
   
-      tr.dat<-subset(pat.data,`AML sample`%in%train.pats)
-      te.dat<-subset(pat.data,`AML sample`%in%test.pats)
+      tr.dat<-subset(global.data$`Long-form global`,`AML sample`%in%train.pats)
+      te.dat<-subset(global.data$`Long-form global`,`AML sample`%in%test.pats)
     ##now train model on AML and eval on depmap data
   reg.preds<-purrr::map_df(list(mRNA='mRNALevels',
                               protein='proteinLevels',
                             #  gene='geneMutations',
                                binGene='binaryMutations'),
-                         ~ drugMolRegressionEval(auc.dat,
+                         ~ drugMolRegressionEval(functional.data$`Long-form functional`,
                             tr.dat,
     .x,
-                                                    dplyr::rename(auc.dat,Sample='AML sample'),
+                                                    dplyr::rename(functional.data$`Long-form functional`,Sample='AML sample'),
                                                dplyr::rename(te.dat,Sample='AML sample'),
                                                  category='Condition'))
     print("Comparing logistic preds")
@@ -80,10 +84,10 @@ res<-lapply(folds,function(testpats){
                                   mRNA='mRNALevels',
                            #   gene='geneMutations',
                               binGene='binaryMutations'),
-                             ~ drugMolLogRegEval(auc.dat,
+                             ~ drugMolLogRegEval(functional.data$`Long-form functional`,
                                                 tr.dat,
                                                 .x,
-                                               dplyr::rename(auc.dat,Sample='AML sample'),
+                                               dplyr::rename(functional.data$`Long-form functional`,Sample='AML sample'),
                                                dplyr::rename(te.dat,Sample='AML sample'),
                                               category='Condition'))
 

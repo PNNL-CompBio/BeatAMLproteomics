@@ -29,7 +29,7 @@ load.phospho.data <- function(filePath_phospho){
   meta <- meta[order(meta$Sample), ]
   
   data <- data %>%
-    select(Gene, SiteID, Sample, 'AML Sample' = Barcode.ID, LogRatio)
+    select(Gene, SiteID, Sample, 'AML sample' = Barcode.ID, LogRatio)
   
   return(list("Long-form phospho" = data, "Metadata" = meta))
 }
@@ -53,7 +53,7 @@ load.global.data <- function(filePath_global){
   meta <- meta[order(meta$Sample), ]
   
   data <- data %>%
-    select(Gene, Sample, 'AML Sample' = Barcode.ID, LogRatio)
+    select(Gene, Sample, 'AML sample' = Barcode.ID, LogRatio)
   
   return(list("Long-form global" = data, "Metadata" = meta))
 }
@@ -78,9 +78,9 @@ load.functional.data <- function(filePath_functional){
   ### percentage points.
   data <- data %>%
     select(proteomic_lab_id, inhibitor, converged, deviance, auc) %>%
-    dplyr::rename('AML Sample' = proteomic_lab_id,
+    dplyr::rename('AML sample' = proteomic_lab_id,
            Condition = inhibitor) %>%
-    group_by('AML Sample', Condition) %>%
+    group_by('AML sample', Condition) %>%
     mutate(AUC = mean(auc, na.rm = T)) %>%
     ungroup(Condition) %>%
     mutate(medAUC = median(AUC, na.rm = T)) %>%
