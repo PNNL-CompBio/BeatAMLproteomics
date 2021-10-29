@@ -1,0 +1,122 @@
+---
+title: "Pushing RNA and WES data to synapse"
+author: "Camilo Posso"
+date: "10/28/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(dplyr)
+library(tidyr)
+source("../util/loading_data.R")
+source("../util/synapseUtil.R")
+```
+
+## Data formats
+
+Using the data available in the crosstabs and a second metadata file, we can create a Synapse table that is in 'long form' and has all the protein/phosphosite values together with their relevant metadata.
+
+Note we also handle alternate sample names here.
+
+```{r loading data}
+source("../util/synapseUtil.R")
+
+syn <- synapseLogin()
+
+workbook_syn <- "syn26427390"
+WES_syn <- "syn26427388"
+RNA_syn <- "syn26427387"
+
+## When both labID and alt_ID exist, both the WES and RNA datasets contain 
+## The alternate ID's instead of labId!
+sample.workbook <- readxl::read_xlsx(syn$get(workbook_syn)$path) %>%
+  select(labId, patientId, `Has WES +/- 14 days`, `Has RNAseq same day sample`, Comments) %>%
+  mutate(alt_ID = case_when(grepl("Alt", Comments) ~ sub("Alt -[ ]*", "", Comments),
+                            T ~ labId))
+
+
+## converting to alternate ID
+WES_samples_alt <- sample.workbook$labId
+WES_samples_alt[1:22] <- sub("Alt -[ ]*", "", sample.workbook$Comments[1:22])
+WES_samples_org <- sample.workbook$labId
+
+conv_table <- data.frame(labId = WES_samples_org,
+                         alt_ID = WES_samples_alt)
+
+## exactly 177 WES samples
+WES_data <- readxl::read_xlsx(syn$get(WES_syn)$path) %>%
+  select(original_id, t_vaf, gene, symbol, refseq, hgvsc, hgvsp) %>%
+  dplyr::rename(alt_ID = original_id) %>%
+  filter(alt_ID %in% WES_samples_alt) %>%
+  merge(conv_table) %>%
+  select(labId, alt_ID, everything())
+
+
+
+## RNA, also uses alternate IDs, 159 samples
+RNA_samples_alt <- sample.workbook %>%
+  filter(grepl("Yes", `Has RNAseq same day sample`))
+RNA_samples_org <- RNA_samples_alt$labId
+RNA_samples_alt <- RNA_samples_alt$alt_ID
+
+RNA_data <- read.table(syn$get(RNA_syn)$path, sep = "\t", header = T, quote = "") %>%
+  pivot_longer(names_to = "alt_ID", cols = starts_with("X"), values_to = "RNA counts") %>%
+  mutate(alt_ID = sub("X", "", alt_ID)) %>% 
+  mutate(alt_ID = sub("\\.", "-", alt_ID)) %>%
+  filter(alt_ID %in% RNA_samples_alt) %>%
+  merge(conv_table) %>%
+  select(labId, alt_ID, everything())
+
+
+## Check samples are matching
+table(WES_data$labId %in% WES_samples_org)
+table(RNA_data$labId %in% RNA_samples_org)
+table(unique(WES_data$labId) %in% WES_samples_org)
+table(unique(RNA_data$labId) %in% RNA_samples_org)
+
+```
+
+
+## Merge metadata and proteomics data
+
+Now we can merge with metadata.
+
+```{r metadata, echo=FALSE}
+global.data <- querySynapseTable("syn25808020")
+
+meta.cols <- c("Barcode.ID", "Plex", "Channel", "Loading.Mass", 
+               "specimen.type", "specimen.location", 
+               "Specimen.access.group.concatenated", 
+               "InitialAMLDiagnosis", "PostChemotherapy", 
+               "FLT3.ITD")
+
+meta <- unique(global.data[, meta.cols]) %>%
+  dplyr::rename(SpecimenType = specimen.type,
+                labId = Barcode.ID) %>%
+  mutate(Specimen.access.group.concatenated = unlist(Specimen.access.group.concatenated))
+
+WES_data <- merge(WES_data, meta)
+RNA_data <- merge(RNA_data, meta)
+
+## Check samples are matching
+table(WES_data$labId %in% WES_samples_org)
+table(RNA_data$labId %in% RNA_samples_org)
+table(unique(WES_data$labId) %in% WES_samples_org)
+table(unique(RNA_data$labId) %in% RNA_samples_org)
+
+```
+
+Now we have the RNA/WES + metadata in a long form table.
+
+## Push to synapse
+
+```{r phospho, echo=FALSE}
+synTableStore(RNA_data, "BeatAML Waves1to4 RNA data, normalized", parentId = 'syn22128879')
+synTableStore(WES_data, "BeatAML Waves1to4 WES data", parentId = 'syn22128879')
+
+```
+
+
+
+
