@@ -53,7 +53,7 @@ load.global.data <- function(){
 
 
 ## Loads functional data for the 210 patient experiment.
-load.functional.data <- function(){
+load.functional.data <- function(threshold = 0.1, fam.threshold = 0.05){
   require(dplyr)
   
   data <- querySynapseTable("syn25830473") %>%
@@ -68,6 +68,10 @@ load.functional.data <- function(){
            Paired = paired_sample)
   rownames(meta) <- meta$Barcode.ID
   
+  ## Getting drug family data
+  drug.fam <- load.drugfam.data() %>%
+    dplyr::rename(Inhibitor = inhibitor)
+  
   ### AUC is the average of auc, done if multiple auc values for a given
   ### patient + inhibitor combination. percAUC tells us how large the AUC
   ### value is compared to the median AUC for that patient, measured in 
@@ -78,12 +82,65 @@ load.functional.data <- function(){
            Inhibitor = inhibitor) %>%
     group_by(Barcode.ID, Inhibitor) %>%
     mutate(AUC = mean(auc, na.rm = T)) %>%
+    slice(1) %>%
     ungroup(Inhibitor) %>%
     mutate(medAUC = median(AUC, na.rm = T)) %>%
     mutate(percAUC = AUC/medAUC*100) %>%
     ungroup(Barcode.ID)
+  
+  data <- left_join(data, drug.fam, by = "Inhibitor")
+  
+  
+  ## Counting sensitivity
+  numSens<-data%>%
+    group_by(Inhibitor) %>%
+    ## Inhibitors can have multiple families. In such cases, counting rows
+    ## to get number of sensitive samples is over counting
+    subset(AUC<100)%>%summarize(numSens=length(unique(Barcode.ID)))
+  
+  ##counting sensitivity by family
+  numSensFam <-data%>%
+    subset(!is.na(family))%>%
+    group_by(family)%>%
+    subset(AUC<100)%>%summarize(numSensFam=n())
+  
+  ## sensitivity frequency
+  fracSens<-data%>%group_by(Inhibitor)%>%
+    summarize(nSamps=length(unique(Barcode.ID)))%>%
+    left_join(numSens)%>%mutate(fracSens=numSens/nSamps)
+  
+  ## frequency by family
+  fracSensFam<-data%>%
+    subset(!is.na(family))%>%
+    group_by(family)%>%
+    summarize(nSampsFam=n())%>%
+    left_join(numSensFam)%>%mutate(fracSens=numSensFam/nSampsFam)
+  
+  ## subset data to inhibitors passing threshold
+  withSens=subset(fracSens,fracSens>threshold)%>%
+    subset(fracSens<(1-threshold))%>%
+    subset(numSens>1)
+  include<-withSens$Inhibitor
+  data<-subset(data, Inhibitor %in% include)
+  
+  # drug.combos<-unique(auc.dat$Condition[grep(" - |\\+",auc.dat$Condition)])
+  # print("Removing drug combinations")
+  # auc.dat<<-subset(auc.dat,!Condition%in%drug.combos)
+  
+  ## also subseting by family sensitivity
+  withSensFam=subset(fracSensFam,fracSens>fam.threshold)%>%
+    subset(fracSens<(1-fam.threshold))%>%
+    subset(numSensFam>1)
+  
+  data <- subset(data, family %in% withSensFam$family) %>%
+    group_by(Barcode.ID, Inhibitor) %>%
+    slice(1) %>%
+    ungroup(Barcode.ID) %>%
+    ungroup(Inhibitor)
     
-  return(list("Long-form functional" = data, "Metadata" = meta))
+  return(list("Long-form functional" = data, "Metadata" = meta,
+              "Sensitivity by Inhibitor" = fracSens,
+              "Sensitivity by Family" = fracSensFam))
 }
 
 
@@ -96,7 +153,11 @@ load.drugfam.data <- function(){
   ## while row 224 uses the "minus sign", which has unicode \u2212.
   
   data <- querySynapseTable("syn22156956") %>%
-    mutate(inhibitor = gsub("\u2212", "-", inhibitor))
+    mutate(inhibitor = gsub("\u2212", "-", inhibitor)) %>%
+    ## Fixing typos in the drug names
+    mutate(inhibitor = case_when(inhibitor == "Sorafinib" ~ "Sorafenib",
+                                 inhibitor == "Gilterinitib  (ASP−2215)" ~ "Gilteritinib  (ASP−2215)",
+                                 TRUE ~ inhibitor))
   
   return(data)
 }
@@ -150,14 +211,6 @@ load.RNA.data <- function(){
   
   return(list("Long-form RNA" = data, "Metadata" = meta))
 }
-
-
-
-
-
-
-
-
 
 
 
