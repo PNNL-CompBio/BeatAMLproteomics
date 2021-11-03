@@ -19,7 +19,7 @@ load.phospho.data <- function(){
   meta <- meta[order(meta$Sample), ]
   
   data <- data %>%
-    select(Gene, SiteID, Sample, Barcode.ID, LogRatio)
+    select(Gene, SiteID, Barcode.ID, LogRatio)
   
   return(list("Long-form phospho" = data, "Metadata" = meta))
 }
@@ -46,7 +46,7 @@ load.global.data <- function(){
   meta <- meta[order(meta$Sample), ]
   
   data <- data %>%
-    select(Gene, Sample, Barcode.ID, LogRatio)
+    select(Gene, Barcode.ID, LogRatio)
   
   return(list("Long-form global" = data, "Metadata" = meta))
 }
@@ -56,9 +56,16 @@ load.global.data <- function(){
 load.functional.data <- function(threshold = 0.1, fam.threshold = 0.05){
   require(dplyr)
   
+  syn <- synapseLogin()
+  
+  summary.syn <- "syn25796769"
+  workbook.syn <- "syn26427390"
+  summary.table <- readxl::read_xlsx(syn$get(summary.syn)$path) %>%
+    select(labId, overallSurvival) %>%
+    rename(Barcode.ID = labId)
+  
   data <- querySynapseTable("syn25830473") %>%
-    mutate(probit_qc_error = unlist(probit_qc_error)) %>%
-    ungroup()
+    mutate(probit_qc_error = unlist(probit_qc_error))
   
   meta.cols <- c("proteomic_lab_id", "lab_id", "patient_id",
                  "paired_sample", "qc_salvage")
@@ -67,6 +74,13 @@ load.functional.data <- function(threshold = 0.1, fam.threshold = 0.05){
     dplyr::rename(Barcode.ID = proteomic_lab_id,
            Paired = paired_sample)
   rownames(meta) <- meta$Barcode.ID
+  
+  ## When both labID and alt_ID exist, both the WES and RNA datasets contain 
+  ## The alternate ID's instead of labId!
+  sample.workbook <- readxl::read_xlsx(syn$get(workbook.syn)$path) %>%
+    select(labId, patientId, `Has WES +/- 14 days`, `Has RNAseq same day sample`, Comments) %>%
+    mutate(alt_ID = case_when(grepl("Alt", Comments) ~ sub("Alt -[ ]*", "", Comments),
+                              T ~ labId))
   
   ## Getting drug family data
   drug.fam <- load.drugfam.data() %>%
@@ -88,8 +102,8 @@ load.functional.data <- function(threshold = 0.1, fam.threshold = 0.05){
     mutate(percAUC = AUC/medAUC*100) %>%
     ungroup(Barcode.ID)
   
-  data <- left_join(data, drug.fam, by = "Inhibitor")
-  
+  data <- left_join(data, drug.fam, by = "Inhibitor") %>%
+    left_join(summary.table, by = "Barcode.ID")
   
   ## Counting sensitivity
   numSens<-data%>%
@@ -134,9 +148,9 @@ load.functional.data <- function(threshold = 0.1, fam.threshold = 0.05){
   
   data <- subset(data, family %in% withSensFam$family) %>%
     group_by(Barcode.ID, Inhibitor) %>%
-    slice(1) %>%
     ungroup(Barcode.ID) %>%
-    ungroup(Inhibitor)
+    ungroup(Inhibitor) %>%
+    filter(!is.na(AUC))
     
   return(list("Long-form functional" = data, "Metadata" = meta,
               "Sensitivity by Inhibitor" = fracSens,
@@ -207,9 +221,54 @@ load.RNA.data <- function(){
   rownames(meta) <- meta$Barcode.ID 
   
   data <- data %>%
-    select(Barcode.ID, alt_ID, stable_id, display_label, description, biotype, `RNA counts`)
+    select(Barcode.ID, alt_ID, stable_id, display_label, description, biotype, `RNA counts`) %>%
+    dplyr::rename(Gene = stable_id)
   
   return(list("Long-form RNA" = data, "Metadata" = meta))
+}
+
+
+load.combined.data <- function(){
+  
+  global.data.list <- load.global.data()
+  metadata <<- global.data.list$Metadata
+  global.data <<- global.data.list$`Long-form global`
+  
+  phospho.data <<- load.phospho.data()$`Long-form phospho`
+  
+  functional.data <<- load.functional.data()$`Long-form functional`
+  
+  RNA.data <<- load.RNA.data()$`Long-form RNA` %>%
+    select(Barcode.ID, Gene, `RNA counts`)
+  
+  WES.data <<- load.WES.data()$`Long-form WES` %>%
+    select(Barcode.ID, symbol, t_vaf) %>%
+    dplyr::rename(Gene = symbol) %>%
+    mutate(wesMutation = t_vaf > 0)
+  
+  combined <<- full_join(global.data, RNA.data, by = c("Barcode.ID", "Gene")) %>%
+    select(Barcode.ID, Gene, LogRatio, `RNA counts`) %>%
+    full_join(WES.data, by = c("Barcode.ID", "Gene")) %>%
+    dplyr::rename(globalLogRatio = LogRatio) %>%
+    full_join(phospho.data, by = c("Barcode.ID", "Gene")) %>%
+    dplyr::rename(phosphoLogRatio = LogRatio) %>%
+    mutate(wesMutation = case_when(!is.na(wesMutation) & wesMutation ~ 1,
+                                       TRUE ~ 0)) %>%
+    mutate(wesMutation = as.factor(wesMutation)) %>%
+    select(Barcode.ID, Gene, SiteID, globalLogRatio, 
+           phosphoLogRatio, `RNA counts`, wesMutation, t_vaf)
+  
+  samples.g <- unique(global.data$Barcode.ID)
+  samples.p <- unique(phospho.data$Barcode.ID)
+  samples.r <- unique(RNA.data$Barcode.ID)
+  samples.w <- unique(WES.data$Barcode.ID)
+
+  sample.summary <<- metadata %>%
+    select(Barcode.ID) %>%
+    mutate(Global = Barcode.ID %in% samples.g,
+           Phospho = Barcode.ID %in% samples.p,
+           RNA = Barcode.ID %in% samples.r,
+           WES = Barcode.ID %in% samples.w)
 }
 
 
