@@ -381,7 +381,7 @@ quiz.auc<-auc.dat%>%
 
 
 erk1.pats <- combined %>%
-  subset(Gene %in% flt3prots) %>%
+  subset(Gene %in% erk1prots) %>%
   inner_join(quiz.auc) %>%
   select(`AML sample`, everything(), -Barcode.ID) %>%
   dplyr::rename(site = SiteID,
