@@ -92,6 +92,7 @@ load.functional.data <- function(threshold = 0.1, fam.threshold = 0.05){
   ### percentage points.
   data <- data %>%
     select(proteomic_lab_id, inhibitor, converged, deviance, auc) %>%
+    filter(!is.na(auc)) %>%
     dplyr::rename(Barcode.ID = proteomic_lab_id,
            Inhibitor = inhibitor) %>%
     group_by(Barcode.ID, Inhibitor) %>%
@@ -146,13 +147,15 @@ load.functional.data <- function(threshold = 0.1, fam.threshold = 0.05){
     subset(fracSens<(1-fam.threshold))%>%
     subset(numSensFam>1)
   
-  data <- subset(data, family %in% withSensFam$family) %>%
+  data.fam <- subset(data, family %in% withSensFam$family) %>%
     group_by(Barcode.ID, Inhibitor) %>%
     ungroup(Barcode.ID) %>%
     ungroup(Inhibitor) %>%
     filter(!is.na(AUC))
     
-  return(list("Long-form functional" = data, "Metadata" = meta,
+  return(list("Long-form functional" = data, 
+              "Long-form functional sensitive family" = data.fam,
+              "Metadata" = meta,
               "Sensitivity by Inhibitor" = fracSens,
               "Sensitivity by Family" = fracSensFam))
 }
@@ -222,7 +225,7 @@ load.RNA.data <- function(){
   
   data <- data %>%
     select(Barcode.ID, alt_ID, stable_id, display_label, description, biotype, `RNA counts`) %>%
-    dplyr::rename(Gene = stable_id)
+    dplyr::rename(Gene = display_label)
   
   return(list("Long-form RNA" = data, "Metadata" = meta))
 }
@@ -236,7 +239,9 @@ load.combined.data <- function(){
   
   phospho.data <<- load.phospho.data()$`Long-form phospho`
   
-  functional.data <<- load.functional.data()$`Long-form functional`
+  functional.data.list <- load.functional.data()
+  functional.data <<- functional.data.list$`Long-form functional`
+  functional.data.sensitive.family <<- functional.data.list$`Long-form functional sensitive family`
   
   RNA.data <<- load.RNA.data()$`Long-form RNA` %>%
     select(Barcode.ID, Gene, `RNA counts`)
