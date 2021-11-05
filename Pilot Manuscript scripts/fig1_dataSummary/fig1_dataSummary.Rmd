@@ -381,7 +381,7 @@ quiz.auc<-auc.dat%>%
 
 
 erk1.pats <- combined %>%
-  subset(Gene %in% flt3prots) %>%
+  subset(Gene %in% erk1prots) %>%
   inner_join(quiz.auc) %>%
   select(`AML sample`, everything(), -Barcode.ID) %>%
   dplyr::rename(site = SiteID,
@@ -467,8 +467,10 @@ v.mat <- erk1.pats %>%
   mutate(Gene=paste(Gene,'Gene'))%>%
   tibble::column_to_rownames('Gene')
 
-
-pat.order<-intersect(pat.order,colnames(t.mat))
+## ph.mat does not have data for all the samples, so we intersect with what we have
+## from ph.mat here.
+pat.order<-intersect(pat.order,colnames(t.mat)) %>%
+  intersect(colnames(ph.mat))
 fullmat<-rbind(prot.mat[,pat.order],t.mat[,pat.order],ph.mat[,pat.order])
 
 flt3.samples <- rownames(flt3.vars)
