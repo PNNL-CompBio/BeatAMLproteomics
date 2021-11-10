@@ -69,27 +69,25 @@ res<-lapply(folds,function(testpats){
       tr.dat<-subset(global.data$`Long-form global`,`AML sample`%in%train.pats)
       te.dat<-subset(global.data$`Long-form global`,`AML sample`%in%test.pats)
     ##now train model on AML and eval on depmap data
-  reg.preds<-purrr::map_df(list(mRNA='mRNALevels',
-                              protein='proteinLevels',
+ # reg.preds<-purrr::map_df(#list(#mRNA='mRNALevels',
+                            #  protein='proteinLevels',
                             #  gene='geneMutations',
-                               binGene='binaryMutations'),
-                         ~ drugMolRegressionEval(functional.data$`Long-form functional`,
-                            tr.dat,
-    .x,
+                            #  binGene='binaryMutations'),
+                        reg.preds <- drugMolRegressionEval(functional.data$`Long-form functional`,
+                            tr.dat, 'proteinLevels',
                                                     dplyr::rename(functional.data$`Long-form functional`,Sample='AML sample'),
                                                dplyr::rename(te.dat,Sample='AML sample'),
-                                                 category='Condition'))
+                                                 category='Condition')
     print("Comparing logistic preds")
-  log.reg.preds<-purrr::map_df(list(protein='proteinLevels',
-                                  mRNA='mRNALevels',
+ # log.reg.preds<-purrr::map_df(list(protein='proteinLevels',
+                             #     mRNA='mRNALevels',
                            #   gene='geneMutations',
-                              binGene='binaryMutations'),
-                             ~ drugMolLogRegEval(functional.data$`Long-form functional`,
-                                                tr.dat,
-                                                .x,
+                            #  binGene='binaryMutations'),
+                     log.reg.preds <- drugMolLogRegEval(functional.data$`Long-form functional`,
+                                                tr.dat,'proteinLevels',
                                                dplyr::rename(functional.data$`Long-form functional`,Sample='AML sample'),
                                                dplyr::rename(te.dat,Sample='AML sample'),
-                                              category='Condition'))
+                                              category='Condition')
 
 
  

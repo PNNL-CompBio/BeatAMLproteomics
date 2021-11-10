@@ -53,7 +53,7 @@ load.global.data <- function(filePath_global){
   meta <- meta[order(meta$Sample), ]
   
   data <- data %>%
-    select(Gene, Sample, 'AML sample' = Barcode.ID, LogRatio)
+    select(Gene, Sample, 'AML sample' = Barcode.ID, 'proteinLevels' = LogRatio)
   
   return(list("Long-form global" = data, "Metadata" = meta))
 }
@@ -80,13 +80,12 @@ load.functional.data <- function(filePath_functional){
     select(proteomic_lab_id, inhibitor, converged, deviance, auc) %>%
     dplyr::rename('AML sample' = proteomic_lab_id,
            Condition = inhibitor) %>%
-    group_by('AML sample', Condition) %>%
+    group_by(`AML sample`, Condition) %>%
     mutate(AUC = mean(auc, na.rm = T)) %>%
     ungroup(Condition) %>%
     mutate(medAUC = median(AUC, na.rm = T)) %>%
     mutate(percAUC = AUC/medAUC*100)
-    
-    
+  
   return(list("Long-form functional" = data, "Metadata" = meta))
 }
 
