@@ -25,6 +25,33 @@ load.phospho.data <- function(){
 }
 
 
+## Loads phospho data for the 210 patient experiment.
+load.uncorrected.phospho.data <- function(){
+  require(dplyr)
+  
+  data <- querySynapseTable("syn25808685") %>% 
+    mutate(Specimen.access.group.concatenated = 
+             unlist(Specimen.access.group.concatenated))
+  
+  meta.cols <- c("Sample", "SampleID.full", "Barcode.ID", 
+                 "Plex", "Channel", "Loading.Mass", 
+                 "specimen.type", "specimen.location", 
+                 "Specimen.access.group.concatenated", 
+                 "InitialAMLDiagnosis", "PostChemotherapy", 
+                 "FLT3.ITD")
+  
+  meta <- unique(data[, meta.cols]) %>%
+    dplyr::rename(SpecimenType = specimen.type)
+  rownames(meta) <- meta$Barcode.ID
+  meta <- meta[order(meta$Sample), ]
+  
+  data <- data %>%
+    select(Gene, SiteID, Barcode.ID, LogRatio)
+  
+  return(list("Long-form phospho" = data, "Metadata" = meta))
+}
+
+
 ## Loads global data for the 210 patient experiment.
 load.global.data <- function(){
   require(dplyr)
@@ -53,7 +80,7 @@ load.global.data <- function(){
 
 
 ## Loads functional data for the 210 patient experiment.
-load.functional.data <- function(threshold = 0.1, fam.threshold = 0.05){
+load.functional.data <- function(threshold = 0.05, fam.threshold = 0.05){
   require(dplyr)
   
   syn <- synapseLogin()
