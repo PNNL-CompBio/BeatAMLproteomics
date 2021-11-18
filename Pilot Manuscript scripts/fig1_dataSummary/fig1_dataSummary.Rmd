@@ -25,7 +25,7 @@ load.combined.data()
 
 
 ```{r compatibility chunk}
-## Here we follow define analogous objects to auc.dat, full.pats, etc 
+## Here we define analogous objects to auc.dat, full.pats, etc 
 ## to get started on running this script which was written within a 
 ## different context.
 
@@ -34,7 +34,6 @@ combined$`AML sample` <- combined$Barcode.ID
 ## slice(1) is needed, since a particular drug (Inhibitor) can belong to more
 ## than one family, so some AUC's are duplicated.
 auc.dat <- functional.data %>%
-  filter(!is.na(family)) %>%
   group_by(Inhibitor, Barcode.ID) %>%
   slice(1) %>%
   ungroup(Inhibitor, Barcode.ID) %>%
@@ -332,13 +331,21 @@ pheatmap(fullmat[sort(rownames(fullmat)),],
          cluster_cols = TRUE, file='combined_heatmap.pdf',
          annotation_col = as.data.frame(fannotes) ,height=15, show_colnames = F)
 
+# png("prot_heatmap_full_legend.png", height = 600, width = 600)
+# pheatmap(as.matrix(prot.mat[,rownames(fannotes)]),
+#          cluster_rows = TRUE,cellheight=12,
+#         # clustering_distance_cols = 'correlation',
+#          cluster_cols = FALSE,
+#          annotation_col = as.data.frame(fannotes), show_colnames = F)
+# dev.off()
+
 pheatmap(as.matrix(prot.mat[,rownames(fannotes)]),
          cluster_rows = TRUE,cellheight=12,
         # clustering_distance_cols = 'correlation',
          cluster_cols = FALSE, file='prot_heatmap.pdf',
          annotation_col = as.data.frame(fannotes), show_colnames = F)
 pheatmap(ph.mat[,rownames(fannotes)],
-         cluster_rows = TRUE,cellheight=12,
+         cluster_rows = TRUE,cellheight=8,
          #clustering_distance_cols = 'correlation',
          cluster_cols = FALSE, file='phos_heatmap.pdf',
          annotation_col = as.data.frame(fannotes), show_colnames = F)
@@ -353,12 +360,13 @@ dotplots<-lapply(subset(genecors,!is.na(pcor))$Gene,function(x)
   subset(flt3.pats,Gene==x)%>%
  #   mutate(mRNALevels=log10(0.01+mRNALevels))%>%
     mutate(mutated=as.factor(binaryMutations))%>%
-    ggplot(aes(x=proteinLevels,y=Phosphosite,color=AUC,shape=site))+geom_point()+ggtitle(x)
+    ggplot(aes(x=proteinLevels,y=Phosphosite,color=AUC,shape=site))+geom_point()+ggtitle(x) +
+   scale_shape(guide = "none")
 )
 
 p<-cowplot::plot_grid(plotlist=dotplots, ncol=2)
 p
-ggsave('flt3_phosphoDotPlots.pdf',p,width=12,height=12)
+ggsave('flt3_phosphoDotPlots.pdf',p,width=8,height=12)
 
 ```
 
