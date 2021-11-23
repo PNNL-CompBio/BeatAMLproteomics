@@ -39,7 +39,8 @@ global_crosstab <- read.table(syn$get(global.syn)$path, check.names = F, sep = "
 
 path_to_crosstab <- "data/Batch Correction/ptrc_ex10_crosstab_phospho_siteID_original_relaxed.txt"
 
-corrected.synapse <- read.table("data/Batch Correction/ptrc_ex10_crosstab_phospho_siteID_corrected.txt", check.names = F, sep = "\t")
+# corrected.synapse <- read.table("data/Batch Correction/ptrc_ex10_crosstab_phospho_siteID_corrected.txt",
+#                                 check.names = F, sep = "\t")
 
 ```
 
@@ -51,6 +52,7 @@ corrected.synapse <- read.table("data/Batch Correction/ptrc_ex10_crosstab_phosph
 ## Performing the exact same normalization and correction steps, with the "sufficiently present" features
 ## filter considerably relaxed, allowing no more than 4 plexes to be missing per SiteID.
 n.sigfig <- 3
+n.plexes <- 10
 
 m <- MSnSet(as.matrix(crosstab))
 pData(m) <- phenodata[sampleNames(m),]
@@ -84,7 +86,7 @@ xx <- as.data.frame(exprs(m)) %>%
   summarise(`Plexes missing` = sum(count == 0)/10)
 
 chosen <- xx %>%
-  filter(`Plexes missing` < 5) 
+  filter(`Plexes missing` <= n.plexes) 
 
 chosen <- chosen$SiteID
 m <- m[chosen, ]
@@ -97,9 +99,9 @@ removed_covariates <- c("Plex", "Loading.Mass")
 
 ########################### NOTE #############################
 # m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
-## The regression (used to estimate batch and loading mass effect) fails for 769
+## The regression (used to estimate batch and loading mass effect) fails for 4125
 ## Phosphosites. Reason has to do with the design matrix in regression not having full rank.
-## To see what the 769 sites are, debug WGCNA::empiricalBayesLM and proceed past line 250. This ensures 
+## To see what the sites are, debug WGCNA::empiricalBayesLM and proceed past line 250. This ensures 
 ## the regression has run for all sites. Then we can save the sites which failed to a new table using
 ## write.table(colnames(data)[which(regressionValid == FALSE)], "Failed Regression.txt", row.names = F)
 #######################################################
@@ -131,7 +133,7 @@ data <- exprs(m) %>%
   filter(!is.na(LogRatio)) %>%
   left_join(meta, by = "Sample")
 
-synTableStore(data, "BeatAML Phosphoproteomics relaxed_filter_corrected", parentId = 'syn22128879')
+synTableStore(data, "BeatAML Phosphoproteomics relaxed_filter_v2_corrected", parentId = 'syn22128879')
 
 ```
 

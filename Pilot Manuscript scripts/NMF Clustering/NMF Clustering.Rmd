@@ -1,0 +1,100 @@
+---
+title: "PTRC Ex10 Batch correction and normalization"
+author: "Michael Nestor"
+date: "`r format(Sys.Date(), '%m/%d/%Y')`"
+output: html_document
+---
+
+```{r setup}
+library(MSnSet.utils)
+library(NMF)
+library(dplyr)
+library(tibble)
+library(tidyr)
+
+
+source("../../util/synapseUtil.R")
+load("../../Misc/loaded data.RData")
+
+# load.combined.data()
+```
+
+
+```{r}
+mat.global <- global.data %>%
+  pivot_wider(names_from = Barcode.ID, values_from = LogRatio) %>%
+  column_to_rownames("Gene") %>%
+  as.matrix()
+
+
+mat.phospho <- phospho.data %>%
+  select(SiteID, Barcode.ID, LogRatio) %>%
+  pivot_wider(names_from = Barcode.ID, values_from = LogRatio) %>%
+  column_to_rownames("SiteID") %>%
+  as.matrix()
+
+## Data is complete, no need to impute.
+mat.RNA <- RNA.data %>%
+  pivot_wider(names_from = Barcode.ID, values_from = `RNA counts`) %>%
+  column_to_rownames("Gene") %>%
+  as.matrix()
+
+
+mat <- prepare.nmf.mat(list(mat.global, mat.phospho, mat.RNA))
+
+# data.distance <- dist(t(mat)) %>%
+#   as.matrix()
+
+clust <- makeCluster(4, outfile = "log.txt")
+start <- Sys.time()
+results <- nmf.clustering(mat, data.distance = data.distance,
+                            N.trials = 50, clust = clust, n.clusters = c(7, 8, 9, 10))
+print(Sys.time() - start)
+
+saveRDS(results, "nmf k = 7 8 9 10, 40 runs.RDS")
+
+
+
+```
+
+```{r}
+index <- 3*(0:49)
+
+three <- index + 1
+four <- index + 2
+five <- index + 3
+
+results.3 <- results[three]
+results.4 <- results[four]
+results.5 <- results[five]
+
+xx <- results.5[[1]]
+xx[!is.na(xx)] <- 0
+
+for (y in results.5) {
+  xx <- xx + y
+}
+
+xx <- sweep(xx, 2, apply(xx, 2, sum), FUN = '/')
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

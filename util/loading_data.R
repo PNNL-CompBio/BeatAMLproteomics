@@ -1,35 +1,19 @@
-## Loads phospho data for the 210 patient experiment.
-load.phospho.data <- function(){
+## Loads latest corrected phospho data for the 210 patient experiment.
+load.phospho.data <- function(type = "Corrected"){
   require(dplyr)
   
-  data <- querySynapseTable("syn25808662") %>% 
-    mutate(Specimen.access.group.concatenated = 
-             unlist(Specimen.access.group.concatenated))
+  if (type == "corrected") {
+    syn <- "syn26477193"
+  } else if (type == "Uncorrected") {
+    syn <- "syn25808685"
+  } else if (type == "Old Corrected") {
+    syn <- "syn25808662"
+  } else {
+    stop("Type not recognized. Available types are 'Corrected', 
+         'Uncorrected', and 'Old Corrected'")
+  }
   
-  meta.cols <- c("Sample", "SampleID.full", "Barcode.ID", 
-                 "Plex", "Channel", "Loading.Mass", 
-                 "specimen.type", "specimen.location", 
-                 "Specimen.access.group.concatenated", 
-                 "InitialAMLDiagnosis", "PostChemotherapy", 
-                 "FLT3.ITD")
-  
-  meta <- unique(data[, meta.cols]) %>%
-    dplyr::rename(SpecimenType = specimen.type)
-  rownames(meta) <- meta$Barcode.ID
-  meta <- meta[order(meta$Sample), ]
-  
-  data <- data %>%
-    select(Gene, SiteID, Barcode.ID, LogRatio)
-  
-  return(list("Long-form phospho" = data, "Metadata" = meta))
-}
-
-
-## Loads phospho data for the 210 patient experiment.
-load.uncorrected.phospho.data <- function(){
-  require(dplyr)
-  
-  data <- querySynapseTable("syn25808685") %>% 
+  data <- querySynapseTable(syn) %>% 
     mutate(Specimen.access.group.concatenated = 
              unlist(Specimen.access.group.concatenated))
   
