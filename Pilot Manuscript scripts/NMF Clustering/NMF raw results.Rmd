@@ -14,6 +14,8 @@ library(tidyr)
 
 
 source("../../util/synapseUtil.R")
+source("../../util/loading_data.R")
+source("NMF helper.R")
 load("../../Misc/loaded data.RData")
 
 # load.combined.data()
@@ -21,6 +23,15 @@ load("../../Misc/loaded data.RData")
 
 
 ```{r}
+m.RNA <- make.msnset(RNA.data, feature.col = "Gene", 
+                     value.col = "RNA counts", metadata = meta)
+
+m.global <- make.msnset(global.data, feature.col = "Gene", 
+                     value.col = "LogRatio", metadata = meta)
+
+m.phospho <- make.msnset(phospho.data, feature.col = "SiteID", 
+                     value.col = "LogRatio", metadata = meta)
+
 mat.global <- global.data %>%
   pivot_wider(names_from = Barcode.ID, values_from = LogRatio) %>%
   column_to_rownames("Gene") %>%
@@ -42,40 +53,14 @@ mat.RNA <- RNA.data %>%
 
 mat <- prepare.nmf.mat(list(mat.global, mat.phospho, mat.RNA))
 
-# data.distance <- dist(t(mat)) %>%
-#   as.matrix()
-
-clust <- makeCluster(4, outfile = "log.txt")
-start <- Sys.time()
-results <- nmf.clustering(mat, data.distance = data.distance,
-                            N.trials = 50, clust = clust, n.clusters = c(7, 8, 9, 10))
-print(Sys.time() - start)
-
-saveRDS(results, "nmf k = 7 8 9 10, 40 runs.RDS")
-
-
-
 ```
 
 ```{r}
-index <- 3*(0:49)
-
-three <- index + 1
-four <- index + 2
-five <- index + 3
-
-results.3 <- results[three]
-results.4 <- results[four]
-results.5 <- results[five]
-
-xx <- results.5[[1]]
-xx[!is.na(xx)] <- 0
-
-for (y in results.5) {
-  xx <- xx + y
-}
-
-xx <- sweep(xx, 2, apply(xx, 2, sum), FUN = '/')
+start <- Sys.time()
+# results <- nmf.clustering(mat, n.clusters = c(2, 3, 4, 5), N.trials = 50, prefix = "BEATAML")
+# results <- nmf.clustering(mat, n.clusters = c(6, 7), N.trials = 50, prefix = "BEATAML")
+results <- nmf.clustering(mat, n.clusters = 8, N.trials = 50, prefix = "BEATAML")
+print(Sys.time() - start)
 
 ```
 

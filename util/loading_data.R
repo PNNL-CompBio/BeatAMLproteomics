@@ -1,8 +1,12 @@
+library(MSnbase)
+library(tidyr)
+library(tibble)
+
 ## Loads latest corrected phospho data for the 210 patient experiment.
 load.phospho.data <- function(type = "Corrected"){
   require(dplyr)
   
-  if (type == "corrected") {
+  if (type == "Corrected") {
     syn <- "syn26477193"
   } else if (type == "Uncorrected") {
     syn <- "syn25808685"
@@ -245,7 +249,7 @@ load.RNA.data <- function(){
 load.combined.data <- function(){
   
   global.data.list <- load.global.data()
-  metadata <<- global.data.list$Metadata
+  meta <<- global.data.list$Metadata
   global.data <<- global.data.list$`Long-form global`
   
   phospho.data <<- load.phospho.data()$`Long-form phospho`
@@ -279,12 +283,26 @@ load.combined.data <- function(){
   samples.r <- unique(RNA.data$Barcode.ID)
   samples.w <- unique(WES.data$Barcode.ID)
 
-  sample.summary <<- metadata %>%
+  sample.summary <<- meta %>%
     select(Barcode.ID) %>%
     mutate(Global = Barcode.ID %in% samples.g,
            Phospho = Barcode.ID %in% samples.p,
            RNA = Barcode.ID %in% samples.r,
            WES = Barcode.ID %in% samples.w)
+}
+
+
+make.msnset <- function(data, feature.col, sample.col = "Barcode.ID",
+                        value.col = "LogRatio", metadata) {
+  mat <- data %>%
+    select(sym(sample.col), sym(feature.col), sym(value.col)) %>%
+    pivot_wider(names_from = sym(sample.col), values_from = sym(value.col)) %>%
+    column_to_rownames(feature.col) %>%
+    as.matrix()
+  
+  m <- MSnSet(exprs = mat)
+  pData(m) <- metadata[sampleNames(m), ]
+  return(m)
 }
 
 
