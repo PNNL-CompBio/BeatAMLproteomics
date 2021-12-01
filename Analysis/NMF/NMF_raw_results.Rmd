@@ -16,9 +16,8 @@ library(tidyr)
 source("../../util/synapseUtil.R")
 source("../../util/loading_data.R")
 source("NMF helper.R")
-load("../../Misc/loaded data.RData")
+load.combined.data()
 
-# load.combined.data()
 ```
 
 
@@ -59,7 +58,8 @@ mat <- prepare.nmf.mat(list(mat.global, mat.phospho, mat.RNA))
 start <- Sys.time()
 # results <- nmf.clustering(mat, n.clusters = c(2, 3, 4, 5), N.trials = 50, prefix = "BEATAML")
 # results <- nmf.clustering(mat, n.clusters = c(6, 7), N.trials = 50, prefix = "BEATAML")
-results <- nmf.clustering(mat, n.clusters = 8, N.trials = 50, prefix = "BEATAML")
+# results <- nmf.clustering(mat, n.clusters = 8, N.trials = 50, prefix = "BEATAML")
+# results <- nmf.clustering(mat, n.clusters = c(9,10,11,12,13), N.trials = 20, prefix = "BEATAML")
 print(Sys.time() - start)
 
 ```

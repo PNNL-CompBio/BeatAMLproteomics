@@ -49,4 +49,4 @@ vignettes/*.pdf
 Misc/
 
 # NMF raw data
-Pilot Manuscript scripts/NMF Clustering/Data
+Analysis/NMF/Data/

@@ -7,6 +7,8 @@ library(impute)
 library(data.table)
 
 
+### Computes the cophenetic correlation. Use the NMF function cophcor for this instead. 
+### This is here as a sanity check, to check my understanding of each step.
 cophenetic.correlation <- function(data.distance, nmf.H, method = "ward.D") {
   cop.distance <- dist(t(nmf.H)) %>%
     hclust(., method) %>%
@@ -24,6 +26,10 @@ cophenetic.correlation <- function(data.distance, nmf.H, method = "ward.D") {
 
 ### Runs nmf for each k value (n.clusters) provided, a total of 50 times each by default.
 ### The raw output is saved to an RDS file.
+### Note the NMF functionality for this exists, the issue the implementation
+### leads to RAM issues when running multiples k values. So we split just
+### use a simple for loop to run through the k values. See the following link for some discussion.
+### https://github.com/renozao/NMF/issues/14
 nmf.clustering <- function(mat, n.clusters = c(3,4,5), N.trials = 50, 
                            prefix){
   results <- list()
@@ -45,6 +51,8 @@ nmf.clustering <- function(mat, n.clusters = c(3,4,5), N.trials = 50,
 
 ### combines a list of datasets into a single matrix, ready to be factored
 ### using NMF. Note that missing values are imputed using KNN imputation.
+### This is the same processing performed prior to NMF in this paper
+### https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7373300/
 prepare.nmf.mat <- function(datasets) {
   samples <- Reduce(intersect, lapply(datasets, colnames))
   datasets <- lapply(datasets, function(dataset){
@@ -77,7 +85,8 @@ prepare.nmf.mat <- function(datasets) {
 
 
 ### Given a matrix H from the NMF output, this creates the connectivity matrix, or 
-### adjacency matrix, associated with H.
+### adjacency matrix, associated with H. The NMF package uses the function 'connectivity', and they 
+### are equivalent. This function is really a sanity check to make sure I understand the clustering process.
 connectivity.matrix <- function(mat){
   samples <- colnames(mat)
   out <- matrix(0, nrow = length(samples), ncol = length(samples))
@@ -121,24 +130,6 @@ get.clusters <- function(results){
   return(out)
 }
 
-# results.3.C <- lapply(results.3, function(x){
-#   connectivity.matrix(x@fit@H)
-# })
-# 
-# C <- matrix(0, ncol = 159, nrow = 159)
-# rownames(C) <- rownames(xx)
-# colnames(C) <- colnames(xx)
-# lapply(results.3.C, function(x){
-#   C <<- C + x
-# })
-# C <- C/50
-# 
-# results.3.C.og <- lapply(results.3, connectivity)
-# diff <- lapply(1:50, function(i){results.3.C.og[[i]] - results.3.C[[i]]})
-# sums <- lapply(1:50, function(i){
-#   total.diff <- apply(diff[[i]], 2, sum) %>%
-#     sum()
-# })
 
 
 
