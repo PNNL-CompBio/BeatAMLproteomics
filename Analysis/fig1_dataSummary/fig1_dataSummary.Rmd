@@ -20,7 +20,7 @@ library(tidyr)
 source("../../util/synapseUtil.R")
 source("../../util/loading_data.R")
 
-load("../../Misc/loaded data.RData")
+load.combined.data()
 
 ```
 
