@@ -1,6 +1,6 @@
 ---
-title: "PTRC Ex10 Batch correction and normalization"
-author: "Michael Nestor"
+title: "NMF raw results"
+author: "Camilo Posso"
 date: "`r format(Sys.Date(), '%m/%d/%Y')`"
 output: html_document
 ---
