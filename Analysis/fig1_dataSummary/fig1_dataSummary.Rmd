@@ -8,7 +8,8 @@ editor_options:
 ---
 
 ## Get Data
-This calls the standard data loading function that exists at `../beatAMLdata.R`. Once it is loaded it should not have to be reloaded. 
+This calls the standard data loading function that exists at `../../util/loading_data.R`. 
+Once it is loaded it should not have to be reloaded. 
 
 ```{r setup, include=FALSE,message=FALSE}
 library(amlresistancenetworks)

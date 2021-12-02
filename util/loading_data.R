@@ -1,35 +1,23 @@
-## Loads phospho data for the 210 patient experiment.
-load.phospho.data <- function(){
+library(MSnbase)
+library(tidyr)
+library(tibble)
+
+## Loads latest corrected phospho data for the 210 patient experiment.
+load.phospho.data <- function(type = "Corrected"){
   require(dplyr)
   
-  data <- querySynapseTable("syn25808662") %>% 
-    mutate(Specimen.access.group.concatenated = 
-             unlist(Specimen.access.group.concatenated))
+  if (type == "Corrected") {
+    syn <- "syn26477193"
+  } else if (type == "Uncorrected") {
+    syn <- "syn25808685"
+  } else if (type == "Old Corrected") {
+    syn <- "syn25808662"
+  } else {
+    stop("Type not recognized. Available types are 'Corrected', 
+         'Uncorrected', and 'Old Corrected'")
+  }
   
-  meta.cols <- c("Sample", "SampleID.full", "Barcode.ID", 
-                 "Plex", "Channel", "Loading.Mass", 
-                 "specimen.type", "specimen.location", 
-                 "Specimen.access.group.concatenated", 
-                 "InitialAMLDiagnosis", "PostChemotherapy", 
-                 "FLT3.ITD")
-  
-  meta <- unique(data[, meta.cols]) %>%
-    dplyr::rename(SpecimenType = specimen.type)
-  rownames(meta) <- meta$Barcode.ID
-  meta <- meta[order(meta$Sample), ]
-  
-  data <- data %>%
-    select(Gene, SiteID, Barcode.ID, LogRatio)
-  
-  return(list("Long-form phospho" = data, "Metadata" = meta))
-}
-
-
-## Loads phospho data for the 210 patient experiment.
-load.uncorrected.phospho.data <- function(){
-  require(dplyr)
-  
-  data <- querySynapseTable("syn25808685") %>% 
+  data <- querySynapseTable(syn) %>% 
     mutate(Specimen.access.group.concatenated = 
              unlist(Specimen.access.group.concatenated))
   
@@ -261,7 +249,7 @@ load.RNA.data <- function(){
 load.combined.data <- function(){
   
   global.data.list <- load.global.data()
-  metadata <<- global.data.list$Metadata
+  meta <<- global.data.list$Metadata
   global.data <<- global.data.list$`Long-form global`
   
   phospho.data <<- load.phospho.data()$`Long-form phospho`
@@ -295,12 +283,26 @@ load.combined.data <- function(){
   samples.r <- unique(RNA.data$Barcode.ID)
   samples.w <- unique(WES.data$Barcode.ID)
 
-  sample.summary <<- metadata %>%
+  sample.summary <<- meta %>%
     select(Barcode.ID) %>%
     mutate(Global = Barcode.ID %in% samples.g,
            Phospho = Barcode.ID %in% samples.p,
            RNA = Barcode.ID %in% samples.r,
            WES = Barcode.ID %in% samples.w)
+}
+
+
+make.msnset <- function(data, feature.col, sample.col = "Barcode.ID",
+                        value.col = "LogRatio", metadata) {
+  mat <- data %>%
+    select(sym(sample.col), sym(feature.col), sym(value.col)) %>%
+    pivot_wider(names_from = sym(sample.col), values_from = sym(value.col)) %>%
+    column_to_rownames(feature.col) %>%
+    as.matrix()
+  
+  m <- MSnSet(exprs = mat)
+  pData(m) <- metadata[sampleNames(m), ]
+  return(m)
 }
 
 

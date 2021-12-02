@@ -47,3 +47,6 @@ vignettes/*.pdf
 
 # misc files
 Misc/
+
+# NMF raw data
+Analysis/NMF/Data/
