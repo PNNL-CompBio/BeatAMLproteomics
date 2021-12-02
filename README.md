@@ -20,7 +20,6 @@ This originates from the [P3 template]() that we're using for general proteomics
 
 ### Before you begin...
 
->>>>>>> Stashed changes
 This repository is only the basic structure of the tools needed, not the end-to-end analysis. Here are the steps you'll need to use this:
 
 1- Read up on the tools
@@ -30,31 +29,13 @@ This repository is only the basic structure of the tools needed, not the end-to-
 3- Install the [synapse python client](https://python-docs.synapse.org/build/html/index.html), create a [`.synapseConfig` file](https://python-docs.synapse.org/build/html/Credentials.html) in your home directory.
 4- Clone this repository - it has all that you will need to contribute and run this analysis.
 
-<<<<<<< Updated upstream
-###
-=======
->>>>>>> Stashed changes
-
 ## Beat AML Processing
 Here we descirbe the processing of the BeatAML Data
 
 ### Proteomics and phosphoproteomics processing
 
-<<<<<<< Updated upstream
-### Other data analysis
-Synapse is used for:
-- data storage: data is backed up for free
-- data processing: UUIDs and permission modifications allow for easy analysis
-- data release: data can be moved to the PDC or shared
-
-
-## Data Integration and Exploration
-There are typically a few steps we do for functional analysis. They are described in the [functional analysis](./functional) directory for now.
-
-
-## Manuscript outline
-=======
 This repository contains the code for the normalization and processing.
+
 #### Code
 This is derived from the P3 proteomics workflow and can be found in the [proteomics](./proteomics) folder. It contains the following scripts.
 
@@ -83,4 +64,3 @@ The first figure of the manuscript will require visualizing the Beat AML cohort 
 ### Immune deconvolution
 
 ### Functional analysis
->>>>>>> Stashed changes
