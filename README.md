@@ -4,17 +4,7 @@ This repository houses the exploratory work that we are doing to evaluate the ro
 
 ## Repository Overview
 
-This repository contains scripts that pull data from a [Synapse repository](http://synapse.org/ptrc) to carry out the various analysis steps needed. You will need to acquire a [synapse username](http://synapse.org/register) to access synapse, and become a [certified user](https://docs.synapse.org/articles/accounts_certified_users_and_profile_validation.html) to add data, but after that you will be set with future projects. You will then need to navigate to the [PNNL/OHUS Synapse page](http://synapse.org/ptrc) to request access.
-
-
-### Before you begin...
-
-
-### To use this pipeline
-
-This repository contains scripts that pull data from a [Synapse repository](http://synapse.org/ptrc) to carry out the various analysis steps needed. You will need to acquire a [synapse username](http://synapse.org/register) to access synapse, and become a [certified user](https://docs.synapse.org/articles/accounts_certified_users_and_profile_validation.html) to add data, but after that you will be set with future projects. You will then need to navigate to the [PNNL/OHUS Synapse page](http://synapse.org/ptrc) to request access.
-
-This originates from the [P3 template]() that we're using for general proteomics work.
+This repository contains scripts that pull data from a [Synapse repository](http://synapse.org/ptrc) to carry out the various analysis steps needed. You will need to acquire a [synapse username](http://synapse.org/register) to access synapse, and become a [certified user](https://docs.synapse.org/articles/accounts_certified_users_and_profile_validation.html) to add data, but after that you will be set with future projects. You will then need to navigate to the [PNNL/OHSU Synapse page](http://synapse.org/ptrc) to request access.
 
 
 ### Before you begin...
