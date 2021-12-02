@@ -4,12 +4,11 @@ This repository houses the exploratory work that we are doing to evaluate the ro
 
 ## Repository Overview
 
-<<<<<<< Updated upstream
 This repository contains scripts that pull data from a [Synapse repository](http://synapse.org/ptrc) to carry out the various analysis steps needed. You will need to acquire a [synapse username](http://synapse.org/register) to access synapse, and become a [certified user](https://docs.synapse.org/articles/accounts_certified_users_and_profile_validation.html) to add data, but after that you will be set with future projects. You will then need to navigate to the [PNNL/OHUS Synapse page](http://synapse.org/ptrc) to request access.
 
 
 ### Before you begin...
-=======
+
 
 ### To use this pipeline
 
@@ -37,19 +36,39 @@ Here we descirbe the processing of the BeatAML Data
 This repository contains the code for the normalization and processing.
 
 #### Code
-This is derived from the P3 proteomics workflow and can be found in the [proteomics](./proteomics) folder. It contains the following scripts.
+This is derived from the P3 proteomics workflow and can be found in the [proteomics](./proteomics) folder. It contains the scripts required to process and normalize the data. It also contains the [study design](./proteomics/study_design) files that are required to do the processing.
 
 #### Synapse data
+Once the data is processed from DMS it is uploaded to Synapse in the [Proteomics and Quality Control](https://www.synapse.org/#!Synapse:syn24171150) folder.
 
-Files:
+_File folders:_
 
-Tables:
+- Global proteomics data files: [syn25714186](https://www.synapse.org/#!Synapse:syn25714186)
+- Phosphoproteomics data files: [syn25714185](https://www.synapse.org/#!Synapse:syn25714185)
+- Metadata file: [syn25807733](https://www.synapse.org/#!Synapse:syn25807733)
+
+After processing the data is moved to long form and pushed to tables.
+
+_Tables:_
+
+| Description | Link |
+| --- | --- |
+| Global Proteomics | |
+| Global proteomics
 
 ### Gene mutation, RNASeq, Clinical data
 
 These data are also uploaded to Synapse, and then parsed.
 #### Code
 #### Synapse data
+
+_Tables_:
+
+| Description | Link |
+| --- | -- |
+| Waves 1to4 WES Data | [syn2648827](https://www.synapse.org/#!Synapse:syn26428827/tables/) |
+| Waves 1to4 RNASeq Data | [syn26428813](https://www.synapse.org/#!Synapse:syn26428813) |
+
 
 ## Data Analysis
 
