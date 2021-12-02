@@ -25,34 +25,31 @@ Here we descirbe the processing of the BeatAML Data
 
 This repository contains the code for the normalization and processing.
 
-#### Code
 This is derived from the P3 proteomics workflow and can be found in the [proteomics](./proteomics) folder. It contains the scripts required to process and normalize the data. It also contains the [study design](./proteomics/study_design) files that are required to do the processing.
 
-#### Synapse data
 Once the data is processed from DMS it is uploaded to Synapse in the [Proteomics and Quality Control](https://www.synapse.org/#!Synapse:syn24171150) folder.
 
-_File folders:_
-
-- Global proteomics data files: [syn25714186](https://www.synapse.org/#!Synapse:syn25714186)
-- Phosphoproteomics data files: [syn25714185](https://www.synapse.org/#!Synapse:syn25714185)
-- Metadata file: [syn25807733](https://www.synapse.org/#!Synapse:syn25807733)
-
-After processing the data is moved to long form and pushed to tables.
-
-_Tables:_
-
+The files are all stored in Synapse so that they can be downloaded and shared.
 | Description | Link |
 | --- | --- |
-| Global Proteomics | |
-| Global proteomics
+| Global proteomics data files | [syn25714186](https://www.synapse.org/#!Synapse:syn25714186) |
+| Phosphoproteomics data files | [syn25714185](https://www.synapse.org/#!Synapse:syn25714185) |
+| Metadata file | [syn25807733](https://www.synapse.org/#!Synapse:syn25807733) |
+
+The data was pushed from raw files to long-form tables for facile querying and viewing:
+
+| Description | Normalization/filtering| Link |
+| --- | --- | --- |
+| Global Proteomics | | |
+| Global proteomics |  | |
+| Global phosphoproteomics | Camilo add here |[syn26477193](https://www.synapse.org/#!Synapse:syn26477193) |
+| Global phosphoproteomics |||
+| Global phosphoprotoemics |||
+| Global phosphoproteomics |||
 
 ### Gene mutation, RNASeq, Clinical data
 
 These data are also uploaded to Synapse, and then parsed.
-#### Code
-#### Synapse data
-
-_Tables_:
 
 | Description | Link |
 | --- | -- |
