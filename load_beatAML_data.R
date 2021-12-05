@@ -7,7 +7,23 @@ load_beataml_functional_data <- function(){
   
 }
 
+load_beataml_genomic_data <- function() {
+  library(amlresistancenetworks)
+  syn <- reticulate::import('synapseclient')
+  syn$login()
+  amlresistancenetworks::querySynapseTable('syn26428827')$asDataFrame()
+}
 
+load_beat_aml_transcript_data <- function(){
+  
+  library(amlresistancenetworks)
+  syn <- reticulate::import('synapseclient')
+  syn$login()
+  amlresistancenetworks::querySynapseTable('syn26428813')$asDataFrame()
+  
+}
+
+  
 load_beataml_global_data <- function() {
   library(amlresistancenetworks)
   syn <- reticulate::import("synapseclient")
