@@ -34,18 +34,18 @@ The files are all stored in Synapse so that they can be downloaded and shared.
 | --- | --- |
 | Global proteomics data files | [syn25714186](https://www.synapse.org/#!Synapse:syn25714186) |
 | Phosphoproteomics data files | [syn25714185](https://www.synapse.org/#!Synapse:syn25714185) |
-| Metadata file | [syn25807733](https://www.synapse.org/#!Synapse:syn25807733) |
+| Metadata file | [syn25807733](https://www.synapse.org/#!Synapse:1syn25807733) |
 
 The data was pushed from raw files to long-form tables for facile querying and viewing:
 
 | Description | Normalization/filtering| Link |
 | --- | --- | --- |
-| Global Proteomics | | |
-| Global proteomics |  | |
+| Global Proteomics | Uncorrected |[syn25808625](https://www.synapse.org/#!Synapse:syn25808625) |
+| Global Proteomics | Batch-corrected | [syn25808020](https://www.synapse.org/#!Synapse:syn25808020)|
 | Global phosphoproteomics | Camilo add here |[syn26477193](https://www.synapse.org/#!Synapse:syn26477193) |
-| Global phosphoproteomics |||
-| Global phosphoprotoemics |||
-| Global phosphoproteomics |||
+| Global phosphoproteomics |Camilo add here|[syn26469873](https://www.synapse.org/#!Synapse:syn26469873/tables/)|
+| Global phosphoprotoemics |Original correction|[syn25808662](https://www.synapse.org/#!Synapse:syn25808662)|
+| Global phosphoproteomics |Uncorrected|[syn25808685](https://www.synapse.org/#!Synapse:syn2580868)|
 
 ### Gene mutation, RNASeq, Clinical data
 
@@ -55,18 +55,44 @@ These data are also uploaded to Synapse, and then parsed.
 | --- | -- |
 | Waves 1to4 WES Data | [syn2648827](https://www.synapse.org/#!Synapse:syn26428827/tables/) |
 | Waves 1to4 RNASeq Data | [syn26428813](https://www.synapse.org/#!Synapse:syn26428813) |
+| Drug response data | [syn25813252](https://www.synapse.org/#!Synapse:syn25830473)|
 
+
+These tables were pulled from spreadsheets that are currently also stored on Synapse in [this folder](https://www.synapse.org/#!Synapse:syn24171152). Clinical data is still being updated, but is currently stored in an [excel spreadsheet](https://www.synapse.org/#!Synapse:syn25796769).
 
 ## Data Analysis
 
-This section aspirationally aims to serve as the outline for the manuscript we are building.
+This section aspirationally aims to serve as the outline for the manuscript we are building. This is pretty rough so as things merge together or overlap we can consider restructuring the repository to reflect the latest state of the manuscript.
 
 ### Cohort exploration and summarization
-The first figure of the manuscript will require visualizing the Beat AML cohort and the data we have.
+    The first figure of the manuscript will require visualizing the Beat AML cohort and the data we have. To date this analysis requires, the following, each of which should produce either data for future analysis or figure panels for figure 1. The code should be deposited in the [cohort_summary/](./cohort_summary) directory.
 
+#### Circos plot of data types
+We are looking into circos plotting to summarize the data types, this will enable us to see how much data there are for each patient.
+
+#### Non-negative matrix factorization
+This will take a multi-omics approach to clustering all samples. This clusters and metagenes will be stored on synapse for future anlaysis.
+
+#### Patient stratification by cluster
+Now that we have the patient assignments we can ask if there are survival differences between patients of each cluster, if there are genetic mutation differences, or if there are other clinical properties that vary.
+
+#### Metagene analysis
+Last we need to investigate the 'metagenes' that define the clusters and determine if there is functional enrichment, or any phospho networks that are active or depleted.
 
 ### Mutational profiling
+Figure 2 will compare the genetic mutation data to the other data types. This code will go into the [mutational_analysis](./mutational_analysis/) directory. This analysis focuses on the transcriptomic and proteomic differences between patients with various mutational combinations.
 
 ### Immune deconvolution
+Figure 3 will focus on the immune infiltration of various tumors using the BayesDeBulk analysis within the Decomprolute framework.
 
 ### Functional analysis
+Lastly we will spend Figures 4 and 5 investigating the drug profiles that are unique to this dataset.
+
+#### Regression derived signatures
+What can we learn from the regression? Are there gene sets of interest?
+
+#### Differential expression
+Should we do differential expression as well?
+
+## Paper Figures
+This section is reserved for the manuscript figures, as we work on the analysis.

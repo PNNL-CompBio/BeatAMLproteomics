@@ -1,0 +1,86 @@
+---
+title: "Mutational Signatures"
+author: "Sara Gosline"
+date: "10/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE,message=F,warning=F}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(amlresistancenetworks)
+
+if(!exists('dataLoaded')){
+  source("../BeatAMLData.R")
+  dataLoaded=TRUE
+}
+
+```
+
+## Get genes of interest
+
+Let's figure out which genes are mutated in at least 10% of the patients. 
+
+```{r cars}
+sig.genes<-pat.data%>%
+  subset(binaryMutations==1)%>%
+  group_by(Gene)%>%summarize(numMutated=n())%>%
+  subset(numMutated>8)
+
+DT::datatable(sig.genes)
+```
+
+## Get protein sigs by mutation
+
+For each gene, segregate patients
+
+```{r prot sigs, echo=FALSE}
+
+prot.dat<-pat.data%>%
+  dplyr::select(`AML sample`,proteinLevels,Gene)%>%
+  distinct()%>%
+  tidyr::pivot_wider(values_from = proteinLevels,names_from=`AML sample`,values_fn=list(proteinLevels=mean))%>%  
+  tibble::column_to_rownames('Gene')
+
+diff.res<-lapply(sig.genes$Gene,function(g){
+  
+  muts<-subset(pat.data,Gene==g)%>%
+    subset(binaryMutations==1)%>%
+    select("AML sample")
+  wts<-subset(pat.data,Gene==g)%>%
+    subset(binaryMutations==0)%>%
+    select("AML sample")
+  limmaTwoFactorDEAnalysis(dat=prot.dat,sampleIDs.group1 = muts$`AML sample`,sampleIDs.group2=wts$`AML sample`)})
+
+diff<-lapply(diff.res,function(y) dim(subset(y,adj.P.Val<0.05)))
+
+##do GO enrichment
+
+##plot heatmap
+
+```
+
+
+## Get phospho sigs by mutation
+
+```{R phospho sigs,warning=F, message=F}
+phos.dat<-phos.dat%>%
+  dplyr::select(`AML sample`,proteinLevels,Gene)%>%
+  distinct()%>%
+  tidyr::pivot_wider(values_from = proteinLevels,names_from=`AML sample`,values_fn=list(proteinLevels=mean))%>%  
+  tibble::column_to_rownames('Gene')
+
+diff.res<-lapply(sig.genes$Gene,function(g){
+  
+  muts<-subset(pat.data,Gene==g)%>%
+    subset(binaryMutations==1)%>%
+    select("AML sample")
+  wts<-subset(pat.data,Gene==g)%>%
+    subset(binaryMutations==0)%>%
+    select("AML sample")
+  limmaTwoFactorDEAnalysis(dat=prot.dat,sampleIDs.group1 = muts$`AML sample`,sampleIDs.group2=wts$`AML sample`)})
+
+diff<-lapply(diff.res,function(y) dim(subset(y,adj.P.Val<0.05)))
+
+```
