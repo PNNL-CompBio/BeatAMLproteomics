@@ -1,7 +1,7 @@
 
-load_beataml_functional_data <-function(){
+load_beataml_functional_data <- function(){
   library(amlresistancenetworks)
-  syn = reticulate::import("synapseclient")
+  syn <- reticulate::import("synapseclient")
   syn$login()
   querySynapseTable("syn25830473")$asDataFrame()
   
@@ -10,16 +10,16 @@ load_beataml_functional_data <-function(){
 
 load_beataml_global_data <- function() {
   library(amlresistancenetworks)
-  syn = reticulate::import("synapseclient")
+  syn <- reticulate::import("synapseclient")
   syn$login()
-  querySynapseTable("syn25808020")$asDataFrame()
+  amlresistancenetworks::querySynapseTable("syn25808020")$asDataFrame()
 }
 
 load_beataml_phospho_data <- function() {
   library(amlresistancenetworks)
-  syn = reticulate::import("synapseclient")
+  syn <- reticulate::import("synapseclient")
   syn$login()
-  querySynapseTable("syn25808662")$asDataFrame()
+  amlresistancenetworks::querySynapseTable("syn25808662")$asDataFrame()
 }
 
 
@@ -32,21 +32,21 @@ load_beataml_global_msnset <- function(global_data = NULL) {
   }
 
   phenoData <- global_data %>%
-    select(-Gene, -LogRatio) %>%
+    dplyr::select(-Gene, -LogRatio) %>%
     distinct()
   rownames(phenoData) <- phenoData$Barcode.ID
   
   exprsData <- global_data %>%
-    select(Gene, LogRatio, Barcode.ID) %>%
-    pivot_wider(id_cols="Gene",
-                names_from="Barcode.ID",
-                values_from="LogRatio",
-                values_fill=NA_real_) %>%
+    dplyr::select(Gene, LogRatio, Barcode.ID) %>%
+    tidyr::pivot_wider(id_cols = "Gene",
+                names_from = "Barcode.ID",
+                values_from = "LogRatio",
+                values_fill = NA_real_) %>%
     as.data.frame()
   rownames(exprsData) <- exprsData$Gene
   exprsData <- exprsData %>% select(-Gene)
   
-  m <- MSnSet(as.matrix(exprsData))
+  m <- MSnbase::MSnSet(as.matrix(exprsData))
   pData(m) <- phenoData
   return(m)
 }
@@ -60,13 +60,13 @@ load_beataml_phospho_msnset <- function(phospho_data = NULL) {
   }
   library(dplyr)
   phenoData <- phospho_data %>%
-    select(-Gene, -SiteID, -LogRatio) %>%
+    dplyr::select(-Gene, -SiteID, -LogRatio) %>%
     distinct()
   rownames(phenoData) <- phenoData$Barcode.ID
   
   exprsData <- phospho_data %>%
-    select(SiteID, LogRatio, Barcode.ID) %>%
-    pivot_wider(id_cols="SiteID",
+    dplyr::select(SiteID, LogRatio, Barcode.ID) %>%
+    tidyr::pivot_wider(id_cols="SiteID",
                 names_from="Barcode.ID",
                 values_from="LogRatio",
                 values_fill=NA_real_) %>%

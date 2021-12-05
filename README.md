@@ -1,38 +1,102 @@
-# The PNNL Proteomics Pipeline: P3
-This project provides the basic analysis and tools for carrying out end-to-end proteomic analysis for data generated at PNNL. This repository will serve as a resource upon which we can build additional tools in a reusable fashion. Ideally we will include scripts and libraries that can be used as building blocks for future analysis.
+# Beat AML Proteomics analysis
+This repository houses the exploratory work that we are doing to evaluate the role of proteomics and phosphoproteomics in measuring patient diversity in Acute Myeloid Leukemia, both in the patient outcome and the response of patient samples to ~ex vivo~ drugs.
 
-## Overview
 
-This section describes what you need to know to get started using this code base.
+## Repository Overview
 
-### To use this pipeline
+This repository contains scripts that pull data from a [Synapse repository](http://synapse.org/ptrc) to carry out the various analysis steps needed. You will need to acquire a [synapse username](http://synapse.org/register) to access synapse, and become a [certified user](https://docs.synapse.org/articles/accounts_certified_users_and_profile_validation.html) to add data, but after that you will be set with future projects. You will then need to navigate to the [PNNL/OHSU Synapse page](http://synapse.org/ptrc) to request access.
+
+
+### Before you begin...
+
 This repository is only the basic structure of the tools needed, not the end-to-end analysis. Here are the steps you'll need to use this:
 
-1- Read up on the tools
-  - GitHub requires some basic protocols such as pull requests and commits, you should try to get a basic understanding. I found this [tutorial](https://medium.com/@jonathanmines/the-ultimate-github-collaboration-guide-df816e98fb67) that can serve as a starting point.
-  - Synapse also has a bit of learning curve. To understand what Synapse is and isn't, check out [this document](https://docs.synapse.org/articles/getting_started.html).
-2- Get [RStudio](http://rstudio.org). Basic R is essential, but RStudio will make your life a lot easier, I promise!
-3- Install the [synapse python client](https://python-docs.synapse.org/build/html/index.html), create a [`.synapseConfig` file](https://python-docs.synapse.org/build/html/Credentials.html) in your home directory.
-4- Click on the `Use this template` button above. This will allow you to create your own repository. Then you can follow the steps below.
-5- Create a [new Synapse Project](https://docs.synapse.org/articles/getting_started.html#making-and-managing-projects-in-synapse) to store data for this project, or request access to an existing one.
+1. Read up on the tools.  GitHub requires some basic protocols such as pull requests and commits, you should try to get a basic understanding. I found this [tutorial](https://medium.com/@jonathanmines/the-ultimate-github-collaboration-guide-df816e98fb67) that can serve as a starting point.  Synapse also has a bit of learning curve. To understand what Synapse is1 and isn't, check out [this document](https://docs.synapse.org/articles/getting_started.html).
+2. Get [RStudio](http://rstudio.org). Basic R is essential, but RStudio will make your life a lot easier, I promise!
+3. Install the [synapse python client](https://python-docs.synapse.org/build/html/index.html), create a [`.synapseConfig` file](https://python-docs.synapse.org/build/html/Credentials.html) in your home directory.
+4. Clone this repository - it has all that you will need to contribute and run this analysis.
 
-### To contribute to this pipeline
-Have something that we forgot? Great! Check out the [CONTRIBUTING.md](./CONTRIBUTING.md) document. We welcome all additional tool and methods. Then you can create a pull request and merge your code in.
-
-## Pipeline description
-This pipeline links together a series of data and code repositories to ensure that any data is saved for future use. Furthermore we hope to be able to reproduce the analysis for future projects. A brief overview of each tool is described here.
-![arch](./img/arch.jpg)
+## Beat AML Processing
+Here we descirbe the processing of the BeatAML Data
 
 ### Proteomics and phosphoproteomics processing
-This processing relies on a series of customized `R` scripts that are in the [quantification/](./quantification) directory (documentation is [here](./quantification/README.md). Once this analysis is complete, the data should be stored on Synapse
 
-### Synapse processing
-Synapse is used for:
-- data storage: data is backed up for free
-- data processing: UUIDs and permission modifications allow for easy analysis
-- data release: data can be moved to the PDC or shared
+This repository contains the code for the normalization and processing.
 
-You will need to acquire a [synapse username](http://synapse.org/register) to access synapse, and become a [certified user](https://docs.synapse.org/articles/accounts_certified_users_and_profile_validation.html) to add data, but after that you will be set with future projects. We created a test site at http://synapse.org/p3.
+This is derived from the P3 proteomics workflow and can be found in the [proteomics](./proteomics) folder. It contains the scripts required to process and normalize the data. It also contains the [study design](./proteomics/study_design) files that are required to do the processing.
+
+Once the data is processed from DMS it is uploaded to Synapse in the [Proteomics and Quality Control](https://www.synapse.org/#!Synapse:syn24171150) folder.
+
+The files are all stored in Synapse so that they can be downloaded and shared.
+| Description | Link |
+| --- | --- |
+| Global proteomics data files | [syn25714186](https://www.synapse.org/#!Synapse:syn25714186) |
+| Phosphoproteomics data files | [syn25714185](https://www.synapse.org/#!Synapse:syn25714185) |
+| Metadata file | [syn25807733](https://www.synapse.org/#!Synapse:1syn25807733) |
+
+The data was pushed from raw files to long-form tables for facile querying and viewing:
+
+| Description | Normalization/filtering| Link |
+| --- | --- | --- |
+| Global Proteomics | Uncorrected |[syn25808625](https://www.synapse.org/#!Synapse:syn25808625) |
+| Global Proteomics | Batch-corrected | [syn25808020](https://www.synapse.org/#!Synapse:syn25808020)|
+| Global phosphoproteomics | Camilo add here |[syn26477193](https://www.synapse.org/#!Synapse:syn26477193) |
+| Global phosphoproteomics |Camilo add here|[syn26469873](https://www.synapse.org/#!Synapse:syn26469873/tables/)|
+| Global phosphoprotoemics |Original correction|[syn25808662](https://www.synapse.org/#!Synapse:syn25808662)|
+| Global phosphoproteomics |Uncorrected|[syn25808685](https://www.synapse.org/#!Synapse:syn2580868)|
+
+### Gene mutation, RNASeq, Clinical data
+
+These data are also uploaded to Synapse, and then parsed.
+
+| Description | Link |
+| --- | -- |
+| Waves 1to4 WES Data | [syn2648827](https://www.synapse.org/#!Synapse:syn26428827/tables/) |
+| Waves 1to4 RNASeq Data | [syn26428813](https://www.synapse.org/#!Synapse:syn26428813) |
+| Drug response data | [syn25813252](https://www.synapse.org/#!Synapse:syn25830473)|
+
+
+These tables were pulled from spreadsheets that are currently also stored on Synapse in [this folder](https://www.synapse.org/#!Synapse:syn24171152). Clinical data is still being updated, but is currently stored in an [excel spreadsheet](https://www.synapse.org/#!Synapse:syn25796769).
+
+## Data Analysis
+
+This section aspirationally aims to serve as the outline for the manuscript we are building. This is pretty rough so as things merge together or overlap we can consider restructuring the repository to reflect the latest state of the manuscript.
+
+### Cohort exploration and summarization
+
+The first figure of the manuscript will require visualizing the Beat AML cohort and the data we have. To date this analysis requires, the following, each of which should produce either data for future analysis or figure panels for figure 1. The code should be deposited in the [cohort_summary/](./cohort_summary) directory.
+
+#### Circos plot of data types
+
+We are looking into circos plotting to summarize the data types, this will enable us to see how much data there are for each patient.
+
+#### Non-negative matrix factorization
+
+This will take a multi-omics approach to clustering all samples. This clusters and metagenes will be stored on synapse for future anlaysis.
+
+#### Patient stratification by cluster
+
+Now that we have the patient assignments we can ask if there are survival differences between patients of each cluster, if there are genetic mutation differences, or if there are other clinical properties that vary.
+
+#### Metagene analysis
+
+Last we need to investigate the 'metagenes' that define the clusters and determine if there is functional enrichment, or any phospho networks that are active or depleted.
+
+### Mutational profiling
+
+Figure 2 will compare the genetic mutation data to the other data types. This code will go into the [mutational_analysis](./mutational_analysis/) directory. This analysis focuses on the transcriptomic and proteomic differences between patients with various mutational combinations.
+
+### Immune deconvolution
+Figure 3 will focus on the immune infiltration of various tumors using the BayesDeBulk analysis within the Decomprolute framework.
 
 ### Functional analysis
-There are typically a few steps we do for functional analysis. They are described in the [functional analysis](./functional) directory for now.
+Lastly we will spend Figures 4 and 5 investigating the drug profiles that are unique to this dataset.
+
+#### Regression derived signatures
+What can we learn from the regression? Are there gene sets of interest?
+
+#### Differential expression
+Should we do differential expression as well?
+
+## Paper Figures
+This section is reserved for the manuscript figures, as we work on the analysis.

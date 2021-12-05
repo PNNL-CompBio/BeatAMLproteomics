@@ -1,0 +1,85 @@
+---
+title: "NMF raw results"
+author: "Camilo Posso"
+date: "`r format(Sys.Date(), '%m/%d/%Y')`"
+output: html_document
+---
+
+```{r setup}
+library(MSnSet.utils)
+library(NMF)
+library(dplyr)
+library(tibble)
+library(tidyr)
+
+
+source("../../util/synapseUtil.R")
+source("../../util/loading_data.R")
+source("NMF helper.R")
+load.combined.data()
+
+```
+
+
+```{r}
+m.RNA <- make.msnset(RNA.data, feature.col = "Gene", 
+                     value.col = "RNA counts", metadata = meta)
+
+m.global <- make.msnset(global.data, feature.col = "Gene", 
+                     value.col = "LogRatio", metadata = meta)
+
+m.phospho <- make.msnset(phospho.data, feature.col = "SiteID", 
+                     value.col = "LogRatio", metadata = meta)
+
+mat.global <- global.data %>%
+  pivot_wider(names_from = Barcode.ID, values_from = LogRatio) %>%
+  column_to_rownames("Gene") %>%
+  as.matrix()
+
+
+mat.phospho <- phospho.data %>%
+  select(SiteID, Barcode.ID, LogRatio) %>%
+  pivot_wider(names_from = Barcode.ID, values_from = LogRatio) %>%
+  column_to_rownames("SiteID") %>%
+  as.matrix()
+
+## Data is complete, no need to impute.
+mat.RNA <- RNA.data %>%
+  pivot_wider(names_from = Barcode.ID, values_from = `RNA counts`) %>%
+  column_to_rownames("Gene") %>%
+  as.matrix()
+
+
+mat <- prepare.nmf.mat(list(mat.global, mat.phospho, mat.RNA))
+
+```
+
+```{r}
+start <- Sys.time()
+# results <- nmf.clustering(mat, n.clusters = c(2, 3, 4, 5), N.trials = 50, prefix = "BEATAML")
+# results <- nmf.clustering(mat, n.clusters = c(6, 7), N.trials = 50, prefix = "BEATAML")
+# results <- nmf.clustering(mat, n.clusters = 8, N.trials = 50, prefix = "BEATAML")
+# results <- nmf.clustering(mat, n.clusters = c(9,10,11,12,13), N.trials = 20, prefix = "BEATAML")
+print(Sys.time() - start)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
