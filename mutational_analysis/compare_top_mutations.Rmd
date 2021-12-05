@@ -12,8 +12,11 @@ knitr::opts_chunk$set(echo = TRUE)
 library(amlresistancenetworks)
 
 if(!exists('dataLoaded')){
-  source("../BeatAMLData.R")
+  source("../load_beatAML_data.R")
   dataLoaded=TRUE
+  phos<-load_beataml_phospho_data()$asDataFrame()
+  prot<-load_beataml_global_data()$asDataFrame()
+  genes<-
 }
 
 ```
