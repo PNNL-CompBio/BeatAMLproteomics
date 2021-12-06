@@ -10,13 +10,17 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 library(amlresistancenetworks)
+library(dplyr)
+library(tidyr)
 
 if(!exists('dataLoaded')){
   source("../load_beatAML_data.R")
   dataLoaded=TRUE
-  phos<-load_beataml_phospho_data()$asDataFrame()
-  prot<-load_beataml_global_data()$asDataFrame()
-  genes<-
+  phos<-load_beataml_phospho_data()
+  prot<-load_beataml_global_data()
+  trans<-load_beat_aml_transcript_data()
+  gene<-load_beataml_genomic_data()
+  
 }
 
 ```
@@ -25,11 +29,11 @@ if(!exists('dataLoaded')){
 
 Let's figure out which genes are mutated in at least 10% of the patients. 
 
-```{r cars}
-sig.genes<-pat.data%>%
-  subset(binaryMutations==1)%>%
-  group_by(Gene)%>%summarize(numMutated=n())%>%
-  subset(numMutated>8)
+```{r gene data}
+sig.genes<-gene%>%
+  #subset(binaryMutations==1)%>%
+  group_by(symbol)%>%summarize(numMutated=n())%>%
+  subset(numMutated>25)
 
 DT::datatable(sig.genes)
 ```
@@ -40,27 +44,56 @@ For each gene, segregate patients
 
 ```{r prot sigs, echo=FALSE}
 
-prot.dat<-pat.data%>%
-  dplyr::select(`AML sample`,proteinLevels,Gene)%>%
+prot.dat<-prot%>%
+  dplyr::select(Barcode.ID,LogRatio,Gene)%>%
   distinct()%>%
-  tidyr::pivot_wider(values_from = proteinLevels,names_from=`AML sample`,values_fn=list(proteinLevels=mean))%>%  
+  tidyr::pivot_wider(values_from = LogRatio,names_from=Barcode.ID,values_fn=list(LogRatio=mean))%>%  
   tibble::column_to_rownames('Gene')
 
-diff.res<-lapply(sig.genes$Gene,function(g){
+diff.res<-lapply(sig.genes$symbol,function(g){
   
-  muts<-subset(pat.data,Gene==g)%>%
-    subset(binaryMutations==1)%>%
-    select("AML sample")
-  wts<-subset(pat.data,Gene==g)%>%
-    subset(binaryMutations==0)%>%
-    select("AML sample")
-  limmaTwoFactorDEAnalysis(dat=prot.dat,sampleIDs.group1 = muts$`AML sample`,sampleIDs.group2=wts$`AML sample`)})
+  muts<-subset(gene,symbol==g)%>%
+   # subset(binaryMutations==1)%>%
+    select("labId")
+  muts<-muts$labId
+  wts<-setdiff(gene$labId,muts)
+  limmaTwoFactorDEAnalysis(dat=prot.dat,sampleIDs.group1 = muts,sampleIDs.group2=wts)})
+
+names(diff.res)<-sig.genes$symbol
 
 diff<-lapply(diff.res,function(y) dim(subset(y,adj.P.Val<0.05)))
+names(diff)<-sig.genes$symbol
+
+##TODO: push to synapse for further analysis
 
 ##do GO enrichment
+gt<-lapply(diff.res,function(y) doRegularGo(subset(y,adj.P.Val<0.05)$featureID,y$featureID))
+names(gt)<-sig.genes$symbol
+
+## do GSEA enrichment
+
 
 ##plot heatmap
+library(pheatmap)
+hms<-lapply(names(diff.res),function(x) {
+  y<-diff.res[[x]]
+  genes<-subset(y,adj.P.Val<0.05)$featureID
+  dmat<-prot.dat[genes,]
+  muts<-gene%>%
+    subset(symbol==x)
+  annmat<-gene%>%
+    dplyr::select('labId','InitialAMLDiagnosis','PostChemotherapy','FLT3.ITD',symbol,t_vaf)%>%
+    pivot_wider(names_from=symbol,values_from=t_vaf,values_fill=0.0,values_fn=list(t_vaf=mean))%>%
+    dplyr::select('labId','InitialAMLDiagnosis','PostChemotherapy','FLT3.ITD',x)%>%
+    tibble::remove_rownames()%>%distinct()%>%
+    tibble::column_to_rownames('labId')%>%
+    mutate(InitialAML=as.character(InitialAMLDiagnosis),PostChemo=as.character(PostChemotherapy,FLT3ITD=as.character(FLT3.ITD)))%>%
+    dplyr::select(-c(InitialAMLDiagnosis,PostChemotherapy,FLT3.ITD))
+  
+ # print(annmat)
+    pheatmap(dmat,annotation_col=annmat,filename=paste0(x,'proteinSignature.pdf'))
+    
+})
 
 ```
 
@@ -68,22 +101,55 @@ diff<-lapply(diff.res,function(y) dim(subset(y,adj.P.Val<0.05)))
 ## Get phospho sigs by mutation
 
 ```{R phospho sigs,warning=F, message=F}
-phos.dat<-phos.dat%>%
-  dplyr::select(`AML sample`,proteinLevels,Gene)%>%
+phos.dat<-phos%>%
+  dplyr::select(Barcode.ID,LogRatio,SiteID)%>%
   distinct()%>%
-  tidyr::pivot_wider(values_from = proteinLevels,names_from=`AML sample`,values_fn=list(proteinLevels=mean))%>%  
-  tibble::column_to_rownames('Gene')
+  tidyr::pivot_wider(values_from = LogRatio,names_from=Barcode.ID,values_fn=list(LogRatio=mean))%>%  
+  tibble::column_to_rownames('SiteID')
 
-diff.res<-lapply(sig.genes$Gene,function(g){
-  
-  muts<-subset(pat.data,Gene==g)%>%
-    subset(binaryMutations==1)%>%
-    select("AML sample")
-  wts<-subset(pat.data,Gene==g)%>%
-    subset(binaryMutations==0)%>%
-    select("AML sample")
-  limmaTwoFactorDEAnalysis(dat=prot.dat,sampleIDs.group1 = muts$`AML sample`,sampleIDs.group2=wts$`AML sample`)})
+diff.res<-lapply(sig.genes$symbol,function(g){
+  muts<-subset(gene,symbol==g)%>%
+   # subset(binaryMutations==1)%>%
+    select("labId")
+  muts<-muts$labId
+  wts<-setdiff(gene$labId,muts)
+  limmaTwoFactorDEAnalysis(dat=phos.dat,sampleIDs.group1 = muts,sampleIDs.group2=wts)})
+
+names(diff.res)<-sig.genes$symbol
+
 
 diff<-lapply(diff.res,function(y) dim(subset(y,adj.P.Val<0.05)))
+names(diff)<-sig.genes$symbol
+
+##TODO: push to synapse for further analysis
+
+##do GO enrichment
+gt<-lapply(diff.res,function(y) doRegularKin(subset(y,adj.P.Val<0.05)$featureID,y$featureID))
+names(gt)<-sig.genes$symbol
+
+## do KSEA enrichment
+
+
+##plot heatmap
+library(pheatmap)
+hms<-lapply(names(diff.res),function(x) {
+  y<-diff.res[[x]]
+  genes<-subset(y,adj.P.Val<0.05)$featureID
+  dmat<-phos.dat[genes,]
+  muts<-gene%>%
+    subset(symbol==x)
+  annmat<-gene%>%
+    dplyr::select('labId','InitialAMLDiagnosis','PostChemotherapy','FLT3.ITD',symbol,t_vaf)%>%
+    pivot_wider(names_from=symbol,values_from=t_vaf,values_fill=0.0,values_fn=list(t_vaf=mean))%>%
+    dplyr::select('labId','InitialAMLDiagnosis','PostChemotherapy','FLT3.ITD',x)%>%
+    tibble::remove_rownames()%>%distinct()%>%
+    tibble::column_to_rownames('labId')%>%
+    mutate(InitialAML=as.character(InitialAMLDiagnosis),PostChemo=as.character(PostChemotherapy,FLT3ITD=as.character(FLT3.ITD)))%>%
+    dplyr::select(-c(InitialAMLDiagnosis,PostChemotherapy,FLT3.ITD))
+  
+ # print(annmat)
+    pheatmap(dmat,annotation_col=annmat,filename=paste0(x,'phosphoSiteSignature.pdf'))
+    
+})
 
 ```
