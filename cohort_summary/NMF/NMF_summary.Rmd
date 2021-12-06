@@ -17,14 +17,27 @@ library(tidyr)
 library(NMF)
 library(pheatmap)
 
-source("../../../util/loading_data.R")
-source("../../../util/synapseUtil.R")
+source("../../util/loading_data.R")
+source("../../util/synapseUtil.R")
+source("NMF_helper.R")
+
+load.combined.data()
+# load("../../Misc/loaded data.RData")
 
 folder <- "../../Analysis/NMF/Data/"
 files <- list.files(folder, "BEATAML NMF") %>%
   paste0(folder, .)
 
 results <- lapply(files, readRDS)
+
+ranks <- sapply(results, function(x){
+  y = x[[1]]
+  y = y@fit@H
+  return(dim(y)[[1]])
+  })
+names(results) <- as.numeric(ranks)
+
+results <- results[as.character(sort(as.numeric(names(results))))]
 
 adjacencies <- lapply(results, consensus)
 
@@ -54,25 +67,20 @@ total of 50 runs for each \(k\) value.
 
 
 ```{r compute cophenetic, eval=FALSE, include=FALSE}
-ranks <- sapply(results, function(x){
-  y = x[[1]]
-  y = y@fit@H
-  return(dim(y)[[1]])
-  })
-
 coph.correlation <- sapply(results, cophcor) %>%
-  data.frame(coph.cor = ., k = ranks)
+  data.frame(coph.cor = ., k = 2:13) %>%
+  filter(k <= 8)
 
 p <- ggplot(coph.correlation, aes(x = k, y = coph.cor)) + geom_line() + 
-  ylab("Cophenetic correlation") + scale_x_continuous(breaks = 2:13)
+  ylab("Cophenetic correlation") + scale_x_continuous(breaks = 2:8)
 
-ggsave(p, filename = "cophenetic correlation.png")
+ggsave(p, filename = "Data/cophenetic correlation.png")
 
 ```
 
 
 ```{r show cophenetic}
-knitr::include_graphics("cophenetic correlation.png")
+knitr::include_graphics("Data/cophenetic correlation.png")
 
 ```
 
@@ -95,24 +103,116 @@ the clusters.
 
 ```{r eval=FALSE, include=FALSE}
 samples.common <- colnames(adjacencies[[1]])
-titles <- paste("Consensus map k =", 2:8)
-paths <- paste0("consensus_map_k_", 2:8, ".png")
+titles <- paste("Consensus map k =", 2:13)
+paths <- paste0("Data/consensus_map_k_", 2:13, ".png")
 
+
+
+## Binary indicator for RAS and NPM1
+## KRAS and NRAS mutations both treated as "RAS"
+samples.RAS <- WES.data %>%
+  filter(Gene %in% c("NRAS", "KRAS")) %>%
+  pull(Barcode.ID)
+samples.NPM1 <- WES.data %>%
+  filter(Gene == "NPM1") %>%
+  pull(Barcode.ID)
+
+sample.cats <- meta %>%
+  filter(Barcode.ID %in% samples.common) %>%
+  select(FLT3.ITD, PostChemotherapy) %>%
+  mutate(FLT3.ITD = as.factor(FLT3.ITD),
+         PostChemotherapy = as.factor(PostChemotherapy),
+         Barcode.ID = rownames(.), 
+         NRAS = case_when(rownames(.) %in% samples.RAS ~ TRUE,
+                          TRUE ~ FALSE),
+         NPM1 = case_when(rownames(.) %in% samples.NPM1 ~ TRUE,
+                          TRUE ~ FALSE)) %>%
+  mutate(NRAS = as.factor(NRAS),
+         NPM1 = as.factor(NPM1))
+
+## Computes the enrichment of each column in sample.cats in each cluster. 
+## Values are -log10(significance) if log scale is used.
+## output is a matrix with clusters on the rows and sample.cat columns as columns
+## showing the enrichment in each according to a fisher exact test. Used as row labels to show fitness of clusters
+enrichment <- lapply(results, get.enrichment, sample.cats, log.scale = TRUE)
+p.celing <- sapply(enrichment, function(xx){max(xx[,-1])}) %>% max() %>% ceiling()
+
+
+
+## pheatmap column labels
 ann.labels <- meta %>%
   filter(Barcode.ID %in% samples.common) %>%
   select(FLT3.ITD, PostChemotherapy) %>%
   mutate(FLT3.ITD = as.factor(FLT3.ITD),
-         PostChemotherapy = as.factor(PostChemotherapy)) 
+         PostChemotherapy = as.factor(PostChemotherapy),
+         Barcode.ID = rownames(.))
 
-ann.colors <- lapply(names(ann.labels), function(x) c(`TRUE` = "darkgrey", `FALSE` = "white"))
+## KRAS and NRAS will both be treated as "RAS".
+WES.labels <- WES.data %>%
+  filter(Gene %in% c("KRAS", "NRAS", "NPM1")) %>%
+  group_by(Barcode.ID, Gene) %>%
+  summarise(t_vaf = mean(t_vaf)) %>%
+  ungroup(Barcode.ID, Gene) %>%
+  mutate(Gene = case_when(grepl("RAS", Gene) ~ "RAS",
+                          TRUE ~ Gene)) %>%
+  pivot_wider(names_from = Gene, values_from = t_vaf)
+
+## Adding t_vaf in place of TRUE/FALSE for NPM1 and RAS mutations.  
+ann.labels <- ann.labels %>%
+  mutate(Barcode.ID = rownames(.)) %>%
+  left_join(WES.labels, by = "Barcode.ID") %>%
+  mutate(NPM1 = case_when(!is.na(NPM1) ~ NPM1,
+                          TRUE ~ 0),
+         RAS = case_when(!is.na(RAS) ~ RAS,
+                          TRUE ~ 0)) %>%
+  column_to_rownames("Barcode.ID") %>%
+  as.data.frame()
+
+
+
+## White to dark purple (like the snow storms on weather maps)
+colors.wp <- scales::seq_gradient_pal("#FFFFFF", "#4A0078", "Lab")(seq(0,1,length.out = p.celing*10 + 1))
+
+### Choosing the colors for the row labels. Binary indicators
+### use white and grey, while numeric is on a white to green scale.
+ann.colors <- lapply(names(ann.labels), function(x){
+  if (is.numeric(ann.labels[[x]])) {
+    c("white", "black")
+  } else {
+  c(`FALSE` = "white", `TRUE` = "darkgrey")
+  }
+  })
 names(ann.colors) <- names(ann.labels)
 
+
+
 ### Run this to make the plots shown.
-plots <- lapply(1:7, function(i){
-  C = adjacencies[[i]]
+plots <- lapply(1:12, function(i){
+  xx <- enrichment[[i]]
+  p.labels <- xx %>%
+    left_join(get.clusters.individual(results[[i]]),
+              by = "Cluster") %>% 
+    column_to_rownames("Barcode.ID") %>%
+    select(everything(), -Cluster) %>% 
+    as.data.frame()
+  
+  xx <- xx[, -1]
+  
+  xx.colors <- lapply(colnames(xx), function(category){
+    p.max <- max(xx[category]) %>% ceiling()
+    p.min <- min(xx[category]) %>% floor()
+    c(colors.wp[[p.min*10 + 1]], colors.wp[[p.max*10 + 1]])
+  })
+  
+  names(xx.colors) <- colnames(xx)
+  
+  xx.colors <- append(ann.colors, xx.colors)
+  
+  
   png(filename = paths[[i]], width = 1000, height = 1000)
-  pheatmap(C, annotation_col = ann.labels, annotation_colors = ann.colors, 
-           show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]])
+  pheatmap(adjacencies[[i]], annotation_col = ann.labels, annotation_colors = xx.colors, 
+           show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]], 
+           annotation_row = p.labels, clustering_method = "ward.D")
   dev.off()
   return("Done")
 })
@@ -125,7 +225,7 @@ plots <- lapply(1:7, function(i){
 
 
 ```{r, out.height = "1000px", out.width = "1000px"}
-knitr::include_graphics("consensus_map_k_2.png")
+knitr::include_graphics("Data/consensus_map_k_2.png")
 
 ```
 
@@ -135,7 +235,7 @@ $$\\[0.1in]$$
 
 
 ```{r, out.height = "1000px", out.width = "1000px"}
-knitr::include_graphics("consensus_map_k_4.png")
+knitr::include_graphics("Data/consensus_map_k_4.png")
 
 ```
 
@@ -145,7 +245,7 @@ $$\\[0.1in]$$
 
 
 ```{r, out.height = "1000px", out.width = "1000px"}
-knitr::include_graphics("consensus_map_k_5.png")
+knitr::include_graphics("Data/consensus_map_k_5.png")
 
 ```
 
@@ -155,7 +255,7 @@ $$\\[0.1in]$$
 
 
 ```{r, out.height = "1000px", out.width = "1000px"}
-knitr::include_graphics("consensus_map_k_8.png")
+knitr::include_graphics("Data/consensus_map_k_8.png")
 
 ```
 
@@ -165,10 +265,57 @@ knitr::include_graphics("consensus_map_k_8.png")
 
 
 
+```{r include=FALSE}
+## Code for my first attempt at fisher test for testing enrichment. 
+## Done as an average of the clusters for each k. 
+## Could be useful later
+
+# sample.cats <- ann.labels %>% 
+#   mutate(Barcode.ID = rownames(.)) %>%
+#   left_join(get.clusters.individual(results[[10]]), by = "Barcode.ID") %>%
+#   column_to_rownames("Barcode.ID") %>% as.data.frame()
+# 
+# dat <- table(sample.cats$Cluster, sample.cats$FLT3.ITD)
+# 
+# fisher.test(dat, workspace = 2e7)
+# 
+# fisher.results <- data.frame(FLT3.ITD = rep(0, length(results)), NRAS = rep(0, length(results)), 
+#                              NPM1 = rep(0, length(results)), PostChemotherapy = rep(0, length(results)))
+# 
+# for (category in c("FLT3.ITD", "NRAS", "NPM1", "PostChemotherapy")){
+#   p.values <- sapply(1:length(results), function(i){
+#     sample.cats <- ann.labels %>% 
+#       mutate(Barcode.ID = rownames(.)) %>%
+#       left_join(get.clusters.individual(results[[i]]), by = "Barcode.ID") %>%
+#       column_to_rownames("Barcode.ID") %>% as.data.frame()
+#     
+#     dat <- table(sample.cats[[category]], sample.cats$Cluster)
+#     return(fisher.test(dat, workspace = 2e8)$p.value)
+#   })
+#   
+#   fisher.results[[category]] <- p.values
+# }
+# 
+# fisher.results$k <- 2:13
+
+```
 
 
+```{r}
+## Writing table with clusters to share
+## Contains cluster membership and meta data.
 
+# sample.cats <- ann.labels %>% 
+#   mutate(Barcode.ID = rownames(.))
+# 
+# share <- get.clusters(results) %>%
+#   mutate(Barcode.ID = rownames(.)) %>%
+#   left_join(sample.cats, by = "Barcode.ID") %>%
+#   column_to_rownames("Barcode.ID") %>%
+#   write.table(file = "Data/Sample cluster membership and metadata.txt", 
+#               sep = "\t", quote = F)
 
+```
 
 
 
