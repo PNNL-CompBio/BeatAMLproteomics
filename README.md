@@ -43,7 +43,7 @@ The data was pushed from raw files to long-form tables for facile querying and v
 | Global phosphoproteomics | Camilo add here |[syn26477193](https://www.synapse.org/#!Synapse:syn26477193) |
 | Global phosphoproteomics |Camilo add here|[syn26469873](https://www.synapse.org/#!Synapse:syn26469873/tables/)|
 | Global phosphoprotoemics |Original correction|[syn25808662](https://www.synapse.org/#!Synapse:syn25808662)|
-| Global phosphoproteomics |Uncorrected|[syn25808685](https://www.synapse.org/#!Synapse:syn2580868)|
+| Global phosphoproteomics |Uncorrected|[syn25808685](https://www.synapse.org/#!Synapse:syn25808685)|
 
 ### Gene mutation, RNASeq, Clinical data
 
