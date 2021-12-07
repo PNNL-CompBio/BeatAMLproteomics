@@ -39,11 +39,13 @@ The data was pushed from raw files to long-form tables for facile querying and v
 | Description | Normalization/filtering| Link |
 | --- | --- | --- |
 | Global Proteomics | Uncorrected |[syn25808625](https://www.synapse.org/#!Synapse:syn25808625) |
-| Global Proteomics | Batch-corrected | [syn25808020](https://www.synapse.org/#!Synapse:syn25808020)|
-| Global phosphoproteomics | Camilo add here |[syn26477193](https://www.synapse.org/#!Synapse:syn26477193) |
-| Global phosphoproteomics |Camilo add here|[syn26469873](https://www.synapse.org/#!Synapse:syn26469873/tables/)|
-| Global phosphoprotoemics |Original correction|[syn25808662](https://www.synapse.org/#!Synapse:syn25808662)|
-| Global phosphoproteomics |Uncorrected|[syn25808685](https://www.synapse.org/#!Synapse:syn2580868)|
+| Global Proteomics | Batch-corrected, no missing batches | [syn25808020](https://www.synapse.org/#!Synapse:syn25808020)|
+| Global phosphoproteomics | Uncorrected |[syn25808685](https://www.synapse.org/#!Synapse:syn25808685)|
+| Global phosphoprotoemics | Batch-corrected, no missing batches |[syn25808662](https://www.synapse.org/#!Synapse:syn25808662)|
+| Global phosphoproteomics | Batch-corrected, at most 4 missing batches |[syn26469873](https://www.synapse.org/#!Synapse:syn26469873)|
+| Global phosphoproteomics | Batch-corrected, at most 10 missing batches |[syn26477193](https://www.synapse.org/#!Synapse:syn26477193) |
+
+Before batch correction, we filter to eliminate features which contain too much missing data. Originally, we filtered out any features which had at least one batch with ONLY missing data in that batch, ie, "no missing batches". However, this filtering was too strict for our large phosphoproteomics dataset, so we applied two less conservative filters prior to batch correction, as the "no missing batches" filter left us with relatively few phosphosites. Thankfully, since global proteomics dataset has very little missing data, the same issue did not arise.
 
 ### Gene mutation, RNASeq, Clinical data
 

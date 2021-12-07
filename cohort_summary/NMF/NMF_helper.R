@@ -7,6 +7,30 @@ library(impute)
 library(data.table)
 
 
+### Given a matrix H from the NMF output, this creates the connectivity matrix, or 
+### adjacency matrix, associated with H. The NMF package uses the function 'connectivity', and they 
+### are equivalent. This function is really a sanity check to make sure I understand the clustering process.
+connectivity.matrix <- function(mat){
+  samples <- colnames(mat)
+  out <- matrix(0, nrow = length(samples), ncol = length(samples))
+  cluster <- apply(mat, 2, which.max)
+  N <- length(unique(cluster))
+  members <- lapply(1:N, function(i){
+    which(cluster == i) %>%
+      names()
+  })
+  out <- lapply(samples, function(sample){
+    xx = members[[cluster[[sample]]]]
+    xx = samples %in% xx %>%
+      as.numeric()
+  }) %>% do.call(rbind, .)
+  
+  rownames(out) <- samples
+  colnames(out) <- samples
+  return(out)
+}
+
+
 ### Computes the cophenetic correlation. Use the NMF function cophcor for this instead. 
 ### This is here as a sanity check, to check my understanding of each step.
 cophenetic.correlation <- function(data.distance, nmf.H, method = "ward.D") {
@@ -84,33 +108,9 @@ prepare.nmf.mat <- function(datasets) {
 }
 
 
-### Given a matrix H from the NMF output, this creates the connectivity matrix, or 
-### adjacency matrix, associated with H. The NMF package uses the function 'connectivity', and they 
-### are equivalent. This function is really a sanity check to make sure I understand the clustering process.
-connectivity.matrix <- function(mat){
-  samples <- colnames(mat)
-  out <- matrix(0, nrow = length(samples), ncol = length(samples))
-  cluster <- apply(mat, 2, which.max)
-  N <- length(unique(cluster))
-  members <- lapply(1:N, function(i){
-    which(cluster == i) %>%
-      names()
-  })
-  out <- lapply(samples, function(sample){
-    xx = members[[cluster[[sample]]]]
-    xx = samples %in% xx %>%
-      as.numeric()
-  }) %>% do.call(rbind, .)
-  
-  rownames(out) <- samples
-  colnames(out) <- samples
-  return(out)
-}
-
-
 ### Given the output for a single k value from nmf.clustering, this outputs
 ### the cluster each sample belongs to. Cluster naming is arbitrary.
-get.clusters <- function(results){
+get.clusters.individual <- function(results){
   nmf.C <- connectivity(results)
   samples <- colnames(nmf.C)
   
@@ -121,19 +121,94 @@ get.clusters <- function(results){
     unique()
   
   out <- lapply(1:length(clusters), function(i){
-    members = data.frame(Cluster = i, Sample = clusters[[i]])
+    members = data.frame(Cluster = i, Barcode.ID = clusters[[i]])
   }) %>%
     rbindlist() %>%
     as.data.frame()
-  rownames(out) <- out$Sample
+  rownames(out) <- out$Barcode.ID
   
   return(out)
 }
 
 
+get.clusters <- function(results.list, type = "Cluster Membership"){
+  if (type == "Cluster Membership") {
+    out <- lapply(results.list, function(result){
+      k = dim(result[[1]]@fit@H)[1]
+      get.clusters.individual(result) %>%
+        select(Cluster) %>%
+        plyr::rename(replace = c("Cluster" = paste0("k=", k))) %>%
+        as.data.frame()
+    }) %>% do.call(cbind, .)
+  }
+  
+  return(out)
+}
+
+### sample.categories should have a column with sample names (Barcode.ID)
+### computes enrichment using fisher test for each cluster in each category from
+### sample.categories. Outputs a mtrix containing the significance of enrichment,
+### which can be used as heatmap column/row labels
+get.enrichment <- function(results, sample.categories, log.scale = FALSE) {
+  cluster.membership <- get.clusters.individual(results)
+  k = length(unique(cluster.membership$Cluster))
+  
+  sample.categories <- sample.categories %>%
+    filter(rownames(.) %in% rownames(cluster.membership)) %>%
+    left_join(cluster.membership, by = "Barcode.ID") %>%
+    column_to_rownames("Barcode.ID") %>% 
+    as.data.frame()
+  
+  categories <- sample.categories %>%
+    select(-Cluster) %>%
+    colnames()
+  
+  out <- lapply(categories, function(category){
+    
+    p.values <- sapply(1:k, function(i){
+      cluster.df <- sample.categories %>%
+        mutate(Cluster = case_when(Cluster == i ~ TRUE,
+                                   TRUE ~ FALSE)) %>%
+        mutate(Cluster = as.factor(Cluster))
+      dat <- table(cluster.df[[category]], cluster.df$Cluster)
+      fisher.test(dat, workspace = 2e8, alternative = "greater")$p.value
+    })
+    
+    if (log.scale) {
+      p.values <- -log10(p.values)
+    } else {
+      p.values <- p.values
+    }
+    
+  }) %>% do.call(cbind, .) %>% as.data.frame()
+  
+  colnames(out) <- paste0("Enrichment in ", categories)
+  out <- out %>%
+    mutate(Cluster = 1:k) %>%
+    select(Cluster, everything())
+  
+}
 
 
-
+### result is the NMF output from a single k. Outputs the purity (as defined by ...) of the clustering
+### for each category given.
+clustering.purity <- function(result, sample.categories, normalized = FALSE) {
+  clusters <- get.clusters.individual(result) %>%
+    mutate(Cluster = as.factor(Cluster))
+  sample.categories <- sample.categories[clusters$Barcode.ID, ] %>%
+    mutate_all( ~ as.factor(.))
+  
+  out <- sapply(colnames(sample.categories), function(id){
+    xx <- clusters$Cluster
+    yy <- sample.categories[[id]]
+    lower.limit <- max(table(yy))/length(yy)
+    if (normalized) {
+      (purity(xx, yy) - lower.limit)/(1-lower.limit)
+    } else {
+      purity(xx,yy)
+    }
+  })
+}
 
 
 

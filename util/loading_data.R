@@ -77,7 +77,7 @@ load.functional.data <- function(threshold = 0.05, fam.threshold = 0.05){
   workbook.syn <- "syn26427390"
   summary.table <- readxl::read_xlsx(syn$get(summary.syn)$path) %>%
     select(labId, overallSurvival) %>%
-    rename(Barcode.ID = labId)
+    dplyr::rename(Barcode.ID = labId)
   
   data <- querySynapseTable("syn25830473") %>%
     mutate(probit_qc_error = unlist(probit_qc_error))

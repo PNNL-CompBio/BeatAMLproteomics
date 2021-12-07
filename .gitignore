@@ -49,4 +49,5 @@ vignettes/*.pdf
 Misc/
 
 # NMF raw data
+cohort_summary/NMF/Data/
 Analysis/NMF/Data/
