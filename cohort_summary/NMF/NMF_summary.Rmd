@@ -19,6 +19,7 @@ library(pheatmap)
 
 source("../../util/loading_data.R")
 source("../../util/synapseUtil.R")
+source("../../util/make_plots_util.R")
 source("NMF_helper.R")
 
 # load.combined.data()
@@ -75,13 +76,15 @@ coph.correlation <- sapply(results, cophcor) %>%
 p <- ggplot(coph.correlation, aes(x = k, y = coph.cor)) + geom_line() + 
   ylab("Cophenetic correlation") + scale_x_continuous(breaks = 2:8)
 
-ggsave(p, filename = "Data/cophenetic correlation.png")
+ggsave(p, filename = "Data/cophenetic_correlation.png")
+ggsave(p, filename = "Data/cophenetic_correlation.pdf")
+# upload.plot("Data/cophenetic_correlation.pdf", "syn26529350")
 
 ```
 
 
 ```{r show cophenetic}
-knitr::include_graphics("Data/cophenetic correlation.png")
+knitr::include_graphics("Data/cophenetic_correlation.png")
 
 ```
 
@@ -108,7 +111,7 @@ the clusters.
 
 samples.common <- colnames(adjacencies[[1]])
 titles <- paste("Consensus map k =", 2:13)
-paths <- paste0("Data/consensus_map_k_", 2:13, ".png")
+paths <- paste0("Data/", titles) %>% sub("= ", "", .) %>% gsub(" ", "_", .)
 
 
 
@@ -216,15 +219,20 @@ plots <- lapply(1:12, function(i){
   })
   
   names(xx.colors) <- colnames(xx)
-  
   xx.colors <- append(ann.colors, xx.colors)
   
+  make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = NULL,
+                annotation_col = ann.labels, annotation_colors = xx.colors, 
+                show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]], 
+                annotation_row = p.labels, clustering_method = "ward.D", 
+                height = 12, width = 12, format = "png")
   
-  png(filename = paths[[i]], width = 1000, height = 1000)
-  pheatmap(adjacencies[[i]], annotation_col = ann.labels, annotation_colors = xx.colors, 
-           show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]], 
-           annotation_row = p.labels, clustering_method = "ward.D")
-  dev.off()
+  make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = "syn26529350",
+                annotation_col = ann.labels, annotation_colors = xx.colors, 
+                show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]], 
+                annotation_row = p.labels, clustering_method = "ward.D", 
+                height = 12, width = 12, format = "pdf")
+  
   return("Done")
 })
 
