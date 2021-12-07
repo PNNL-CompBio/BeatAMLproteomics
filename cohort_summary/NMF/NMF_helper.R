@@ -186,7 +186,7 @@ get.enrichment <- function(results, sample.categories, log.scale = FALSE) {
   out <- out %>%
     mutate(Cluster = 1:k) %>%
     select(Cluster, everything())
-
+  
 }
 
 

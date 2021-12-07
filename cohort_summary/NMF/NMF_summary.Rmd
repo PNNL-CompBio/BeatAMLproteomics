@@ -10,7 +10,7 @@ editor_options:
   chunk_output_type: inline
 ---
 
-```{r load data, eval=FALSE, include=FALSE}
+```{r load data, include=FALSE}
 library(ggplot2)
 library(dplyr)
 library(tidyr)
@@ -21,10 +21,10 @@ source("../../util/loading_data.R")
 source("../../util/synapseUtil.R")
 source("NMF_helper.R")
 
-load.combined.data()
-# load("../../Misc/loaded data.RData")
+# load.combined.data()
+load("../../Misc/loaded data.RData")
 
-folder <- "../../Analysis/NMF/Data/"
+folder <- "../../cohort_summary/NMF/Data/"
 files <- list.files(folder, "BEATAML NMF") %>%
   paste0(folder, .)
 
@@ -40,9 +40,6 @@ names(results) <- as.numeric(ranks)
 results <- results[as.character(sort(as.numeric(names(results))))]
 
 adjacencies <- lapply(results, consensus)
-
-purity.scores.normalized <- lapply(results, clustering.purity, sample.cats, normalized = TRUE) %>%
-  do.call(rbind, .) %>% as.data.frame()
 
 ```
 
@@ -70,7 +67,7 @@ the results of many runs. Below, we see the cophenetic correlation for each \(k\
 total of 50 runs for each \(k\) value.
 
 
-```{r compute cophenetic, eval=FALSE, include=FALSE}
+```{r compute cophenetic, include=FALSE}
 coph.correlation <- sapply(results, cophcor) %>%
   data.frame(coph.cor = ., k = 2:13) %>%
   filter(k <= 8)
@@ -105,7 +102,10 @@ We also annotate the FLT3 and Chemotherapy status of the patients, to see if the
 the clusters.
 
 
-```{r eval=FALSE, include=FALSE}
+```{r include=FALSE}
+### If k = 2 picture is not showing up, run the chunks to make the plots first, then knit. 
+### Seems to be a bug that is preventing the first plot (k = 2) from saving properly.
+
 samples.common <- colnames(adjacencies[[1]])
 titles <- paste("Consensus map k =", 2:13)
 paths <- paste0("Data/consensus_map_k_", 2:13, ".png")
@@ -133,6 +133,10 @@ sample.cats <- meta %>%
                           TRUE ~ FALSE)) %>%
   mutate(NRAS = as.factor(NRAS),
          NPM1 = as.factor(NPM1))
+
+### Purity scores provide another measure of cluster fitness
+purity.scores.normalized <- lapply(results, clustering.purity, sample.cats, normalized = TRUE) %>%
+  do.call(rbind, .) %>% as.data.frame()
 
 ## Computes the enrichment of each column in sample.cats in each cluster. 
 ## Values are -log10(significance) if log scale is used.
@@ -205,6 +209,9 @@ plots <- lapply(1:12, function(i){
   xx.colors <- lapply(colnames(xx), function(category){
     p.max <- max(xx[category]) %>% ceiling()
     p.min <- min(xx[category]) %>% floor()
+    
+    ### This is to make the scale of "white to purple" uniform, even across
+    ### different categories with different ranges to color, for instance [0, 2] and [4, 13].
     c(colors.wp[[p.min*10 + 1]], colors.wp[[p.max*10 + 1]])
   })
   
