@@ -41,7 +41,11 @@ results <- results[as.character(sort(as.numeric(names(results))))]
 
 adjacencies <- lapply(results, consensus)
 
+purity.scores.normalized <- lapply(results, clustering.purity, sample.cats, normalized = TRUE) %>%
+  do.call(rbind, .) %>% as.data.frame()
+
 ```
+
 
 
 # Non-negative matrix factorization

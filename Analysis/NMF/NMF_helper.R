@@ -190,4 +190,25 @@ get.enrichment <- function(results, sample.categories, log.scale = FALSE) {
 }
 
 
+### result is the NMF output from a single k. Outputs the purity (as defined by ...) of the clustering
+### for each category given.
+clustering.purity <- function(result, sample.categories, normalized = FALSE) {
+  clusters <- get.clusters.individual(result) %>%
+    mutate(Cluster = as.factor(Cluster))
+  sample.categories <- sample.categories[clusters$Barcode.ID, ] %>%
+    mutate_all( ~ as.factor(.))
+  
+  out <- sapply(colnames(sample.categories), function(id){
+    xx <- clusters$Cluster
+    yy <- sample.categories[[id]]
+    lower.limit <- max(table(yy))/length(yy)
+    if (normalized) {
+      (purity(xx, yy) - lower.limit)/(1-lower.limit)
+    } else {
+      purity(xx,yy)
+    }
+  })
+}
+
+
 
