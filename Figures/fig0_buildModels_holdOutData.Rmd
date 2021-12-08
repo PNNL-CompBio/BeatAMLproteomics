@@ -1,10 +1,3 @@
----
-title: "Build K-fold models for use"
-author: "Sara Gosline"
-date: "10/28/2021"
-output: html_document
----
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(amlresistancenetworks)
@@ -12,26 +5,23 @@ library(dplyr)
 library(Matrix)
 
 # If you are loading data from Synapse, source -
-#source("../util/synapseUtil.R")
-#source("../util/loading_data.R")
+source("../util/synapseUtil.R")
+source("../util/loading_data.R")
 
 # If you are unable to connect to Synapse, source -
-source("../util/loading_data_local.R")
+#source("../util/loading_data_local.R")
 ```
 
-## Load data
-We have created a standard file to load all the data needed for the analysis. We also merge the gene based data and the phosphosite data by Gene and Sample
-
 ```{r load data, error=FALSE, message=FALSE, warning=FALSE}
-global.data <- load.global.data("//Users//dann850//Desktop//CPTAC_PTRC//BeatAML_210//BeatAMLProteomics.csv")
+global.data <- load.global.data()
 pat.data <- as.data.frame(global.data$`Long-form global`)
 pat.data$Sample <- NULL
 
-phospho.data <- load.phospho.data("//Users//dann850//Desktop//CPTAC_PTRC//BeatAML_210//BeatAMLPhosphoproteomics.csv")
+phospho.data <- load.phospho.data()
 pat.phos <- as.data.frame(phospho.data$`Long-form phospho`)
 pat.phos$Sample <- NULL
 
-functional.data <- load.functional.data("//Users//dann850//Desktop//CPTAC_PTRC//BeatAML_210//FullPTCohortFunctionalData.csv")
+functional.data <- load.functional.data()
 auc.dat <- as.data.frame(functional.data$`Long-form functional`)
 
 ##For testing purposes -
@@ -43,65 +33,29 @@ pat.data <- pat.data %>%
 
 ```
 
-## Now we can build the models
-
-We want to build both the LASSO and logistic regression models using the following code. This code will divide the patients into 5 batches and train/test the model holding out 1/5 of the data each time. Then we will have predictions on each of the samples. 
-
 ```{r build models, warning=FALSE, message=FALSE, error=FALSE}
 
 all.pats <- intersect(pat.data$`AML sample`,auc.dat$`AML sample`)
 library(caret)
 folds<-createFolds(all.pats,k=5)
-##separate out data?
 
-res<-lapply(folds,function(testpats){
-    test.pats<-all.pats[testpats]
-    train.pats<-setdiff(all.pats,test.pats)
+test.pats<-all.pats[folds[[2]]]
+train.pats<-setdiff(all.pats,test.pats)
 
-# print("Phospho preds first")
-#  substrate.dat<-pat.phos%>%
-#    dplyr::select(`AML sample`='Sample',Gene='site',Phosphosite='LogFoldChange')
+print('Now getting gene-based preds')
   
-#          tr.dat<-subset(substrate.dat,`AML sample`%in%train.pats)
-#      te.dat<-subset(substrate.dat,`AML sample`%in%test.pats)
-      
-    # phospho.reg.results<-drugMolRegressionEval(auc.dat,
-    #                                              tr.dat,
-    #                                            'Phosphosite',
-    #                                            dplyr::rename(auc.dat,Sample='AML sample'),
-    #                                            dplyr::rename(te.dat,Sample='AML sample'))%>%
-    #     do.call(rbind,.)
-    #   
-    # 
-    # phospho.lr.results<-drugMolLogRegEval(auc.dat,tr.dat,'Phosphosite',
-    #                                       dplyr::rename(auc.dat,Sample='AML sample'),
-    #                                        dplyr::rename(te.dat,Sample='AML sample'))%>%
-    #   do.call(rbind,.)
-    # 
-    # phospho.enet.results<-drugMolRegressionEval(auc.dat,
-    #                                            tr.dat,
-    #                                            'Phosphosite',
-    #                                            dplyr::rename(auc.dat,Sample='AML sample'),
-    #                                            dplyr::rename(te.dat,Sample='AML sample'),
-    #                                            category='Condition',
-    #                                            doEnet=TRUE)%>%
-    #   do.call(rbind,.)
-    # 
-  print('Now getting gene-based preds')
+tr.dat<-subset(pat.data,`AML sample`%in%train.pats)
+te.dat<-subset(pat.data,`AML sample`%in%test.pats)
   
-  tr.dat<-subset(pat.data,`AML sample`%in%train.pats)
-  te.dat<-subset(pat.data,`AML sample`%in%test.pats)
-  
-  ##This list describes the features to be used  
-  eval.list<-list(
+eval.list<-list(
     #combo=list(mf=c('Gene','Gene','Gene','site'), fn=c('mRNALevels','proteinLevels','binaryMutations','Phosphosite')),
     #mRNA=c('Gene','mRNALevels'),
     prot=c("Gene","proteinLevels"),
     #mut=c('Gene','binaryMutations'),
     phosph=c('site','Phosphosite'))
 
-    message("Comparing logistic preds")
-  log.reg.preds<-purrr::map_df(eval.list,
+message("Comparing logistic preds")
+log.reg.preds<-purrr::map_df(eval.list,
                              ~ drugMolLogRegEval(auc.dat,
                                                 tr.dat,
                                                mol.feature=.x[1],
@@ -110,10 +64,9 @@ res<-lapply(folds,function(testpats){
                                                dplyr::rename(te.dat,Sample='AML sample'),
                                               category='Condition'))
 
-      
-  message('Running lasso')
-    ##now train model on AML and eval on depmap data
-  reg.preds<-purrr::map_df(eval.list,
+message('Running lasso')
+
+reg.preds<-purrr::map_df(eval.list,
                          ~ amlresistancenetworks::drugMolRegressionEval(auc.dat,
                             tr.dat,
                             mol.feature=.x[1],
@@ -121,8 +74,8 @@ res<-lapply(folds,function(testpats){
                             dplyr::rename(auc.dat,Sample='AML sample'),
                                              dplyr::rename(te.dat,Sample='AML sample'),
                                                  category='Condition'))
-  message("Running elastic net")
-  enet.reg.preds<-purrr::map_df(eval.list,
+message("Running elastic net")
+enet.reg.preds<-purrr::map_df(eval.list,
                          ~ drugMolRegressionEval(auc.dat,
                             tr.dat,
                              mol.feature=.x[1],
@@ -134,13 +87,13 @@ res<-lapply(folds,function(testpats){
   
   
 
-  e.results<-enet.reg.preds%>%
+e.results<-enet.reg.preds%>%
     mutate(method='ElasticNet')
  
-  full.results<-reg.preds%>%
+full.results<-reg.preds%>%
     mutate(method='LASSO')
 
-  lr.results<-log.reg.preds%>%
+lr.results<-log.reg.preds%>%
     mutate(method='LogisticReg')%>%
     mutate(MSE=MSE*10000)
   
@@ -153,59 +106,7 @@ res<-lapply(folds,function(testpats){
   all.res<-rbind(full.results,lr.results,e.results)
   print(dim(all.res))
   return(all.res)
-  
-})
 
 res<-do.call(rbind,res)
 saveRDS(res,'combinedKfoldRes.rds')
-```
-
-Now we have all the data files and ready to go!
-
-Let's plot the k-fold results by data type. 
-```{r plot results}
-library(ggplot2)
-
-library(wesanderson)
-pal<-wes_palette('Darjeeling1')
-
-p3<-res%>%
-  subset(numFeatures>0)%>%
-    ggplot(aes(y=corVal,x=Molecular,fill=Molecular))+
-          geom_boxplot(aes(alpha=0.5))+
-          geom_jitter(aes(color=Molecular))+
-  scale_color_manual(values=pal)+
-scale_fill_manual(values=pal)+facet_grid(~method)
-
-p3
-write.csv(res%>%group_by(Molecular,method)%>%summarize(meanCor=mean(corVal,na.rm=T))%>%arrange(desc(meanCor)),file='table1_overallPerf.csv')
-ggsave('5foldCVperformance.pdf',p3,width=12)
-
-```
-
-It seems that the protein data performs well. We can break down by drug as well to see how individual drugs perform.
-
-```{r plot drugs, message=F}
-
-  p4<-res%>%subset(numFeatures>0)%>%
-    ggplot(aes(y=corVal,x=compound,fill=Molecular))+
-          geom_boxplot(aes(alpha=0.5))+
-       #   geom_jitter(aes(color=Molecular))+
-  scale_color_manual(values=pal)+
-scale_fill_manual(values=pal)+coord_flip()+facet_grid(~method)
-
-p4
-
-write.csv(res%>%group_by(Molecular,method,compound)%>%summarize(meanCor=mean(corVal,na.rm=T),samples=mean(numSamples,na.rm=T))%>%arrange(desc(meanCor)),'table2.csv')
-ggsave('5foldCVperformanceByDrug.pdf',p4,height=12,width=10)
-```
-
-We need a new plot to evaluate size of predictors. 
-
-```{r warning=FALSE, message=FALSE}
-
-#get the multiomic preds
-multi<-grep(';',res$Molecular)
-
-
 ```
