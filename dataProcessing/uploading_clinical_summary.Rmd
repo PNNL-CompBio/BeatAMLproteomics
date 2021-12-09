@@ -1,0 +1,36 @@
+---
+title: "Pushing latest sample summary to synapse"
+author: "Camilo Posso"
+date: "10/28/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(dplyr)
+library(openxlsx)
+source("../util/synapseUtil.R")
+```
+
+
+
+We just received the latest sample summary table, containing a lot of annotation
+data, including allele ratios. 
+
+
+
+```{r loading data}
+path <- "../proteomics/study_design/BeatAML_complete_sample_summary/PNNL_clinical_summary_12_08_2021.xlsx"
+summary.table <- read.xlsx(path)
+
+## Uploading to the "Genomics transcriptomics clinical" folder, under 
+## the BeatAML Patient Data main folder.
+parentID <- "syn24171152"
+
+synapseStore(path, parentID)
+
+```
+
+
+
+
