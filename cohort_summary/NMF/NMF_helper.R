@@ -111,7 +111,10 @@ prepare.nmf.mat <- function(datasets) {
 ### Given the output for a single k value from nmf.clustering, this outputs
 ### the cluster each sample belongs to. Cluster naming is arbitrary.
 get.clusters.individual <- function(results){
-  nmf.C <- connectivity(results)
+  ### 'what = chc' derives the clusters from the consensus matrix, averaging the runs
+  ### If not using 'chc', then it outputs the connectivity of a SINGLE nmf run, namely
+  ### the one with smallest residual score.
+  nmf.C <- connectivity(results, what = "chc")
   samples <- colnames(nmf.C)
   
   clusters <- lapply(samples, function(x){

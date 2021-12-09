@@ -1,0 +1,112 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(amlresistancenetworks)
+library(dplyr)
+library(Matrix)
+
+# If you are loading data from Synapse, source -
+source("../util/synapseUtil.R")
+source("../util/loading_data.R")
+
+# If you are unable to connect to Synapse, source -
+#source("../util/loading_data_local.R")
+```
+
+```{r load data, error=FALSE, message=FALSE, warning=FALSE}
+global.data <- load.global.data()
+pat.data <- as.data.frame(global.data$`Long-form global`)
+pat.data$Sample <- NULL
+
+phospho.data <- load.phospho.data()
+pat.phos <- as.data.frame(phospho.data$`Long-form phospho`)
+pat.phos$Sample <- NULL
+
+functional.data <- load.functional.data()
+auc.dat <- as.data.frame(functional.data$`Long-form functional`)
+
+##For testing purposes -
+auc.dat <- auc.dat[(auc.dat$Condition == "AST-487") | (auc.dat$Condition == "Alisertib (MLN8237)") | (auc.dat$Condition == "CYT387"), ]
+
+##create combined data frame of gene and phosphosite
+pat.data <- pat.data %>%
+  left_join(rename(pat.phos, site = 'SiteID', Phosphosite='LogRatio'))
+
+```
+
+```{r build models, warning=FALSE, message=FALSE, error=FALSE}
+
+all.pats <- intersect(pat.data$`AML sample`,auc.dat$`AML sample`)
+library(caret)
+folds<-createFolds(all.pats,k=5)
+
+test.pats<-all.pats[folds[[2]]]
+train.pats<-setdiff(all.pats,test.pats)
+
+print('Now getting gene-based preds')
+  
+tr.dat<-subset(pat.data,`AML sample`%in%train.pats)
+te.dat<-subset(pat.data,`AML sample`%in%test.pats)
+  
+eval.list<-list(
+    #combo=list(mf=c('Gene','Gene','Gene','site'), fn=c('mRNALevels','proteinLevels','binaryMutations','Phosphosite')),
+    #mRNA=c('Gene','mRNALevels'),
+    prot=c("Gene","proteinLevels"),
+    #mut=c('Gene','binaryMutations'),
+    phosph=c('site','Phosphosite'))
+
+message("Comparing logistic preds")
+log.reg.preds<-purrr::map_df(eval.list,
+                             ~ drugMolLogRegEval(auc.dat,
+                                                tr.dat,
+                                               mol.feature=.x[1],
+                                                           mol.feature.name=.x[2],
+                                         dplyr::rename(auc.dat,Sample='AML sample'),
+                                               dplyr::rename(te.dat,Sample='AML sample'),
+                                              category='Condition'))
+
+message('Running lasso')
+
+reg.preds<-purrr::map_df(eval.list,
+                         ~ amlresistancenetworks::drugMolRegressionEval(auc.dat,
+                            tr.dat,
+                            mol.feature=.x[1],
+                            mol.feature.name=.x[2],                                                   
+                            dplyr::rename(auc.dat,Sample='AML sample'),
+                                             dplyr::rename(te.dat,Sample='AML sample'),
+                                                 category='Condition'))
+message("Running elastic net")
+enet.reg.preds<-purrr::map_df(eval.list,
+                         ~ drugMolRegressionEval(auc.dat,
+                            tr.dat,
+                             mol.feature=.x[1],
+                                mol.feature.name=.x[2],
+                                          dplyr::rename(auc.dat,Sample='AML sample'),
+                                               dplyr::rename(te.dat,Sample='AML sample'),
+                                                 category='Condition',doEnet=TRUE))
+  
+  
+  
+
+e.results<-enet.reg.preds%>%
+    mutate(method='ElasticNet')
+ 
+full.results<-reg.preds%>%
+    mutate(method='LASSO')
+
+lr.results<-log.reg.preds%>%
+    mutate(method='LogisticReg')%>%
+    mutate(MSE=MSE*10000)
+  
+  #full.results<-rbind(full.results,lr.results)
+  saveRDS(full.results,'lassoRegPreds.rds')
+  saveRDS(lr.results,'logRegPreds.rds')
+  saveRDS(e.results,'enetRegPreds.rds')
+#  saveRDS(full.results,'mostlyCompletePredictions.rds')
+  
+  all.res<-rbind(full.results,lr.results,e.results)
+  print(dim(all.res))
+  return(all.res)
+
+res<-do.call(rbind,res)
+saveRDS(res,'combinedKfoldRes.rds')
+```
