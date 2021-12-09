@@ -22,8 +22,8 @@ source("../../util/synapseUtil.R")
 source("../../util/make_plots_util.R")
 source("NMF_helper.R")
 
-# load.combined.data
-load("../../Misc/loaded data.RData")
+load.combined.data()
+# load("../../Misc/loaded data.RData")
 
 syn <- synapseLogin()
 summary.syn <- "syn25796769"
