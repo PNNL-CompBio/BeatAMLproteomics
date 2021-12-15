@@ -156,6 +156,9 @@ sample.cats <- meta %>%
 purity.scores.normalized <- lapply(results, clustering.purity, sample.cats, normalized = TRUE) %>%
   do.call(rbind, .) %>% as.data.frame()
 
+purity.scores.raw <- lapply(results, clustering.purity, sample.cats, normalized = FALSE) %>%
+  do.call(rbind, .) %>% as.data.frame()
+
 ## Computes the enrichment of each column in sample.cats in each cluster. 
 ## Values are -log10(significance) if log scale is used.
 ## output is a matrix with clusters on the rows and sample.cat columns as columns

@@ -31,23 +31,29 @@ m.global <- make.msnset(global.data, feature.col = "Gene",
 m.phospho <- make.msnset(phospho.data, feature.col = "SiteID", 
                      value.col = "LogRatio", metadata = meta)
 
-mat.global <- global.data %>%
-  pivot_wider(names_from = Barcode.ID, values_from = LogRatio) %>%
-  column_to_rownames("Gene") %>%
-  as.matrix()
 
+mat.global <- exprs(m.global)
 
-mat.phospho <- phospho.data %>%
-  select(SiteID, Barcode.ID, LogRatio) %>%
-  pivot_wider(names_from = Barcode.ID, values_from = LogRatio) %>%
-  column_to_rownames("SiteID") %>%
-  as.matrix()
+mat.phospho <- exprs(m.phospho)
 
-## Data is complete, no need to impute.
-mat.RNA <- RNA.data %>%
-  pivot_wider(names_from = Barcode.ID, values_from = `RNA counts`) %>%
-  column_to_rownames("Gene") %>%
-  as.matrix()
+mat.RNA <- exprs(m.RNA)
+
+# mat.global <- global.data %>%
+#   pivot_wider(names_from = Barcode.ID, values_from = LogRatio) %>%
+#   column_to_rownames("Gene") %>%
+#   as.matrix()
+# 
+# mat.phospho <- phospho.data %>%
+#   select(SiteID, Barcode.ID, LogRatio) %>%
+#   pivot_wider(names_from = Barcode.ID, values_from = LogRatio) %>%
+#   column_to_rownames("SiteID") %>%
+#   as.matrix()
+# 
+# ## Data is complete, no need to impute.
+# mat.RNA <- RNA.data %>%
+#   pivot_wider(names_from = Barcode.ID, values_from = `RNA counts`) %>%
+#   column_to_rownames("Gene") %>%
+#   as.matrix()
 
 
 mat <- prepare.nmf.mat(list(mat.global, mat.phospho, mat.RNA))
