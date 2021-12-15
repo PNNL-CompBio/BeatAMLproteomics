@@ -10,7 +10,7 @@ editor_options:
   chunk_output_type: inline
 ---
 
-```{r load data, include=FALSE}
+```{r load data, eval=FALSE, include=FALSE}
 library(ggplot2)
 library(dplyr)
 library(tidyr)
@@ -22,8 +22,21 @@ source("../../util/synapseUtil.R")
 source("../../util/make_plots_util.R")
 source("NMF_helper.R")
 
-# load.combined.data()
-load("../../Misc/loaded data.RData")
+load.combined.data()
+# load("../../Misc/loaded data.RData")
+
+syn <- synapseLogin()
+summary.syn <- "syn25796769"
+summary.table <- readxl::read_xlsx(syn$get(summary.syn)$path) %>%
+  as.data.frame() %>%
+  column_to_rownames("labId")
+
+summary.table <- summary.table[rownames(meta), ]
+meta$vitalStatus <- summary.table$vitalStatus %>% as.factor()
+
+### Use parentID = NULL if you DO NOT want to upload the plots to synapse.
+# parentID = NULL
+parentID = "syn26529350"
 
 folder <- "../../cohort_summary/NMF/Data/"
 files <- list.files(folder, "BEATAML NMF") %>%
@@ -68,7 +81,7 @@ the results of many runs. Below, we see the cophenetic correlation for each \(k\
 total of 50 runs for each \(k\) value.
 
 
-```{r compute cophenetic, include=FALSE}
+```{r compute cophenetic, eval=FALSE, include=FALSE}
 coph.correlation <- sapply(results, cophcor) %>%
   data.frame(coph.cor = ., k = 2:13) %>%
   filter(k <= 8)
@@ -101,11 +114,13 @@ also be interpreted as the probability that the samples belong to the same clust
 Red blocks correspond to the various clusters, while a darker color (red or blue) indicates more 
 consensus among the clustering results.
 
-We also annotate the FLT3 and Chemotherapy status of the patients, to see if these coincide with 
-the clusters.
+We also annotate the FLT3, Chemotherapy, RAS, and NPM1 status of the patients, to see if 
+these coincide with the clusters. On the rows, we color the samples according to the
+enrichment of FLT3, Chemotherapy, RAS and NPM1 in that cluster. Note we use a negative 
+logarithmic scale, with \(2 = -log_{10}(0.01)\) indicating a p-value of 0.01.
 
 
-```{r include=FALSE}
+```{r eval=FALSE, include=FALSE}
 ### If k = 2 picture is not showing up, run the chunks to make the plots first, then knit. 
 ### Seems to be a bug that is preventing the first plot (k = 2) from saving properly.
 
@@ -153,7 +168,7 @@ p.celing <- sapply(enrichment, function(xx){max(xx[,-1])}) %>% max() %>% ceiling
 ## pheatmap column labels
 ann.labels <- meta %>%
   filter(Barcode.ID %in% samples.common) %>%
-  select(FLT3.ITD, PostChemotherapy) %>%
+  select(FLT3.ITD, PostChemotherapy, vitalStatus) %>%
   mutate(FLT3.ITD = as.factor(FLT3.ITD),
          PostChemotherapy = as.factor(PostChemotherapy),
          Barcode.ID = rownames(.))
@@ -177,7 +192,8 @@ ann.labels <- ann.labels %>%
          RAS = case_when(!is.na(RAS) ~ RAS,
                           TRUE ~ 0)) %>%
   column_to_rownames("Barcode.ID") %>%
-  as.data.frame()
+  as.data.frame() %>%
+  select(FLT3.ITD, PostChemotherapy, NPM1, RAS, vitalStatus)
 
 
 
@@ -189,8 +205,10 @@ colors.wp <- scales::seq_gradient_pal("#FFFFFF", "#4A0078", "Lab")(seq(0,1,lengt
 ann.colors <- lapply(names(ann.labels), function(x){
   if (is.numeric(ann.labels[[x]])) {
     c("white", "black")
-  } else {
+  } else if (length(levels(ann.labels[[x]])) == 2) {
   c(`FALSE` = "white", `TRUE` = "darkgrey")
+  } else {
+    c("Alive" = "white", "Dead" = "darkgrey", "Unknown" = "brown")
   }
   })
 names(ann.colors) <- names(ann.labels)
@@ -224,14 +242,12 @@ plots <- lapply(1:12, function(i){
   make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = NULL,
                 annotation_col = ann.labels, annotation_colors = xx.colors, 
                 show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]], 
-                annotation_row = p.labels, clustering_method = "ward.D", 
-                height = 12, width = 12, format = "png")
+                annotation_row = p.labels, height = 12, width = 12, format = "png")
   
-  make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = "syn26529350",
+  make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = parentID,
                 annotation_col = ann.labels, annotation_colors = xx.colors, 
                 show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]], 
-                annotation_row = p.labels, clustering_method = "ward.D", 
-                height = 12, width = 12, format = "pdf")
+                annotation_row = p.labels, height = 12, width = 12, format = "pdf")
   
   return("Done")
 })
