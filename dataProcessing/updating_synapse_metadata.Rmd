@@ -15,9 +15,9 @@ source("../util/synapseUtil.R")
 
 
 We just received the latest sample summary table, containing a lot of annotation
-data, including allele ratios. The FLT3.ITD column in particular changed slighty. 
+data, including allele ratios. The FLT3.ITD column in particular changed slightly. 
 This pulls the existing metadata table and creates an updated metadata table with 
-the new FLT3.ITD column.
+the new FLT3.ITD column. This script is only meant to be run once.
 
 
 
