@@ -1,0 +1,70 @@
+---
+title: "Pushing latest sample summary to synapse"
+author: "Camilo Posso"
+date: "12/10/21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(dplyr)
+library(openxlsx)
+source("../util/synapseUtil.R")
+```
+
+
+
+We just received the latest sample summary table, containing a lot of annotation
+data, including allele ratios. The FLT3.ITD column in particular changed slighty. 
+This pulls the existing metadata table and creates an updated metadata table with 
+the new FLT3.ITD column.
+
+
+
+```{r}
+syn <- synapseLogin()
+
+### Loading the previous metatadata. Still on Synapse for completeness
+
+summary.table <- read.xlsx("proteomics/data/BeatAML_complete_sample_summary/PNNL_clinical_summary_12_08_2021.xlsx") %>%
+  mutate(Barcode.ID = labId)
+
+newest.FLT3_ITD <- summary.table %>%
+  select(Barcode.ID, FLT3_ITDCall) %>%
+  mutate(FLT3.ITD.latest = case_when(grepl("Positive", FLT3_ITDCall) ~ TRUE,
+                                     TRUE ~ FALSE))
+
+
+## A few samples (5 in total) changed FLT3 status compared to the previous version
+phenodata.syn <- "syn25807733"
+phenodata <- read.table(syn$get(phenodata.syn)$path, sep = "\t",
+                        header = TRUE, colClasses = "character") %>%
+  left_join(newest.FLT3_ITD, by = "Barcode.ID") %>%
+  select(SampleID.full, SampleID.abbrev, Barcode.ID, Plex, Channel, 
+         Loading.Mass, specimen.type, specimen.location, 
+         Specimen.access.group.concatenated, FLT3.ITD.latest, InitialAMLDiagnosis, 
+         PostChemotherapy) %>%
+  dplyr::rename(FLT3.ITD = FLT3.ITD.latest)
+
+
+write.table(file = "proteomics/data/Batch Correction/BeatAML_Ex10_metadata_12_10_21.txt", 
+            x = phenodata, sep = "\t", quote = F, row.names = F)
+
+```
+
+
+The new metadata file is in the same folder as the old one on Synapse.
+
+
+```{r}
+
+### Uploaded to the Proteomics and QC folder on synapse.
+synapseStore(path = "proteomics/data/Batch Correction/BeatAML_Ex10_metadata_12_10_21.txt",
+             parentId = "syn24171150")
+
+
+```
+
+
+
+

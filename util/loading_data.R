@@ -2,6 +2,26 @@ library(MSnbase)
 library(tidyr)
 library(tibble)
 
+load.metadata <- function(type = "Basic") {
+  if (type == "Basic") {
+    syn <- synapseLogin()
+    metadata.syn <- "syn26534982"
+    
+    meta <- read.table(syn$get(metadata.syn)$path, sep = "\t",
+                       header = TRUE, colClasses = "character")
+  } else if (type == "Clinical") {
+    syn <- synapseLogin()
+    clinical.syn <- "syn26532699"
+    
+    meta <- read.table(syn$get(clinical.syn)$path, sep = "\t",
+                       header = TRUE, colClasses = "character")
+  } else {
+    stop("You must choose either 'Basic' or 'Clinical' metadata")
+  }
+  
+  return(meta)
+}
+
 ## Loads latest corrected phospho data for the 210 patient experiment.
 load.phospho.data <- function(type = "Corrected"){
   require(dplyr)
@@ -17,26 +37,12 @@ load.phospho.data <- function(type = "Corrected"){
          'Uncorrected', and 'Old Corrected'")
   }
   
-  data <- querySynapseTable(syn) %>% 
-    mutate(Specimen.access.group.concatenated = 
-             unlist(Specimen.access.group.concatenated))
-  
-  meta.cols <- c("Sample", "SampleID.full", "Barcode.ID", 
-                 "Plex", "Channel", "Loading.Mass", 
-                 "specimen.type", "specimen.location", 
-                 "Specimen.access.group.concatenated", 
-                 "InitialAMLDiagnosis", "PostChemotherapy", 
-                 "FLT3.ITD")
-  
-  meta <- unique(data[, meta.cols]) %>%
-    dplyr::rename(SpecimenType = specimen.type)
-  rownames(meta) <- meta$Barcode.ID
-  meta <- meta[order(meta$Sample), ]
+  data <- querySynapseTable(syn)
   
   data <- data %>%
     select(Gene, SiteID, Barcode.ID, LogRatio)
   
-  return(list("Long-form phospho" = data, "Metadata" = meta))
+  return(data)
 }
 
 
@@ -44,26 +50,12 @@ load.phospho.data <- function(type = "Corrected"){
 load.global.data <- function(){
   require(dplyr)
   
-  data <- querySynapseTable("syn25808020")  %>%
-    mutate(Specimen.access.group.concatenated = 
-             unlist(Specimen.access.group.concatenated))
-  
-  meta.cols <- c("Sample", "SampleID.full", "Barcode.ID", 
-                 "Plex", "Channel", "Loading.Mass", 
-                 "specimen.type", "specimen.location", 
-                 "Specimen.access.group.concatenated", 
-                 "InitialAMLDiagnosis", "PostChemotherapy", 
-                 "FLT3.ITD")
-  
-  meta <- unique(data[, meta.cols]) %>%
-    dplyr::rename(SpecimenType = specimen.type)
-  rownames(meta) <- meta$Barcode.ID
-  meta <- meta[order(meta$Sample), ]
+  data <- querySynapseTable("syn25808020")
   
   data <- data %>%
     select(Gene, Barcode.ID, LogRatio)
   
-  return(list("Long-form global" = data, "Metadata" = meta))
+  return(data)
 }
 
 
@@ -170,7 +162,7 @@ load.functional.data <- function(threshold = 0.05, fam.threshold = 0.05){
     
   return(list("Long-form functional" = data, 
               "Long-form functional sensitive family" = data.fam,
-              "Metadata" = meta,
+              "Functional Metadata" = meta,
               "Sensitivity by Inhibitor" = fracSens,
               "Sensitivity by Family" = fracSensFam))
 }
@@ -201,17 +193,7 @@ load.WES.data <- function(){
   data <- querySynapseTable("syn26428827") %>%
     dplyr::rename(Barcode.ID = labId) %>%
     mutate(refseq = unlist(refseq),
-           hgvsp = unlist(hgvsp),
-           Specimen.access.group.concatenated = 
-             unlist(Specimen.access.group.concatenated))
-  
-  meta.cols <- c("Barcode.ID", "alt_ID", "Plex", "Channel", "Loading.Mass", 
-                 "SpecimenType", "specimen.location", "Specimen.access.group.concatenated",
-                 "InitialAMLDiagnosis", "PostChemotherapy", "FLT3.ITD")
-  
-  meta <- data[, meta.cols] %>%
-    unique()
-  rownames(meta) <- meta$Barcode.ID
+           hgvsp = unlist(hgvsp))
   
   data <- data %>%
     select(Barcode.ID, alt_ID, gene, symbol, refseq, t_vaf, hgvsc, hgvsp)
@@ -223,49 +205,44 @@ load.WES.data <- function(){
 load.RNA.data <- function(){
   require(dplyr)
   
-  data <- querySynapseTable("syn26428813") %>%
+  data <- querySynapseTable("syn26545877") %>%
     dplyr::rename(Barcode.ID = labId) %>%
-    mutate(description = unlist(description),
-           Specimen.access.group.concatenated = 
-             unlist(Specimen.access.group.concatenated),
-           Channel = unlist(Channel))
-  
-  meta.cols <- c("Barcode.ID", "alt_ID", "Plex", "Channel", "Loading.Mass", 
-                 "SpecimenType", "specimen.location", "Specimen.access.group.concatenated",
-                 "InitialAMLDiagnosis", "PostChemotherapy", "FLT3.ITD")
-  
-  meta <- data[, meta.cols] %>%
-    unique()
-  rownames(meta) <- meta$Barcode.ID 
+    mutate(description = unlist(description))
   
   data <- data %>%
     select(Barcode.ID, alt_ID, stable_id, display_label, description, biotype, `RNA counts`) %>%
     dplyr::rename(Gene = display_label)
   
-  return(list("Long-form RNA" = data, "Metadata" = meta))
+  return(data)
 }
 
 
 load.combined.data <- function(){
   
-  global.data.list <- load.global.data()
-  meta <<- global.data.list$Metadata
-  global.data <<- global.data.list$`Long-form global`
+  cat("Loading metadata\n")
+  meta <<- load.metadata()
   
-  phospho.data <<- load.phospho.data()$`Long-form phospho`
+  cat("Loading global\n")
+  global.data <<- load.global.data()
+  cat("Loading phospho\n")
+  phospho.data <<- load.phospho.data()
   
+  cat("Loading functional\n")
   functional.data.list <- load.functional.data()
   functional.data <<- functional.data.list$`Long-form functional`
   functional.data.sensitive.family <<- functional.data.list$`Long-form functional sensitive family`
   
-  RNA.data <<- load.RNA.data()$`Long-form RNA` %>%
+  cat("Loading RNA\n")
+  RNA.data <<- load.RNA.data() %>%
     select(Barcode.ID, Gene, `RNA counts`)
   
+  cat("Loading WES\n")
   WES.data <<- load.WES.data()$`Long-form WES` %>%
     select(Barcode.ID, symbol, t_vaf) %>%
     dplyr::rename(Gene = symbol) %>%
     mutate(wesMutation = t_vaf > 0)
   
+  cat("Combining data\n")
   combined <<- full_join(global.data, RNA.data, by = c("Barcode.ID", "Gene")) %>%
     select(Barcode.ID, Gene, LogRatio, `RNA counts`) %>%
     full_join(WES.data, by = c("Barcode.ID", "Gene")) %>%
