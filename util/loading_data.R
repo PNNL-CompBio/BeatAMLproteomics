@@ -19,6 +19,8 @@ load.metadata <- function(type = "Basic") {
     stop("You must choose either 'Basic' or 'Clinical' metadata")
   }
   
+  rownames(meta) <- meta$Barcode.ID
+  
   return(meta)
 }
 
@@ -198,7 +200,7 @@ load.WES.data <- function(){
   data <- data %>%
     select(Barcode.ID, alt_ID, gene, symbol, refseq, t_vaf, hgvsc, hgvsp)
   
-  return(list("Long-form WES" = data, "Metadata" = meta))
+  return(data)
 }
 
 
@@ -237,7 +239,7 @@ load.combined.data <- function(){
     select(Barcode.ID, Gene, `RNA counts`)
   
   cat("Loading WES\n")
-  WES.data <<- load.WES.data()$`Long-form WES` %>%
+  WES.data <<- load.WES.data() %>%
     select(Barcode.ID, symbol, t_vaf) %>%
     dplyr::rename(Gene = symbol) %>%
     mutate(wesMutation = t_vaf > 0)
