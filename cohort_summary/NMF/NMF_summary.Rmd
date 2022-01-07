@@ -16,6 +16,7 @@ library(dplyr)
 library(tidyr)
 library(NMF)
 library(pheatmap)
+library(openxlsx)
 
 source("../../util/loading_data.R")
 source("../../util/synapseUtil.R")
@@ -26,15 +27,31 @@ load.combined.data()
 # load("../../Misc/loaded data.RData")
 
 syn <- synapseLogin()
-summary.syn <- "syn25796769"
-summary.table <- readxl::read_xlsx(syn$get(summary.syn)$path) %>%
-  as.data.frame() %>%
-  column_to_rownames("labId")
+summary.syn <- "syn26642974"
+summary.table <- read.table(syn$get(summary.syn)$path) %>%
+  as.data.frame()
 
+summary.table <- summary.table %>%
+  mutate(FLT3_MAF = sub("^Positive \\(.*MAF [~]*([0-9]+)%.*\\)$", "\\1", FLT3_ITDCall),
+         FLT3_AR = sub("^Positive \\(.*AR ([0-9]+[\\.]*[0-9]*).*\\)$", "\\1", FLT3_ITDCall)) %>%
+  mutate(FLT3_MAF = case_when(grepl("^[0-9]+", FLT3_MAF) ~ FLT3_MAF,
+                              TRUE ~ "0"),
+         FLT3_AR = case_when(grepl("^[0-9]+", FLT3_AR) ~ FLT3_AR, 
+                             TRUE ~ "0")) %>%
+  mutate(FLT3_MAF = as.numeric(FLT3_MAF),
+         FLT3_AR = as.numeric(FLT3_AR))
+
+rownames(summary.table) <- summary.table$labId
+
+live.status <- summary.table %>%
+  select(overallSurvival, vitalStatus, labId) %>%
+  dplyr::rename(Barcode.ID = labId)  %>%
+  mutate(vitalStatus = case_when(vitalStatus == "Dead" ~ 2,
+                                 TRUE ~ 1))
 summary.table <- summary.table[rownames(meta), ]
 meta$vitalStatus <- summary.table$vitalStatus %>% as.factor()
 
-### Use parentID = NULL if you DO NOT want to upload the plots to synapse.
+### Use parentID = NULL if you DO NOT want to upload the heatmaps to synapse.
 # parentID = NULL
 parentID = "syn26529350"
 
@@ -53,7 +70,34 @@ names(results) <- as.numeric(ranks)
 
 results <- results[as.character(sort(as.numeric(names(results))))]
 
+kaplan.df.full <- get.clusters(results) %>%
+  left_join(live.status, by = "Barcode.ID") %>%
+  select(Barcode.ID, everything())
+colnames(kaplan.df.full) <- sub("=", "", colnames(kaplan.df.full))
+
 adjacencies <- lapply(results, consensus)
+
+```
+
+
+
+```{r}
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k5, data = kaplan.df.full)
+
+chosen.colors <- palette(rainbow(5))
+
+ggsurvplot(sfit, palette = chosen.colors)
+
+
+```
+
+```{r}
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k8, data = kaplan.df.full)
+
+chosen.colors <- palette(rainbow(8))
+
+ggsurvplot(sfit, palette = chosen.colors)
+
 
 ```
 
@@ -94,6 +138,8 @@ ggsave(p, filename = "Data/cophenetic_correlation.pdf")
 # upload.plot("Data/cophenetic_correlation.pdf", "syn26529350")
 
 ```
+
+
 
 
 ```{r show cophenetic}
@@ -166,7 +212,18 @@ purity.scores.raw <- lapply(results, clustering.purity, sample.cats, normalized 
 enrichment <- lapply(results, get.enrichment, sample.cats, log.scale = TRUE)
 p.celing <- sapply(enrichment, function(xx){max(xx[,-1])}) %>% max() %>% ceiling()
 
+# sample_cluster_assignment <- get.clusters(results) %>%
+#   select(Barcode.ID, everything())
+# 
+# rownames(sample_cluster_assignment) <- sample_cluster_assignment$Barcode.ID
+# 
+# write.table(sample_cluster_assignment[, 1:8], "Data/sample_to_cluster_assignments.txt", sep = "\t", quote = F)
+# 
+# synapseStore("Data/sample_to_cluster_assignments.txt", parentId = "syn26529350")
 
+flt3_numeric <- summary.table %>%
+  select(labId, FLT3_MAF, FLT3_AR) %>%
+  dplyr::rename(Barcode.ID = labId)
 
 ## pheatmap column labels
 ann.labels <- meta %>%
@@ -194,14 +251,17 @@ ann.labels <- ann.labels %>%
                           TRUE ~ 0),
          RAS = case_when(!is.na(RAS) ~ RAS,
                           TRUE ~ 0)) %>%
+  left_join(flt3_numeric, by = "Barcode.ID") %>%
   column_to_rownames("Barcode.ID") %>%
   as.data.frame() %>%
-  select(FLT3.ITD, PostChemotherapy, NPM1, RAS, vitalStatus)
+  select(PostChemotherapy, NPM1, RAS, vitalStatus, FLT3.ITD, FLT3_MAF, FLT3_AR) %>%
+  dplyr::rename(`FLT3_MAF (percentage)` = FLT3_MAF)
 
 
 
 ## White to dark purple (like the snow storms on weather maps)
 colors.wp <- scales::seq_gradient_pal("#FFFFFF", "#4A0078", "Lab")(seq(0,1,length.out = p.celing*10 + 1))
+
 
 ### Choosing the colors for the row labels. Binary indicators
 ### use white and grey, while numeric is on a white to green scale.
@@ -242,15 +302,23 @@ plots <- lapply(1:12, function(i){
   names(xx.colors) <- colnames(xx)
   xx.colors <- append(ann.colors, xx.colors)
   
+  k.col <- paste0("k", i)
+  
+  cluster.assignment <- kaplan.df.full %>%
+    select(Barcode.ID, sym(k.col))
+  
+  ann.labels <- left_join(ann.labels, cluster.assignment, by = "Barcode.ID")
+  
+  
   make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = NULL,
                 annotation_col = ann.labels, annotation_colors = xx.colors, 
                 show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]], 
                 annotation_row = p.labels, height = 12, width = 12, format = "png")
   
-  make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = parentID,
-                annotation_col = ann.labels, annotation_colors = xx.colors, 
-                show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]], 
-                annotation_row = p.labels, height = 12, width = 12, format = "pdf")
+  # make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = parentID,
+  #               annotation_col = ann.labels, annotation_colors = xx.colors, 
+  #               show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]], 
+  #               annotation_row = p.labels, height = 12, width = 12, format = "pdf")
   
   return("Done")
 })

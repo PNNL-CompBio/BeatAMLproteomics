@@ -136,15 +136,18 @@ get.clusters.individual <- function(results){
 
 get.clusters <- function(results.list, type = "Cluster Membership"){
   if (type == "Cluster Membership") {
-    out <- lapply(results.list, function(result){
+    out.list <- lapply(results.list, function(result){
       k = dim(result[[1]]@fit@H)[1]
-      get.clusters.individual(result) %>%
+      xx <- get.clusters.individual(result) %>%
         select(Cluster) %>%
         plyr::rename(replace = c("Cluster" = paste0("k=", k))) %>%
-        as.data.frame()
-    }) %>% do.call(cbind, .)
+        as.data.frame() %>%
+        mutate(Barcode.ID = rownames(.))
+      return(xx)
+    })
   }
   
+  out <- purrr::reduce(out.list, left_join, by = "Barcode.ID")
   return(out)
 }
 
