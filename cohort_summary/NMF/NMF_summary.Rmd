@@ -10,13 +10,14 @@ editor_options:
   chunk_output_type: inline
 ---
 
-```{r load data, eval=FALSE, include=FALSE}
+```{r load data, include=FALSE}
 library(ggplot2)
 library(dplyr)
 library(tidyr)
 library(NMF)
 library(pheatmap)
 library(openxlsx)
+library(survminer)
 
 source("../../util/loading_data.R")
 source("../../util/synapseUtil.R")
@@ -81,23 +82,11 @@ adjacencies <- lapply(results, consensus)
 
 
 
-```{r}
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k5, data = kaplan.df.full)
-
-chosen.colors <- palette(rainbow(5))
-
-ggsurvplot(sfit, palette = chosen.colors)
-
-
-```
 
 ```{r}
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k8, data = kaplan.df.full)
 
-chosen.colors <- palette(rainbow(8))
-
-ggsurvplot(sfit, palette = chosen.colors)
-
+chosen.colors <- c("#F8766D", "#CD9600", "#7CAE00", "#00BE67", 
+                   "#00BFC4", "#00A9FF", "#C77CFF", "#FF61CC")
 
 ```
 
@@ -264,7 +253,7 @@ colors.wp <- scales::seq_gradient_pal("#FFFFFF", "#4A0078", "Lab")(seq(0,1,lengt
 
 
 ### Choosing the colors for the row labels. Binary indicators
-### use white and grey, while numeric is on a white to green scale.
+### use white and grey, while numeric is on a white to black scale.
 ann.colors <- lapply(names(ann.labels), function(x){
   if (is.numeric(ann.labels[[x]])) {
     c("white", "black")
@@ -302,12 +291,18 @@ plots <- lapply(1:12, function(i){
   names(xx.colors) <- colnames(xx)
   xx.colors <- append(ann.colors, xx.colors)
   
-  k.col <- paste0("k", i)
+  k.col <- paste0("k", i+1)
   
   cluster.assignment <- kaplan.df.full %>%
     select(Barcode.ID, sym(k.col))
+  colnames(cluster.assignment)[[2]] <- "Cluster"
   
-  ann.labels <- left_join(ann.labels, cluster.assignment, by = "Barcode.ID")
+  p.labels <- p.labels %>%
+    mutate(Barcode.ID = rownames(.)) %>%
+    left_join(cluster.assignment, by = "Barcode.ID") %>%
+    column_to_rownames("Barcode.ID")
+  
+  xx.colors[["Cluster"]] = chosen.colors[1:length(unique(p.labels$Cluster))]
   
   
   make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = NULL,
@@ -331,9 +326,20 @@ plots <- lapply(1:12, function(i){
 
 
 ```{r, out.height = "1000px", out.width = "1000px"}
+
 knitr::include_graphics("Data/consensus_map_k_2.png")
 
 ```
+
+```{r}
+
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k2, data = kaplan.df.full)
+
+ggsurvplot(sfit, palette = chosen.colors[1:2])
+
+
+```
+
 
 $$\\[0.1in]$$
 
@@ -345,6 +351,16 @@ knitr::include_graphics("Data/consensus_map_k_4.png")
 
 ```
 
+```{r}
+
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k4, data = kaplan.df.full)
+
+ggsurvplot(sfit, palette = chosen.colors[1:4])
+
+
+```
+
+
 $$\\[0.1in]$$
 
 ### \(k = 5\) 
@@ -354,6 +370,16 @@ $$\\[0.1in]$$
 knitr::include_graphics("Data/consensus_map_k_5.png")
 
 ```
+
+```{r}
+
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k5, data = kaplan.df.full)
+
+ggsurvplot(sfit, palette = chosen.colors[1:5])
+
+
+```
+
 
 $$\\[0.1in]$$
 
@@ -365,7 +391,14 @@ knitr::include_graphics("Data/consensus_map_k_8.png")
 
 ```
 
+```{r}
 
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k8, data = kaplan.df.full)
+
+ggsurvplot(sfit, palette = chosen.colors)
+
+
+```
 
 
 

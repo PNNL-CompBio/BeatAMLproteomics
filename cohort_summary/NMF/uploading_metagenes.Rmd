@@ -1,0 +1,103 @@
+---
+title: "NMF Metagene representatives"
+author: "Camilo Posso"
+date: "1/11/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r load data, eval=FALSE, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(NMF)
+library(pheatmap)
+library(openxlsx)
+
+source("../../util/loading_data.R")
+source("../../util/synapseUtil.R")
+source("../../util/make_plots_util.R")
+source("NMF_helper.R")
+
+load.combined.data()
+
+m.RNA <- make.msnset(RNA.data, feature.col = "Gene", 
+                     value.col = "RNA counts", metadata = meta)
+
+m.global <- make.msnset(global.data, feature.col = "Gene", 
+                     value.col = "LogRatio", metadata = meta)
+
+m.phospho <- make.msnset(phospho.data, feature.col = "SiteID", 
+                     value.col = "LogRatio", metadata = meta)
+
+
+mat.global <- exprs(m.global)
+mat.phospho <- exprs(m.phospho)
+mat.RNA <- exprs(m.RNA)
+
+datasets <- list(mat.global, mat.phospho, mat.RNA)
+
+samples <- Reduce(intersect, lapply(datasets, colnames))
+mat <- Reduce(rbind, lapply(datasets, function(dataset){dataset[, samples]}))
+
+NMF_names <- data.frame(feature = rownames(mat), 
+                        data_type = c(rep("Global",nrow(mat.global)), 
+                                      rep("Phospho", nrow(mat.phospho)), 
+                                      rep("RNA", nrow(mat.RNA))),
+                        sign = rep("Positive", nrow(mat)),
+                        number_imputed = rowSums(is.na(mat)))
+
+NMF_names_minus <- NMF_names %>%
+  mutate(sign = "Negative")
+
+NMF_names <- rbind(NMF_names, NMF_names_minus) %>%
+  mutate(NMF_index = 1:nrow(.))
+
+
+folder <- "../../cohort_summary/NMF/Data/"
+files <- list.files(folder, "BEATAML NMF") %>%
+  paste0(folder, .)
+
+results <- lapply(files, readRDS)
+
+ranks <- sapply(results, function(x){
+  y = x[[1]]
+  y = y@fit@H
+  return(dim(y)[[1]])
+  })
+names(results) <- as.numeric(ranks)
+
+results <- results[as.character(sort(as.numeric(names(results))))]
+
+```
+
+
+```{r}
+
+for (i in 1:length(results)){
+  result <- results[[i]]
+  k.value <- names(results)[[i]]
+  table.path <- paste0("Data/NMF_metagene_representatives_by_cluster_k_", k.value, ".txt")
+  xx <- extract.features(result) %>%
+    left_join(NMF_names, by = "NMF_index") %>%
+    select(feature, everything(), -Feature_NMF_label)
+  write.table(xx, table.path, sep = "\t")
+  if (i > 1){
+    parentID <- "syn26718014"
+    synapseStore(table.path, parentID)
+  }
+}
+
+```
+
+
+
+
+
+
+
+
