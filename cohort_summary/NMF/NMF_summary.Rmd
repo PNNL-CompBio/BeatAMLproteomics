@@ -268,7 +268,7 @@ names(ann.colors) <- names(ann.labels)
 
 
 ### Run this to make the plots shown.
-plots <- lapply(1:12, function(i){
+plots <- lapply(1:7, function(i){
   xx <- enrichment[[i]]
   p.labels <- xx %>%
     left_join(get.clusters.individual(results[[i]]),
@@ -296,13 +296,16 @@ plots <- lapply(1:12, function(i){
   cluster.assignment <- kaplan.df.full %>%
     select(Barcode.ID, sym(k.col))
   colnames(cluster.assignment)[[2]] <- "Cluster"
+  n.levels <- length(unique(cluster.assignment$Cluster))
   
   p.labels <- p.labels %>%
     mutate(Barcode.ID = rownames(.)) %>%
     left_join(cluster.assignment, by = "Barcode.ID") %>%
+    mutate(Cluster = factor(Cluster, levels = 1:n.levels)) %>%
     column_to_rownames("Barcode.ID")
   
   xx.colors[["Cluster"]] = chosen.colors[1:length(unique(p.labels$Cluster))]
+  names(xx.colors[["Cluster"]]) <- as.character(1:n.levels)
   
   
   make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = NULL,
