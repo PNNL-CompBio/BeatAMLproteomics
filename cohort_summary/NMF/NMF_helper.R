@@ -114,7 +114,12 @@ get.clusters.individual <- function(results){
   ### 'what = chc' derives the clusters from the consensus matrix, averaging the runs
   ### If not using 'chc', then it outputs the connectivity of a SINGLE nmf run, namely
   ### the one with smallest residual score.
-  nmf.C <- connectivity(results, what = "chc")
+  if (length(results) == 1) {
+    nmf.C <- connectivity(results)
+  } else {
+    cat("Using chc (all results) to infer clusters\n")
+    nmf.C <- connectivity(results, what = "chc")
+  }
   samples <- colnames(nmf.C)
   
   clusters <- lapply(samples, function(x){
@@ -136,15 +141,18 @@ get.clusters.individual <- function(results){
 
 get.clusters <- function(results.list, type = "Cluster Membership"){
   if (type == "Cluster Membership") {
-    out <- lapply(results.list, function(result){
+    out.list <- lapply(results.list, function(result){
       k = dim(result[[1]]@fit@H)[1]
-      get.clusters.individual(result) %>%
+      xx <- get.clusters.individual(result) %>%
         select(Cluster) %>%
         plyr::rename(replace = c("Cluster" = paste0("k=", k))) %>%
-        as.data.frame()
-    }) %>% do.call(cbind, .)
+        as.data.frame() %>%
+        mutate(Barcode.ID = rownames(.))
+      return(xx)
+    })
   }
   
+  out <- purrr::reduce(out.list, left_join, by = "Barcode.ID")
   return(out)
 }
 
@@ -212,6 +220,81 @@ clustering.purity <- function(result, sample.categories, normalized = FALSE) {
     }
   })
 }
+
+
+
+### result is the output from NMF for a SINGLE k value. result consisting of multiple runs is allowed.
+### A single element from 'result' is being used to extract the features for each cluster.
+### This element is chosen as the member most closely approximating the cluster structure
+### induced by the consensus matrix using ALL runs within the result.
+extract.features <- function(result){
+  ### Using WHOLE result to infer clusters (adjacency matrix)
+  aggregate.connectivity <- connectivity(result, what = 'chc')
+  
+  ### Choosing an individual run which most closely resembles aggregate clusters.
+  index <- lapply(1:length(result), function(i){
+    sum(abs(connectivity(result[[i]]) - aggregate.connectivity))}
+    ) %>%
+    which.min()
+  
+  chosen.result <- result[[index]]
+  W <- chosen.result@fit@W
+  
+  chosen.sample.assignments <- apply(chosen.result@fit@H, 2, which.max) 
+  combined.assignment <- data.frame(chosenCluster = chosen.sample.assignments, 
+                                    Barcode.ID = names(chosen.sample.assignments))
+  
+  
+  combined.assignment <- get.clusters.individual(result) %>%
+    full_join(combined.assignment, by = "Barcode.ID")
+  
+  cluster.mapping <- table(combined.assignment$Cluster, combined.assignment$chosenCluster) %>%
+    apply(1, which.max)
+  
+  if (length(cluster.mapping) != length(unique(cluster.mapping))){
+    stop("Unable to unambiguously infer cluster labels. Please inspect further.")
+  }
+  
+  extracted.features.index <- extractFeatures(chosen.result)[cluster.mapping]
+  
+  extracted.features <- extracted.features.index %>%
+    lapply(function(indeces){
+      rownames(W)[indeces]
+    })
+  
+  feature_score <- featureScore(chosen.result)
+  feature_score <- data.frame(NMF_index = 1:length(feature_score), feature_score = feature_score)
+  
+  out.df <- lapply(1:length(extracted.features), function(i){
+    features <- extracted.features[[i]]
+    indeces <- extracted.features.index[[i]]
+    if (all(is.na(features))){
+      data.frame(Cluster = i, Feature_NMF_label = NA, NMF_index = NA, feature_score = NA)
+    } else {
+      data.frame(Cluster = i, Feature_NMF_label = features, NMF_index = indeces) %>%
+        left_join(feature_score, by = "NMF_index")
+    }
+  }) %>% do.call(rbind, .)
+  
+  return(out.df)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -22,6 +22,8 @@ data, including allele ratios.
 ```{r loading data}
 path <- "../proteomics/data/BeatAML_complete_sample_summary/PNNL_clinical_summary_12_08_2021.xlsx"
 summary.table <- read.xlsx(path)
+write.table(summary.table, "../proteomics/data/BeatAML_complete_sample_summary/PNNL_clinical_summary_12_08_2021.txt")
+path <- "../proteomics/data/BeatAML_complete_sample_summary/PNNL_clinical_summary_12_08_2021.txt"
 
 ## Uploading to the "Genomics transcriptomics clinical" folder, under 
 ## the BeatAML Patient Data main folder.

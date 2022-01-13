@@ -15,7 +15,7 @@ library(tidyr)
 
 source("../../util/synapseUtil.R")
 source("../../util/loading_data.R")
-source("NMF helper.R")
+source("NMF_helper.R")
 load.combined.data()
 
 ```
