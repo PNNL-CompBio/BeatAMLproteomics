@@ -116,7 +116,7 @@ total of 50 runs for each \(k\) value.
 
 ```{r compute cophenetic, eval=FALSE, include=FALSE}
 coph.correlation <- sapply(results, cophcor) %>%
-  data.frame(coph.cor = ., k = 2:13) %>%
+  data.frame(coph.cor = ., k = 2:8) %>%
   filter(k <= 8)
 
 p <- ggplot(coph.correlation, aes(x = k, y = coph.cor)) + geom_line() + 
@@ -124,7 +124,7 @@ p <- ggplot(coph.correlation, aes(x = k, y = coph.cor)) + geom_line() +
 
 ggsave(p, filename = "Data/cophenetic_correlation.png")
 ggsave(p, filename = "Data/cophenetic_correlation.pdf")
-# upload.plot("Data/cophenetic_correlation.pdf", "syn26529350")
+upload.plot("Data/cophenetic_correlation.pdf", "syn26529350")
 
 ```
 
@@ -160,7 +160,7 @@ logarithmic scale, with \(2 = -log_{10}(0.01)\) indicating a p-value of 0.01.
 ### Seems to be a bug that is preventing the first plot (k = 2) from saving properly.
 
 samples.common <- colnames(adjacencies[[1]])
-titles <- paste("Consensus map k =", 2:13)
+titles <- paste("Consensus map k =", 2:8)
 paths <- paste0("Data/", titles) %>% sub("= ", "", .) %>% gsub(" ", "_", .)
 
 
@@ -201,14 +201,6 @@ purity.scores.raw <- lapply(results, clustering.purity, sample.cats, normalized 
 enrichment <- lapply(results, get.enrichment, sample.cats, log.scale = TRUE)
 p.celing <- sapply(enrichment, function(xx){max(xx[,-1])}) %>% max() %>% ceiling()
 
-# sample_cluster_assignment <- get.clusters(results) %>%
-#   select(Barcode.ID, everything())
-# 
-# rownames(sample_cluster_assignment) <- sample_cluster_assignment$Barcode.ID
-# 
-# write.table(sample_cluster_assignment[, 1:8], "Data/sample_to_cluster_assignments.txt", sep = "\t", quote = F)
-# 
-# synapseStore("Data/sample_to_cluster_assignments.txt", parentId = "syn26529350")
 
 flt3_numeric <- summary.table %>%
   select(labId, FLT3_MAF, FLT3_AR) %>%
@@ -298,6 +290,10 @@ plots <- lapply(1:7, function(i){
   colnames(cluster.assignment)[[2]] <- "Cluster"
   n.levels <- length(unique(cluster.assignment$Cluster))
   
+  ## This is exactly how the NMF hclust objects are computed within the function determining the
+  ## cluster assignment.
+  hc_cluster <- hclust(as.dist(1-adjacencies[[i]]), method = "average")
+  
   p.labels <- p.labels %>%
     mutate(Barcode.ID = rownames(.)) %>%
     left_join(cluster.assignment, by = "Barcode.ID") %>%
@@ -311,12 +307,14 @@ plots <- lapply(1:7, function(i){
   make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = NULL,
                 annotation_col = ann.labels, annotation_colors = xx.colors, 
                 show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]], 
-                annotation_row = p.labels, height = 12, width = 12, format = "png")
-  
-  # make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = parentID,
-  #               annotation_col = ann.labels, annotation_colors = xx.colors, 
-  #               show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]], 
-  #               annotation_row = p.labels, height = 12, width = 12, format = "pdf")
+                annotation_row = p.labels, height = 12, width = 12, format = "png",
+                cluster_rows = hc_cluster, cluster_cols = hc_cluster)
+
+  make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = parentID,
+                annotation_col = ann.labels, annotation_colors = xx.colors,
+                show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]],
+                annotation_row = p.labels, height = 12, width = 12, format = "pdf",
+                cluster_rows = hc_cluster, cluster_cols = hc_cluster)
   
   return("Done")
 })
@@ -325,20 +323,35 @@ plots <- lapply(1:7, function(i){
 ```
 
 
-### \(k = 2\) 
+```{r}
+
+### Chunk to upload the sample to cluster assignment
+# sample_cluster_assignment <- get.clusters(results) %>%
+#   select(Barcode.ID, everything())
+# 
+# rownames(sample_cluster_assignment) <- sample_cluster_assignment$Barcode.ID
+# 
+# write.table(sample_cluster_assignment[, 1:8], "Data/sample_to_cluster_assignments.txt", sep = "\t", quote = F)
+# 
+# synapseStore("Data/sample_to_cluster_assignments.txt", parentId = "syn26529350")
+
+```
+
+
+### \(k = 3\) 
 
 
 ```{r, out.height = "1000px", out.width = "1000px"}
 
-knitr::include_graphics("Data/consensus_map_k_2.png")
+knitr::include_graphics("Data/consensus_map_k_3.png")
 
 ```
 
 ```{r}
 
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k2, data = kaplan.df.full)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k3, data = kaplan.df.full)
 
-ggsurvplot(sfit, palette = chosen.colors[1:2])
+ggsurvplot(sfit, palette = chosen.colors[1:3])
 
 
 ```
