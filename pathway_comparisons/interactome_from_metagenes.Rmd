@@ -31,7 +31,13 @@ We need to keep track of two things - one is the type of feature we are handling
 
 ```{r network mapping,message=F,echo=T,warning=F}
 
-build_run_network <- function(gene_name, gene_score, gene_type,cluster,k){
+build_run_network <- function(gene_name, 
+                              gene_score, 
+                              gene_type,
+                              cluster,
+                              k,
+                              rands=100){
+  
   library(amlresistancenetworks)
   wes_inds <- which(gene_type=='WES')
   rna_inds <- which(gene_type=='RNA')
@@ -44,17 +50,30 @@ build_run_network <- function(gene_name, gene_score, gene_type,cluster,k){
   wes_terms <- gene_score[wes_inds]
   names(wes_terms) <- gene_name[wes_inds]
   
-  kin_terms <- gene_score[phos_inds]
-  names(kin_terms) <- gene_name[phos_inds]
+  #lets separate out the substrates from the phosphosite data
+  phgenes<-data.frame(genes=gene_name[phos_inds],val=gene_score[phos_inds])%>%
+    tidyr::separate(genes, into=c('gene','mod'),sep='-')%>%
+    mutate(modlist=strsplit(mod,split='s|t|y'))%>%
+    tidyr::unnest()%>%
+    rowwise()%>%
+    mutate(newgene=paste(gene,modlist,sep='-'))
   
+  kin_terms <- phgenes$val
+  names(kin_terms) <- phgenes$newgene
+  
+ # print(kin_terms)
   prot_terms <- gene_score[prot_inds]
   names(prot_terms) <- gene_name[prot_inds]
   
-  net = amlresistancenetworks::computePhosphoNetwork(phos.vals=kin_terms,prot.vals=prot_terms,gene.vals=wes_terms,fname=netname)
+  net = amlresistancenetworks::computePhosphoNetwork(phos.vals=kin_terms,
+                                                     prot.vals=prot_terms,
+                                                     gene.vals=wes_terms,
+                                                     nrand=rands,
+                                                     fname=netname)
   return(net)
 }
 
-print("K5 Clusetrs")
+print("K5 Clusters")
 k5%>%group_by(data_type)%>%summarize(numFeatures=n())
 
 
@@ -66,9 +85,14 @@ k8%>%group_by(data_type)%>%summarize(numFeatures=n())
 
 ```{r k5 cluster analysis}
 k5_nets <- k5 %>%
-    mutate(k=5)%>%
+    mutate(k=5,nrand=10)%>%
     group_by(Cluster)%>%
-    dplyr::mutate(net=build_run_network(feature,feature_score,data_type,Cluster,k))
+    dplyr::mutate(net=list(build_run_network(feature,
+                                             feature_score,
+                                             data_type,
+                                             Cluster,
+                                             k,
+                                             nrand)))
 
 ```
 
@@ -76,9 +100,9 @@ Now we can summarize the networks for the k5 clusters
 
 ```{r k8 cluster analysis}
 k8_nets <- k8 %>%
-    mutate(k=8)%>%
+    mutate(k=8,nrand=20)%>%
     group_by(Cluster)%>%
-    dplyr::mutate(net=build_run_network(feature,feature_score,data_type,Cluster,k))
+    dplyr::mutate(net=list(build_run_network(feature,feature_score,data_type,Cluster,k,nrand)))
 
 
 ```
