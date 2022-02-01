@@ -90,22 +90,40 @@ def load_meta_data():
 
 def load_mutations():
     df = load_table('syn26428827')
-    df['snp'] = df['hgvsp'].str.split(':p.').str.get(1)
-    df['snp'] = df['symbol'] + '_' + df['snp']
-    df['mutated'] = 1
     mapper = {
         'symbol': 'gene_symbol',
-        'snp': 'label',
-        'mutated': 'exp_value',
         'labId': 'sample_id',
     }
     df.rename(mapper, axis=1, inplace=True)
-    df = pd.pivot_table(df, index='sample_id', values='exp_value',
-                        columns='label', fill_value=0)
-    df = df.melt(ignore_index=False).reset_index()
-    df['exp_value'] = df['value']
-    df['source'] = 'wes'
-    return df
+    df['exp_value'] = 1
+    wes_gene_level = pd.pivot_table(
+        df,
+        index='sample_id',
+        values='exp_value',
+        columns='gene_symbol',
+        fill_value=0
+    )
+    wes_gene_level = wes_gene_level.melt(ignore_index=False).reset_index()
+    wes_gene_level['label'] = wes_gene_level.gene_symbol + '_mut'
+    wes_gene_level['exp_value'] = wes_gene_level['value']
+    wes_gene_level['source'] = 'wes'
+
+    wes_aa_level = df.copy()
+    wes_aa_level['label'] = wes_aa_level['hgvsp'].str.split(':p.').str.get(1)
+    wes_aa_level['label'] = wes_aa_level['gene_symbol'] + '_' + wes_aa_level['label']
+
+    wes_aa_level = pd.pivot_table(
+        wes_aa_level,
+        index='sample_id',
+        values='exp_value',
+        columns='label',
+        fill_value=0
+    )
+    wes_aa_level = wes_aa_level.melt(ignore_index=False).reset_index()
+    wes_aa_level['gene_symbol'] = wes_aa_level.label.str.split('_').str.get(0)
+    wes_aa_level['source'] = 'wes_protein_level'
+    wes_aa_level['exp_value'] = wes_aa_level['value']
+    return pd.concat([wes_gene_level, wes_aa_level])
 
 
 class AMLData(object):
@@ -152,6 +170,11 @@ class AMLData(object):
         subset = self.flat_data.loc[self.flat_data.source.isin(source)]
         return self.convert_to_matrix(subset)
 
+    def subset_flat(self, source):
+        if isinstance(source, str):
+            source = [source]
+        return self.flat_data.loc[self.flat_data.source.isin(source)]
+
     def convert_to_matrix(self, flat_dataframe):
         df = pd.pivot_table(
             flat_dataframe,
@@ -167,7 +190,8 @@ class AMLData(object):
         # Filter experimental platform
         mol_data = self.subset(source)
         feature_names = list(mol_data.columns.values)
-        feature_names.remove('sample_id')
+        if 'sample_id' in feature_names:
+            feature_names.remove('sample_id')
         # merge with auc table to get row=patient, col=genes + drug_auc
         joined = mol_data.join(
             self.auc_table[drug_name],

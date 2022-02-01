@@ -147,7 +147,8 @@ def run_model(d_sets, drug_name):
     n_features = features.shape[1]
     print(f"Using {n_features} out of {n_features_before}"
           f" ({n_features_before - n_features} removed)")
-
+    if features.shape[0] < 100:
+        return []
     #     features = pd.DataFrame(features, columns=feature_names)
     feature_names = list(set(features.columns.values))
 
@@ -196,7 +197,8 @@ def run_model(d_sets, drug_name):
     all_results = pd.concat(all_results)
     all_results['drug'] = drug_name
     all_results['data_type'] = out_name
-    return all_results[['model', 'k', 'mse', 'r2', 'pearsonr', 'auc', 'drug', 'data_type']]
+    all_results.feature_names = all_results.feature_names.str.join('|')
+    return all_results[['model', 'k', 'mse', 'r2', 'pearsonr', 'auc', 'drug', 'data_type', 'feature_names']]
 
 
 if __name__ == '__main__':
@@ -211,15 +213,15 @@ if __name__ == '__main__':
         'phospho',
         'wes',
         ['proteomics', 'phospho'],
-        ['rna_seq', 'proteomics', ],
-        ['wes', 'proteomics', ],
-        ['rna_seq', 'phospho'],
+        ['proteomics', 'rna_seq', ],
+        ['proteomics', 'wes'],
+        ['phospho', 'rna_seq', ],
+        ['phospho', 'wes'],
         ['rna_seq', 'wes'],
-        ['wes', 'phospho'],
-        ['rna_seq', 'phospho', 'wes'],
-        ['rna_seq', 'proteomics', 'wes'],
+        ['phospho', 'rna_seq', 'wes'],
+        ['proteomics', 'rna_seq', 'wes'],
         ['proteomics', 'phospho', 'wes'],
-        ['rna_seq', 'proteomics', 'phospho', 'wes'],
+        ['proteomics', 'phospho', 'rna_seq', 'wes'],
     ]
 
     models = []

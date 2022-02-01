@@ -27,15 +27,15 @@ dependencies:
   - openpyxl
   - scikit-learn
   - fastcluster
-  - tables
   - pip
   - pip:
       - matplotlib_venn==0.11.5
-      - bioservices==1.6
+      - bioservices
       - synapseclient
       - py2cytoscape==0.7.1
       - wordcloud
       - xgboost
       - tqdm
       - xlrd
+      - tables
       - magine

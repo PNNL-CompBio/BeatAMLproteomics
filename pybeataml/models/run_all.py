@@ -75,16 +75,17 @@ if __name__ == '__main__':
         l1_ratio=.5,
         alpha=.9
     )
-
+    # model = svm.SVR(C=1.0, epsilon=0.2, kernel='linear')
+    # model = LGBMRegressor()
     # Require 10% (20 samples) have an AUC lower than 100
     counts = data.auc_table[data.auc_table < 100].count().sort_values()
     drugs = counts[counts > 20].index.values
     # only run single drugs for now
     drug_solo = [i for i in drugs if ' - ' not in i]
     data_sources = [
-        'rna_seq', 'proteomics', 'phopsho', 'wes',  # each by themselves
-        ['proteomics', 'phopsho'],
-        ['rna_seq', 'proteomics', 'phopsho', 'wes'],
+        'rna_seq', 'proteomics', 'phospho', 'wes',  # each by themselves
+        ['proteomics', 'phospho'],
+        ['rna_seq', 'proteomics', 'phospho', 'wes'],
     ]
 
     models = []
@@ -99,4 +100,4 @@ if __name__ == '__main__':
     df['r2'] = df['r2'].apply(lambda x: '|'.join([str(i) for i in x]))
     df['mse'] = df['mse'].apply(lambda x: '|'.join([str(i) for i in x]))
     if save:
-        df.to_csv("all_models_performance.csv")
+        df.to_csv("all_models_performance_en.csv")
