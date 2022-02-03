@@ -122,10 +122,11 @@ results <- results[as.character(sort(as.numeric(names(results))))]
 for (i in 1:length(results)){
   result <- results[[i]]
   k.value <- names(results)[[i]]
-  table.path <- paste0("Data/NMF_metagene_representatives_by_cluster_k_", k.value, ".txt")
+  table.path <- paste0("Data/NMF_metagene_representatives_by_cluster_k_", k.value, "_W_included.txt")
   xx <- extract.features(result) %>%
     left_join(NMF_names, by = "NMF_index") %>%
-    select(feature, everything(), -Feature_NMF_label)
+    select(feature, Cluster, NMF_index, feature_score, data_type, 
+           sign, number_imputed, everything(), -Feature_NMF_label)
   write.table(xx, table.path, sep = "\t")
   parentID <- "syn26718014"
   synapseStore(table.path, parentID)

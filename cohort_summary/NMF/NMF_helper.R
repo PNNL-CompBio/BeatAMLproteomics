@@ -250,6 +250,8 @@ extract.features <- function(result){
   
   cluster.mapping <- table(combined.assignment$Cluster, combined.assignment$chosenCluster) %>%
     apply(1, which.max)
+  W_out <- W[, cluster.mapping]
+  colnames(W_out) <- paste("Cluster", 1:ncol(W_out))
   
   if (length(cluster.mapping) != length(unique(cluster.mapping))){
     stop("Unable to unambiguously infer cluster labels. Please inspect further.")
@@ -271,8 +273,10 @@ extract.features <- function(result){
     if (all(is.na(features))){
       data.frame(Cluster = i, Feature_NMF_label = NA, NMF_index = NA, feature_score = NA)
     } else {
-      data.frame(Cluster = i, Feature_NMF_label = features, NMF_index = indeces) %>%
-        left_join(feature_score, by = "NMF_index")
+      yy <- data.frame(Cluster = i, Feature_NMF_label = features, NMF_index = indeces) %>%
+        cbind(W_out[indeces, ]) %>%
+        left_join(feature_score, by = "NMF_index") %>%
+        select(Feature_NMF_label, Cluster, NMF_index, feature_score, everything())
     }
   }) %>% do.call(rbind, .)
   
