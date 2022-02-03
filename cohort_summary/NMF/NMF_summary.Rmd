@@ -1,7 +1,7 @@
 ---
 title: "NMF Clustering on combined data"
 author: "Camilo Posso"
-date: "11/30/2021"
+date: "01/17/22"
 output: 
   html_document:
     code_folding: hide
@@ -25,7 +25,7 @@ source("../../util/make_plots_util.R")
 source("NMF_helper.R")
 
 load.combined.data()
-# load("../../Misc/loaded data.RData")
+# load("../../Misc/load.combined.data 1-20-2022.RData")
 
 syn <- synapseLogin()
 summary.syn <- "syn26642974"
@@ -53,8 +53,8 @@ summary.table <- summary.table[rownames(meta), ]
 meta$vitalStatus <- summary.table$vitalStatus %>% as.factor()
 
 ### Use parentID = NULL if you DO NOT want to upload the heatmaps to synapse.
-# parentID = NULL
-parentID = "syn26529350"
+parentID = NULL
+# parentID = "syn26529350"
 
 folder <- "../../cohort_summary/NMF/Data/"
 files <- list.files(folder, "BEATAML NMF") %>%
@@ -303,17 +303,17 @@ plots <- lapply(1:7, function(i){
   xx.colors[["Cluster"]] = chosen.colors[1:length(unique(p.labels$Cluster))]
   names(xx.colors[["Cluster"]]) <- as.character(1:n.levels)
   
-  
+
   make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = NULL,
-                annotation_col = ann.labels, annotation_colors = xx.colors, 
-                show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]], 
-                annotation_row = p.labels, height = 12, width = 12, format = "png",
+                annotation_col = ann.labels, annotation_colors = xx.colors,
+                show_rownames = FALSE, show_colnames = FALSE, main = titles[[i]],
+                annotation_row = p.labels, height = 16, width = 16, format = "png",
                 cluster_rows = hc_cluster, cluster_cols = hc_cluster)
 
   make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = parentID,
                 annotation_col = ann.labels, annotation_colors = xx.colors,
-                show_rownames = FALSE, show_colnames = TRUE, main = titles[[i]],
-                annotation_row = p.labels, height = 12, width = 12, format = "pdf",
+                show_rownames = FALSE, show_colnames = FALSE, main = titles[[i]],
+                annotation_row = p.labels, height = 16, width = 16, format = "pdf",
                 cluster_rows = hc_cluster, cluster_cols = hc_cluster)
   
   return("Done")
