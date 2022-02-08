@@ -8,15 +8,17 @@ TODO
 """
 import pandas as pd
 
+from pybeataml.data import ExperimentalData
 from pybeataml.load_data_from_synpase import load_table, load_file
 
 # current synapse ids, check with Camilo to see if these are the final (
 # I know there are some other corrected/v2/uncorrected in the R code)
 global_id = 'syn25808020'
-phospho_id = 'syn25808662'
+phospho_id = 'syn26477193'  # syn25808662
 rnaseq_id = 'syn26545877'
 drug_response_id = 'syn25830473'
 meta_file_id = 'syn26534982'
+wes_id = 'syn26428827'
 
 
 def prep_rnaseq():
@@ -89,7 +91,18 @@ def load_meta_data():
 
 
 def load_mutations():
-    df = load_table('syn26428827')
+    """
+    Loads WES data.
+
+    Processes mutational status into two levels. First one is at the gene level,
+    second one gene with amino acid level.
+
+
+    Returns
+    -------
+
+    """
+    df = load_table(wes_id)
     mapper = {
         'symbol': 'gene_symbol',
         'labId': 'sample_id',
@@ -149,6 +162,11 @@ class AMLData(object):
         self.feature_names = list(self.all_data.columns.values)
         self.feature_names.remove('sample_id')
 
+        # format for magine.ExperimentalData class
+        d = self.flat_data.rename({'gene_symbol': 'identifier'}, axis=1)
+        d['species_type'] = 'gene'
+        self.exp_data = ExperimentalData(d)
+
     @property
     def drug_names(self):
         if self._drug_names is None:
@@ -200,10 +218,12 @@ class AMLData(object):
         # df_subset = joined.loc[:, feature_names + [drug_name]]
         # remove rows without a AUC measurement
         df_subset = joined[~joined[drug_name].isna()].copy()
+
+        # require 50% of the data be present for any given column
         df_subset.dropna(
             axis=0,
             how='any',
-            thresh=df_subset.shape[1] * .90,
+            thresh=df_subset.shape[1] * .50,
             inplace=True
         )
         # filter down if missing any measured cols

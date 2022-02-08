@@ -72,7 +72,7 @@ def run_gbt(x_train, y_train, x_test, y_test, feature_names, binarize=False):
     param = dict(
         device_type='cpu',
         boosting='gbdt',
-        nthread=-1,
+        nthread=8,
         objective='regression',
         metric='rmse',
         lambda_l1=1,
@@ -142,13 +142,13 @@ def run_model(d_sets, drug_name):
     target = df_subset[drug_name].values
 
     n_features_before = features.shape[1]
-    features = features.loc[:, features.mean() > 0]
-    features = features.loc[:, features.std() > 0]
+    # features = features.loc[:, features.mean() > 0]
+    # features = features.loc[:, features.std() > 0]
     n_features = features.shape[1]
     print(f"Using {n_features} out of {n_features_before}"
           f" ({n_features_before - n_features} removed)")
     if features.shape[0] < 100:
-        return []
+        return pd.DataFrame()
     #     features = pd.DataFrame(features, columns=feature_names)
     feature_names = list(set(features.columns.values))
 
@@ -234,4 +234,4 @@ if __name__ == '__main__':
         models,
     )
 
-    df.to_csv("ultimate_output.csv")
+    df.to_csv("ultimate_output_all_data.csv")
