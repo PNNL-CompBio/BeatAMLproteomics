@@ -91,7 +91,8 @@ rna_protein <- data.subset(['rnaseq', 'proteomics'])
   - Development notebook to create models. Most code starts here then is refactored to .py files
 - `meta_gene_enrichment.ipynb`
   - Enrichment analysis on meta genes from NMF
-
+- `plot_model_summaries.ipynb`
+  - Visualize outputs from models/run_all_kfold_ultimate.py
 # Regression models
 
 A single script to run through Lasso, ElasticNet, Gradient Boosted Trees, and Support Vector Regression can be found
