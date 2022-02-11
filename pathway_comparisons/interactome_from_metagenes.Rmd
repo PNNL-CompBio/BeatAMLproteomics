@@ -23,8 +23,52 @@ syn<-synapseLogin()
 k5  <- read.table(syn$get('syn26718017')$path,sep='\t',header=T)
 k8 <- read.table(syn$get('syn26718020')$path,sep='\t',header=T)
 
+##now load in alternate scores
+k5_weights <- read.table(syn$get('syn26969682')$path,sep='\t',header=T)%>%
+  tidyr::pivot_longer(starts_with('Cluster.'),names_to='clusterWeight',values_to = 'weight')%>%
+  mutate(fromCluster=Cluster==gsub('Cluster.','',clusterWeight,fixed=T))%>%
+  subset(fromCluster)
+
+
+##now load in alternate scores
+k8_weights <- read.table(syn$get('syn26969686')$path,sep='\t',header=T)%>%
+  tidyr::pivot_longer(starts_with('Cluster.'),names_to='clusterWeight',values_to = 'weight')%>%
+  mutate(fromCluster=Cluster==gsub('Cluster.','',clusterWeight,fixed=T))%>%
+  subset(fromCluster)
+
+
 ```
 
+First we want to look at how many features are being selected by each metagene here.
+
+```{r feature summaries}
+library(ggplot2)
+
+
+##summary of features
+ggplot(k5)+geom_bar(aes(x=Cluster,fill=data_type),position='dodge')
+
+ggplot(k8)+geom_bar(aes(x=Cluster,fill=data_type),position='dodge')
+
+
+```
+
+There is clearly a disparity. However, that makes sense as the molecules correlate in various ways. 
+
+Now we can evaluate how similar the weights are to the feature scores
+
+```{r feature_scores}
+
+
+ggplot(k5_weights)+
+  geom_point(aes(x=feature_score,y=weight,alpha=0.5,shape=data_type,col=as.factor(Cluster)))
+
+
+ggplot(k8_weights)+geom_point(aes(x=feature_score,y=weight,alpha=0.5,
+                                  shape=data_type,col=as.factor(Cluster)))
+
+
+```
 ## Create function to take proteins by type and map them to network
 
 We need to keep track of two things - one is the type of feature we are handling, and the other is the weight for the network.
@@ -36,9 +80,11 @@ build_run_network <- function(gene_name,
                               gene_type,
                               cluster,
                               k,
-                              rands=100){
+                              rands=100,
+                              store=FALSE){
   
   library(amlresistancenetworks)
+  
   wes_inds <- which(gene_type=='WES')
   rna_inds <- which(gene_type=='RNA')
   prot_inds <- which(gene_type=='Global')
@@ -65,44 +111,77 @@ build_run_network <- function(gene_name,
   prot_terms <- gene_score[prot_inds]
   names(prot_terms) <- gene_name[prot_inds]
   
-  net = amlresistancenetworks::computePhosphoNetwork(phos.vals=kin_terms,
+  netlist = amlresistancenetworks::computePhosphoNetwork(phos.vals=kin_terms,
                                                      prot.vals=prot_terms,
                                                      gene.vals=wes_terms,
-                                                     nrand=rands,
+                                                     nrand=rands,beta=1,
                                                      fname=netname)
-  return(net)
+  graph =netlist$graph
+  fname = netlist$fname[1]
+  print(fname)
+  if(store){
+    synapseStore(fname,'syn26997954')
+  }  
+  return(graph)
 }
 
 print("K5 Clusters")
-k5%>%group_by(data_type)%>%summarize(numFeatures=n())
+k5%>%group_by(data_type,Cluster)%>%summarize(numFeatures=n())%>%arrange(Cluster)%>%
+  DT::datatable()
 
 
 print('K8 Clusters')
-k8%>%group_by(data_type)%>%summarize(numFeatures=n())
+k8%>%group_by(data_type, Cluster)%>%summarize(numFeatures=n())%>%arrange(Cluster)%>%
+  DT::datatable()
 ```
 
+Now we can run the analysis
 
 
 ```{r k5 cluster analysis}
-k5_nets <- k5 %>%
-    mutate(k=5,nrand=10)%>%
+k5_nets <- k5_weights %>%
+    mutate(k=5,nrand=100)%>%
     group_by(Cluster)%>%
-    dplyr::mutate(net=list(build_run_network(feature,
-                                             feature_score,
+    dplyr::summarize(net=list(build_run_network(feature,
+                                             weight,
                                              data_type,
                                              Cluster,
                                              k,
-                                             nrand)))
+                                             nrand,store=TRUE)))
+
+getNetStats <- function(net_list,orig_tab){
+  require(igraph)
+  ##create table of metagene features based on wht was included/excluded from the network
+  node_tab<-purrr::map2_dfr(.x=net_list$Cluster,.y=net_list$net,.f=function(Cluster,net){
+    g<-net
+    data.frame(node=names(V(g)),prizes=vertex.attributes(g)$prize,
+               types=vertex.attributes(g)$type,lfc=vertex.attributes(g)$logFoldChange,
+               geneTypes=vertex.attributes(g)$nodeType,Cluster=rep(Cluster,length(V(g))))
+  } )
+  
+  graph_counts <- node_tab%>%group_by(geneTypes,types,Cluster)%>%summarize(count=n())%>%
+    dplyr::rename(data_type='geneTypes',source='types')
+  orig_counts <- orig_tab%>%group_by(data_type,Cluster)%>%summarize(count=n())%>%
+    mutate(source='Metagene')
+
+  ##counts of how man proteins/genes/phosphosites in each
+  return(rbind(graph_counts,orig_counts))  
+}
+
+DT::datatable(getNetStats(k5_nets,k5_weights))
 
 ```
 
-Now we can summarize the networks for the k5 clusters
+Now we can summarize the networks for the k5 clusters, and move on to k8 clusters
 
 ```{r k8 cluster analysis}
-k8_nets <- k8 %>%
-    mutate(k=8,nrand=20)%>%
+
+k8_nets <- k8_weights%>%
+    mutate(k=8,nrand=100)%>%
     group_by(Cluster)%>%
-    dplyr::mutate(net=list(build_run_network(feature,feature_score,data_type,Cluster,k,nrand)))
+    dplyr::summarize(net=list(build_run_network(feature,weight,data_type,Cluster,k,nrand,store=TRUE)))
+
+DT::datatable(getNetStats(k8_nets,k8_weights))
 
 
 ```
