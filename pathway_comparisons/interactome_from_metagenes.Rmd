@@ -111,10 +111,16 @@ build_run_network <- function(gene_name,
   prot_terms <- gene_score[prot_inds]
   names(prot_terms) <- gene_name[prot_inds]
   
+
+  rna_terms <- gene_score[rna_inds]
+  names(rna_terms) <- gene_name[rna_inds]
+  
   netlist = amlresistancenetworks::computePhosphoNetwork(phos.vals=kin_terms,
                                                      prot.vals=prot_terms,
                                                      gene.vals=wes_terms,
-                                                     nrand=rands,beta=1,
+                                                     rna.vals=rna_terms,
+                                                     beta=1.5,
+                                                     nrand=rands,
                                                      fname=netname)
   graph =netlist$graph
   fname = netlist$fname[1]
@@ -176,10 +182,11 @@ Now we can summarize the networks for the k5 clusters, and move on to k8 cluster
 
 ```{r k8 cluster analysis}
 
-k8_nets <- k8_weights%>%
+k8_nets <- k8_weights %>%
     mutate(k=8,nrand=100)%>%
     group_by(Cluster)%>%
-    dplyr::summarize(net=list(build_run_network(feature,weight,data_type,Cluster,k,nrand,store=TRUE)))
+    dplyr::summarize(net=list(build_run_network(feature,weight,data_type,Cluster,k,nrand,
+                                                store=TRUE)))
 
 DT::datatable(getNetStats(k8_nets,k8_weights))
 
