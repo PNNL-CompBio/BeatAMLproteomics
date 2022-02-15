@@ -1,0 +1,103 @@
+---
+title: "Data availability sumamry"
+author: "Camilo Posso"
+date: "01/20/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: console
+---
+
+Making the table to use for circos plots. Must run inline for circos to work properly 
+
+
+```{r include=FALSE}
+
+source("util/loading_data.R")
+source("util/synapseUtil.R")
+library(circlize)
+
+#load("Misc/load.combined.data 1-20-2022.RData")
+load.combined.data()
+
+samples.RNA <- unique(RNA.data$Barcode.ID)
+
+## WES is mutational data. samples.WES
+samples.WES <- unique(WES.data$Barcode.ID)
+samples.common <- intersect(samples.RNA, samples.WES)
+n.common <- length(samples.common)
+n.WES <- length(samples.WES)
+n.RNA <- length(samples.RNA)
+n.RNA_WES <- length(setdiff(samples.RNA, samples.common))
+n.WES_RNA <- length(setdiff(samples.WES, samples.common))
+n.total <- length(global.data$Barcode.ID %>% unique())
+n.complement <- n.total - n.common - n.RNA_WES - n.WES_RNA
+
+table(meta$FLT3.ITD)
+n.filler <- 0
+
+
+
+df = data.frame(sector = c(rep("Common", n.common), rep("WES-RNA", n.WES_RNA), 
+                           rep("RNA-WES", n.RNA_WES), rep("Rest", n.complement)),
+                x = c(1:n.common, 1:n.WES_RNA, 1:n.RNA_WES, 1:n.complement), 
+                Dummy1 = 1, Dummy2 = 1, Dummy3 = 1, Dummy4 = 1)
+
+df$sector <- factor(df$sector, levels = c("Common", "RNA-WES", "WES-RNA", "Rest"))
+
+```
+
+Circos plot
+
+```{r}
+setwd("./cohort_summary/")
+pdf(file = "data_sample_summary_circos.pdf", width = 5, height = 5)
+circos.clear()
+circos.par("track.height" = 0.05, gap.degree = 0.02, start.degree = 90)
+circos.initialize(df$sector, x = df$x)
+
+
+circos.track(df$sector, y = df$Dummy2, ylim = c(0.5, 1.5),
+             panel.fun = function(x, y) {
+               circos.update(bg.border = "#FFFFFF")
+             })
+chosen.colors = c("#CC79A7", "#CC79A7", "#FFFFFF", "#FFFFFF")
+circos.trackPoints(df$sector, df$x, df$Dummy2, cex = 0.6, col = chosen.colors)
+# highlight.sector("Common", col = "#FFFFFF")
+
+
+circos.track(df$sector, y = df$Dummy3, ylim = c(0.5, 1.5),
+             panel.fun = function(x, y) {
+               circos.update(bg.border = "#FFFFFF")
+             })
+chosen.colors = c("#E69F00", "#FFFFFF", "#E69F00", "#FFFFFF")
+circos.trackPoints(df$sector, df$x, df$Dummy3, cex = 0.6, col = chosen.colors)
+
+circos.track(df$sector, y = df$Dummy4, ylim = c(0.5, 1.5),
+             panel.fun = function(x, y) {
+               circos.update(bg.border = "#FFFFFF")
+             })
+chosen.colors = c("#56B4E9", "#56B4E9", "#56B4E9", "#56B4E9")
+circos.trackPoints(df$sector, df$x, df$Dummy4, cex = 0.6, col = chosen.colors)
+
+circos.track(df$sector, y = df$Dummy4, ylim = c(0.5, 1.5),
+             panel.fun = function(x, y) {
+               circos.update(bg.border = "#FFFFFF")
+             })
+chosen.colors = c("#009E73", "#009E73", "#009E73", "#009E73")
+circos.trackPoints(df$sector, df$x, df$Dummy4, cex = 0.6, col = chosen.colors)
+dev.off()
+
+
+```
+
+
+
+
+
+
+
+
+
