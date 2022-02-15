@@ -1,0 +1,15 @@
+signatures:
+  - LM9
+  - LM7c
+  - LM22
+  - PBMC
+
+prot-algorithms:
+  - cibersort
+  - epic
+  - xcell
+  - mcpcounter
+
+inFile:
+  class: File
+  path: "./protData.tsv"
