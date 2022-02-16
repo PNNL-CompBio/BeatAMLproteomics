@@ -1,0 +1,284 @@
+---
+title: "Mutational analysis: GSEA and KSEA"
+author: "Camilo Posso"
+date: "02/16/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+
+The goal of this markdown is to make the GSEA and KSEA plots comparing mutated to non mutated
+samples for various selected mutations.
+
+
+```{r include=FALSE}
+library(clusterProfiler)
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+
+source("../util/synapseUtil.R")
+source("../util/loading_data.R")
+source("../util/differential_expression_helper.R")
+
+
+#load("../Misc/load.combined.data 1-20-2022.RData")
+load.combined.data()
+metadata <- load.metadata()
+samples <- global.data %>%
+  pull(Barcode.ID) %>% unique()
+
+total_mutations <- WES.data %>%
+  pull(Gene) %>% unique()
+
+## load clinical summary
+clinical_syn <- "syn26642974"
+syn <- synapseLogin()
+
+clinical_summary <- read.table(syn$get(clinical_syn)$path)
+
+IDH1_IDH2 <- "IDH1+IDH2"
+KRAS_NRAS <- "KRAS+NRAS"
+
+```
+
+
+
+```{r}
+
+## Mutations with at least 4 patients having said mutation
+WES_reduced <- WES.data %>%
+  filter(Barcode.ID %in% samples) %>% 
+  group_by(Barcode.ID, Gene) %>%
+  dplyr::slice(1) %>%
+  ungroup(Barcode.ID, Gene)
+
+mutation_count <- WES_reduced %>%
+  group_by(Gene) %>%
+  summarise(n = n())
+
+mutations <-  mutation_count %>%
+  filter(n > 3) %>%
+  pull(Gene)
+
+WES_samples <- WES_reduced %>%
+  group_by(Gene) %>%
+  mutate(n = n()) %>%
+  arrange(-n) %>%
+  pull(Barcode.ID) %>%
+  unique()
+
+WES_reduced <- WES_reduced %>%
+  mutate(value = 1) %>%
+  dplyr::select(Barcode.ID, Gene, value)
+
+
+m.WES <- make.msnset(WES_reduced, "Gene", "Barcode.ID", "value", meta)  
+mat <- exprs(m.WES)[, WES_samples]
+mat[is.na(mat)] <- 0
+
+```
+
+
+Of the `r length(total_mutations)` mutations recorded in at least one sample, `r length(mutations)`
+of them are present in at least 4 samples. Below we summarize the mutational data for these
+`r length(mutations)` mutations using a heatmap. Note the columns represent samples, while the
+light beige color denotes mutation.
+
+
+```{r}
+pheatmap(mat[mutations, ], color = c("#16182A", "#F5E9D9"), 
+         legend = FALSE, show_colnames = FALSE)
+```
+
+
+
+```{r include=FALSE}
+## Here we run differential expression for convenience (to not rewrite code),
+## in the end we are only interested in the log fold changes for the rank based GSEA
+m.RNA <- make.msnset(RNA.data, feature.col = "Gene",
+                     value.col = "RNA counts", metadata = meta)
+m.global <- make.msnset(global.data, feature.col = "Gene",
+                        value.col = "LogRatio", metadata = meta)
+m.phospho <- make.msnset(phospho.data, feature.col = "SiteID",
+                         value.col = "LogRatio", metadata = meta)
+
+
+datasets <- list(m.global, m.phospho, m.RNA)
+names(datasets) <- c("global", "phospho", "RNA")
+
+special_mutations <- WES.data %>%
+  filter(Gene %in% c("IDH1", "IDH2", "KRAS", "NRAS")) %>%
+  select(Gene, Barcode.ID) %>%
+  mutate(mutation = case_when(grepl("IDH", Gene) ~ IDH1_IDH2,
+                              TRUE ~ KRAS_NRAS)) %>%
+  select(Barcode.ID, mutation) %>%
+  dplyr::rename(Gene = mutation) %>%
+  unique()
+
+special_mutations_FLT3 <- metadata %>%
+  filter(FLT3.ITD == "TRUE") %>%
+  select(Barcode.ID) %>%
+  mutate(Gene = "FLT3.ITD")
+
+special_mutation_NPM1 <- clinical_summary %>%
+  select(labId, NPM1Call) %>% 
+  mutate(NPM1 = grepl("^Positive", NPM1Call),
+         Barcode.ID = labId) %>%
+  filter(NPM1) %>%
+  select(Barcode.ID) %>%
+  mutate(Gene = "NPM1_clinical")
+
+special_mutations <- special_mutations %>%
+  rbind(special_mutation_NPM1) %>%
+  rbind(special_mutations_FLT3)
+
+all_mutation_data <- WES.data %>%
+  select(Barcode.ID, Gene) %>%
+  rbind(special_mutations)
+
+
+mutations <- c(mutations, unique(special_mutations$Gene))
+## NPM1 mutations are made from clinical summary data used instead of the WES data
+## so we remove NPM1 here
+NPM1_WES_index <- which(mutations == "NPM1")
+mutations <- mutations[-NPM1_WES_index]
+
+differential_expression_results <- lapply(mutations, check_diff_exp_individual, 
+                                          all_mutation_data, datasets)
+
+summary_table <- lapply(differential_expression_results, function(xx){xx[[1]]}) %>% 
+  do.call("rbind", .)
+
+names(differential_expression_results) = sapply(differential_expression_results, function(xx){
+  xx[[1]]$mutation[[1]]
+})
+
+```
+
+
+
+```{r, rank based gsea}
+library(org.Hs.eg.db)
+library(KSEAapp)
+### KSEA pathway table
+KSDB <- read.csv(system.file('PSP&NetworKIN_Kinase_Substrate_Dataset_July2016.csv',
+                             package='amlresistancenetworks'),stringsAsFactors = FALSE)
+
+gsea_rank_results <- lapply(selected_mutations, function(mutation){
+  print(mutation)
+  
+  ## logFC in the differential expression table is calculated as follows:
+  ## mean(mutated) - mean(non mutated)
+  
+  diff_exp <- differential_expression_results[[mutation]][[2]] %>%
+    filter(datatype == "global") %>%
+    arrange(-logFC)
+  gene_list <- diff_exp$logFC
+  names(gene_list) <- diff_exp$feature
+  
+  gsea_global <- gseGO(geneList = gene_list, OrgDb = org.Hs.eg.db, ont = "BP",
+        minGSSize = 10, maxGSSize = 500, pvalueCutoff = 0.05, keyType = "SYMBOL",
+              verbose = FALSE, eps = 1e-30, nPermSimple = 1000)@result %>%
+    dplyr::select(Description, setSize, p.adjust, NES) %>%
+    dplyr::rename(pathway = Description, enrichment = NES, 
+                  adj_p_val = p.adjust, set_size = setSize) %>%
+    dplyr::mutate(data_type = "global",
+                  mutation = mutation)
+
+  diff_exp <- differential_expression_results[[mutation]][[2]] %>%
+    filter(datatype == "RNA") %>%
+    arrange(-logFC)
+  gene_list <- diff_exp$logFC
+  names(gene_list) <- diff_exp$feature
+  
+  gsea_rna <- gseGO(geneList = gene_list, OrgDb = org.Hs.eg.db, ont = "BP",
+        minGSSize = 10, maxGSSize = 500, pvalueCutoff = 0.05, keyType = "SYMBOL",
+              verbose = FALSE, eps = 1e-30, nPermSimple = 1000)@result %>%
+    dplyr::select(Description, setSize, p.adjust, NES) %>%
+    dplyr::rename(pathway = Description, enrichment = NES, 
+                  adj_p_val = p.adjust, set_size = setSize) %>%
+    dplyr::mutate(data_type = "RNA",
+                  mutation = mutation)
+  
+  diff_exp <- differential_expression_results[[mutation]][[2]] %>%
+    filter(datatype == "phospho") %>%
+    arrange(-logFC) %>%
+    ## Making the necessary columns for KSEA
+    mutate(Gene = sub("-.*$", "", feature),
+           Residue.Both = sub("^.*-", "", feature)) %>%
+    mutate(Residue.Both = gsub("[a-z]", ";", Residue.Both)) %>%
+    mutate(Residue.Both = sub(";$", "", Residue.Both))
+  
+  PX <- data.frame(Protein = "NULL", Gene = diff_exp$Gene,
+                   Peptide = "NULL", Residue.Both = diff_exp$Residue.Both,
+                   p = "NULL", FC = diff_exp$logFC)
+  
+  ksea_phospho <- KSEA.Scores(KSDB, PX, NetworKIN = TRUE, NetworKIN.cutoff = 5) %>%
+    dplyr::select(Kinase.Gene, m, FDR, z.score) %>%
+    dplyr::rename(pathway = Kinase.Gene, enrichment = z.score,
+                  adj_p_val = FDR, set_size = m) %>%
+    dplyr::mutate(data_type = "phospho",
+                  mutation = mutation) %>%
+    filter(set_size > 3)
+  
+  gsea_all <- rbind(gsea_global, gsea_rna, ksea_phospho)
+  
+  return(gsea_all)
+}) 
+
+gsea_rank_results_df <- do.call("rbind", gsea_rank_results)
+
+
+```
+
+
+
+
+```{r}
+to_plot <- gsea_rank_results_df %>%
+  filter(adj_p_val < 0.05) 
+
+categories_plot <- to_plot %>%
+  dplyr::select(mutation, data_type) %>%
+  unique()
+rownames(categories_plot) <- 1:nrow(categories_plot)
+
+lapply(1:nrow(categories_plot), function(i){
+  plot_mutation <- categories_plot$mutation[[i]]
+  plot_data_type <- categories_plot$data_type[[i]]
+  if (plot_data_type %in% c("global", "RNA")){
+    x_label <- "NES"
+    plot_title <- paste(plot_mutation, "GSEA in", plot_data_type)
+  } else {
+    x_label <- "z-score"
+    plot_title <- paste(plot_mutation, "KSEA in", plot_data_type)
+  }
+  
+  plot_path <- "./plots/gsea_rank_analysis/G(K)SEA_top_sig"
+  plot_path <- paste(plot_path, plot_mutation, plot_data_type, sep = "_") %>%
+    paste0(".png")
+  plot_df <- to_plot %>%
+    filter(mutation == plot_mutation) %>%
+    filter(data_type == plot_data_type) %>%
+    dplyr::select(pathway, enrichment, adj_p_val) %>%
+    head(20)
+  
+  png(file = plot_path, width = 1200, height = 800)
+  plot_enrichment_result(plot_df, x_label, enrichment_title = plot_title)
+  dev.off()
+  
+  "done"
+})
+
+
+```
+
+
+

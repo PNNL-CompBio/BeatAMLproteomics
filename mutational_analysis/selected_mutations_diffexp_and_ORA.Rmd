@@ -1,0 +1,323 @@
+---
+title: "Mutational analysis: differential expression + ORA"
+author: "Camilo Posso"
+date: "02/16/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+
+The goal of this markdown is to make the ORA and heatmap plots coming from the
+differential expression for selected mutations.
+
+
+```{r include=FALSE}
+library(clusterProfiler)
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+
+source("../util/synapseUtil.R")
+source("../util/loading_data.R")
+source("../util/differential_expression_helper.R")
+
+
+#load("../Misc/load.combined.data 1-20-2022.RData")
+load.combined.data()
+metadata <- load.metadata()
+samples <- global.data %>%
+  pull(Barcode.ID) %>% unique()
+
+total_mutations <- WES.data %>%
+  pull(Gene) %>% unique()
+
+## load clinical summary
+clinical_syn <- "syn26642974"
+syn <- synapseLogin()
+
+clinical_summary <- read.table(syn$get(clinical_syn)$path)
+
+IDH1_IDH2 <- "IDH1+IDH2"
+KRAS_NRAS <- "KRAS+NRAS"
+
+```
+
+
+
+```{r}
+
+## Mutations with at least 4 patients having said mutation
+WES_reduced <- WES.data %>%
+  filter(Barcode.ID %in% samples) %>% 
+  group_by(Barcode.ID, Gene) %>%
+  dplyr::slice(1) %>%
+  ungroup(Barcode.ID, Gene)
+
+mutation_count <- WES_reduced %>%
+  group_by(Gene) %>%
+  summarise(n = n())
+
+mutations <-  mutation_count %>%
+  filter(n > 3) %>%
+  pull(Gene)
+
+WES_samples <- WES_reduced %>%
+  group_by(Gene) %>%
+  mutate(n = n()) %>%
+  arrange(-n) %>%
+  pull(Barcode.ID) %>%
+  unique()
+
+WES_reduced <- WES_reduced %>%
+  mutate(value = 1) %>%
+  dplyr::select(Barcode.ID, Gene, value)
+
+
+m.WES <- make.msnset(WES_reduced, "Gene", "Barcode.ID", "value", meta)  
+mat <- exprs(m.WES)[, WES_samples]
+mat[is.na(mat)] <- 0
+
+```
+
+
+Of the `r length(total_mutations)` mutations recorded in at least one sample, `r length(mutations)`
+of them are present in at least 4 samples. Below we summarize the mutational data for these
+`r length(mutations)` mutations using a heatmap. Note the columns represent samples, while the
+light beige color denotes mutation.
+
+
+```{r}
+pheatmap(mat[mutations, ], color = c("#16182A", "#F5E9D9"), 
+         legend = FALSE, show_colnames = FALSE)
+```
+
+
+## Differential Expression
+
+Focusing on any one of the `r length(mutations)`, say \(\mu\), we can ask. Which phospho-sites 
+are differentially expressed in \(\mu\) mutated samples vs non mutated samples? What if we use
+global or RNA data? Below we collect this information into a table.
+
+
+```{r include=FALSE}
+
+m.RNA <- make.msnset(RNA.data, feature.col = "Gene",
+                     value.col = "RNA counts", metadata = meta)
+m.global <- make.msnset(global.data, feature.col = "Gene",
+                        value.col = "LogRatio", metadata = meta)
+m.phospho <- make.msnset(phospho.data, feature.col = "SiteID",
+                         value.col = "LogRatio", metadata = meta)
+
+
+datasets <- list(m.global, m.phospho, m.RNA)
+names(datasets) <- c("global", "phospho", "RNA")
+
+special_mutations <- WES.data %>%
+  filter(Gene %in% c("IDH1", "IDH2", "KRAS", "NRAS")) %>%
+  select(Gene, Barcode.ID) %>%
+  mutate(mutation = case_when(grepl("IDH", Gene) ~ IDH1_IDH2,
+                              TRUE ~ KRAS_NRAS)) %>%
+  select(Barcode.ID, mutation) %>%
+  dplyr::rename(Gene = mutation) %>%
+  unique()
+
+special_mutations_FLT3 <- metadata %>%
+  filter(FLT3.ITD == "TRUE") %>%
+  select(Barcode.ID) %>%
+  mutate(Gene = "FLT3.ITD")
+
+special_mutation_NPM1 <- clinical_summary %>%
+  select(labId, NPM1Call) %>% 
+  mutate(NPM1 = grepl("^Positive", NPM1Call),
+         Barcode.ID = labId) %>%
+  filter(NPM1) %>%
+  select(Barcode.ID) %>%
+  mutate(Gene = "NPM1_clinical")
+
+special_mutations <- special_mutations %>%
+  rbind(special_mutation_NPM1) %>%
+  rbind(special_mutations_FLT3)
+
+all_mutation_data <- WES.data %>%
+  select(Barcode.ID, Gene) %>%
+  rbind(special_mutations)
+
+
+mutations <- c(mutations, unique(special_mutations$Gene))
+## NPM1 mutations are made from clinical summary data used instead of the WES data
+## so we remove NPM1 here
+NPM1_WES_index <- which(mutations == "NPM1")
+mutations <- mutations[-NPM1_WES_index]
+
+differential_expression_results <- lapply(mutations, check_diff_exp_individual, 
+                                          all_mutation_data, datasets)
+
+summary_table <- lapply(differential_expression_results, function(xx){xx[[1]]}) %>% 
+  do.call("rbind", .)
+
+names(differential_expression_results) = sapply(differential_expression_results, function(xx){
+  xx[[1]]$mutation[[1]]
+})
+
+```
+
+
+```{r}
+plot_df <- summary_table %>%
+  select(-`Number.mutated`) %>%
+  pivot_longer(-mutation) %>%
+  mutate(name = sub("^.*in ", "", name)) %>%
+  mutate(individual_bar = paste(mutation, name)) %>%
+  arrange(-value) %>%
+  mutate(mutation = factor(mutation, levels = unique(mutation)))
+
+p <- ggplot(plot_df, aes(y = mutation, x = value, fill = name)) + 
+  geom_bar(stat = 'identity') + xlab("Features differentially expressed")
+
+ggsave(filename = "mutational_differential_expression_barplot_count.png", plot = p)
+
+p
+
+```
+
+
+
+```{r}
+library(DT)
+DT::datatable(summary_table)
+```
+
+
+```{r include=FALSE}
+### Run this to make all the heatmaps. A few will fail, due to the exactly one feature
+### being selected to plot.** or failure to compute distances due to many NA
+dataset_names <- names(datasets)
+
+for (i in 1:length(differential_expression_results)){
+  mutation = names(differential_expression_results)[[i]]
+  diff_exp <- differential_expression_results[[i]][[2]]
+  
+  
+  features <- lapply(1:3, function(j){
+    diff_exp %>%
+      filter(datatype == dataset_names[[j]]) %>%
+      filter(adj.P.Val < 0.05) %>%
+      head(20) %>%
+      pull(feature)
+  })
+  
+  for (j in 1:3){
+    if (length(features[[j]]) > 0){
+      try(plot_diffexp_heatmap(mutation, all_mutation_data, datasets[j], features[[j]], 
+                               folder = "./plots/differential_expression_heatmaps/", 
+                               suffix = dataset_names[[j]]))
+    }
+  }
+}
+
+```
+
+
+
+```{r}
+## Here we compute the enrichment results
+library(org.Hs.eg.db)
+
+selected_mutations <- c("IDH1", "IDH2", "TP53", "NRAS", "KRAS", "FLT3.ITD", "NPM1_clinical", 
+                        IDH1_IDH2, KRAS_NRAS)
+
+
+## need same order as datasets here
+universes <- list(unique(global.data$Gene), unique(phospho.data$Gene), 
+                  unique(RNA.data$Gene))
+names(universes) <- names(datasets)
+
+gsea_ora_results <- lapply(selected_mutations, function(mutation){
+  print(mutation)
+  gsea_all = gsea_global = gsea_rna <- data.frame(Description = c(), 
+                                                  GeneRation = c(), 
+                                                  BgRatio = c(), 
+                                                  pvalue = c(), 
+                                                  p.adjust = c(), 
+                                                  Count = c())
+  
+  genes <- differential_expression_results[[mutation]][[2]] %>%
+    filter(adj.P.Val < 0.05) %>%
+    filter(datatype == "global") %>%
+    pull(feature)
+  
+  if (length(genes) > 0){
+    gsea_global <- enrichGO(genes, keyType = "SYMBOL", OrgDb = org.Hs.eg.db, ont = "BP",
+                            universe = universes[[1]])@result %>%
+      dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust, Count) %>%
+      mutate(mutation = mutation, data_type = "global")
+  }
+  
+  genes <- differential_expression_results[[mutation]][[2]] %>%
+    filter(adj.P.Val < 0.05) %>%
+    filter(datatype == "RNA") %>%
+    pull(feature)
+
+  if (length(genes) > 0){
+    gsea_rna <- enrichGO(genes, keyType = "SYMBOL", OrgDb = org.Hs.eg.db, ont = "BP",
+                         universe = universes[[3]])@result %>%
+      dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust, Count) %>%
+      mutate(mutation = mutation, data_type = "rna")
+  }
+  
+  gsea_all <- rbind(gsea_all, gsea_global) %>%
+    rbind(gsea_rna) %>%
+    mutate(mutation = mutation)
+  
+  return(gsea_all)
+}) 
+
+gsea_ora_results_df <- do.call("rbind", gsea_ora_results)
+
+```
+
+
+
+```{r, ora plots for the selected mutations}
+## Here we make the plots using the enrichment results
+to_plot <- gsea_ora_results_df %>%
+  filter(p.adjust < 0.05) 
+
+categories_plot <- to_plot %>%
+  dplyr::select(mutation, data_type) %>%
+  unique()
+rownames(categories_plot) <- 1:nrow(categories_plot)
+
+lapply(1:nrow(categories_plot), function(i){
+  plot_mutation <- categories_plot$mutation[[i]]
+  plot_data_type <- categories_plot$data_type[[i]]
+  plot_title <- paste(plot_mutation, plot_data_type)
+  
+  plot_path <- "./plots/over_representation_analysis/ORA_top_sig"
+  plot_path <- paste(plot_path, plot_mutation, plot_data_type, sep = "_") %>%
+    paste0(".png")
+  plot_df <- to_plot %>%
+    filter(mutation == plot_mutation) %>%
+    filter(data_type == plot_data_type) %>%
+    dplyr::select(Description, Count, p.adjust) %>%
+    dplyr::rename(enrichment = Count,
+                  pathway = Description,
+                  adj_p_val = p.adjust) %>%
+    head(20)
+  
+  png(file = plot_path, width = 1200, height = 800)
+  plot_enrichment_result(plot_df, "Count", enrichment_title = plot_title)
+  dev.off()
+  
+  "done"
+})
+
+```
+
+
