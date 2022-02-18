@@ -1,0 +1,44 @@
+---
+title: "Deconvolution heatmaps"
+author: "Sara Gosline"
+date: "2/15/2022"
+output: html_document
+---
+
+
+Here we just put together a few heatmaps from the deconvolution data
+
+```{r login}
+library(amlresistancenetworks)
+library(dplyr)
+library(pheatmap)
+syn = synapseLogin()
+
+decontab <- syn$tableQuery('select * from syn27085832')$asDataFrame()
+
+```
+
+
+Now for each matrix/algorithm let's plot.
+
+```{r do plots}
+
+algs = unique(decontab$algorithm)
+mats = unique(decontab$matrix)
+
+res = lapply(algs,function(a){
+  lapply(mats,function(m){
+    fname = paste0(a,'-',m,'.pdf')
+    tmat <- subset(decontab,algorithm==a)%>%
+      subset(matrix==m)%>%
+      tibble::remove_rownames()%>%
+      select('Cell type','sample','cellPop')%>%
+      pivot_wider(names_from='sample',values_from='cellPop')%>%
+            tibble::column_to_rownames('Cell type')%>%
+      as.matrix()%>%
+      pheatmap(.,filename=fname,labels_col=rep("",ncol(.)))
+    synapseStore(fname,parentId='syn27092543')
+  })
+})
+
+```
