@@ -48,6 +48,9 @@ vignettes/*.pdf
 # misc files
 Misc/
 
+# plots
+mutational_analysis/plots/
+
 # NMF raw data
 cohort_summary/NMF/Data/
 Analysis/NMF/Data/
