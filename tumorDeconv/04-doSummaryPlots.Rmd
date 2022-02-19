@@ -11,10 +11,30 @@ Here we just put together a few heatmaps from the deconvolution data
 ```{r login}
 library(amlresistancenetworks)
 library(dplyr)
+library(tidyr)
 library(pheatmap)
 syn = synapseLogin()
 
 decontab <- syn$tableQuery('select * from syn27085832')$asDataFrame()
+clusters <-read.table(syn$get('syn26642544')$path,sep='\t',header=T)
+
+
+clin <- read.table(syn$get('syn26642974')$path,quote='"',header=T)%>%
+  select(labId,FLT3_ITDCall)%>%
+  distinct()
+
+
+##collect cluster membeership, FLT3 status
+pat.annote <- clusters%>%
+  dplyr::select(k.5,k.8)%>%
+  mutate(k.5=as.factor(k.5),k.8=as.factor(k.8))%>%
+  tibble::rownames_to_column('labId')%>%left_join(clin)%>%
+  mutate(FLT3=ifelse(FLT3_ITDCall=='Negative','Negative','Positive'))%>%
+  tibble::column_to_rownames('labId')%>%
+  dplyr::select(`K5 Cluster`=k.5,`K8 Cluster`=k.8,`FLT3 ITD`=FLT3)
+
+#pat.annote <- data.frame(K5_cluster=clusters$k.5,K8_cluster=clusters$k.8)
+#,flt3=clin)
 
 ```
 
@@ -36,7 +56,7 @@ res = lapply(algs,function(a){
       pivot_wider(names_from='sample',values_from='cellPop')%>%
             tibble::column_to_rownames('Cell type')%>%
       as.matrix()%>%
-      pheatmap(.,filename=fname,labels_col=rep("",ncol(.)))
+      pheatmap(.,filename=fname,labels_col=rep("",ncol(.)),annotation_col=pat.annote)
     synapseStore(fname,parentId='syn27092543')
   })
 })
