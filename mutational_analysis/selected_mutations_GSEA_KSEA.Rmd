@@ -26,10 +26,11 @@ library(kableExtra)
 source("../util/synapseUtil.R")
 source("../util/loading_data.R")
 source("../util/differential_expression_helper.R")
+source("../util/make_plots_util.R")
 
 
-#load("../Misc/load.combined.data 1-20-2022.RData")
-load.combined.data()
+load("../Misc/load.combined.data 1-20-2022.RData")
+# load.combined.data()
 metadata <- load.metadata()
 samples <- global.data %>%
   pull(Barcode.ID) %>% unique()
@@ -163,10 +164,35 @@ names(differential_expression_results) = sapply(differential_expression_results,
 ```
 
 
+```{r}
+library(clusterProfiler)
+library(msigdbr)
+
+t2g_hallmark <- msigdbr(species = "Homo sapiens", category = "H") %>% 
+  dplyr::select(gs_name, gene_symbol)
+## 50 unique terms
+# unique(t2g_hallmark$gs_name)
+
+t2g_oncogenic <- msigdbr(species = "Homo sapiens", category = "C6") %>% 
+  dplyr::select(gs_name, gene_symbol)
+## 189 unique terms
+# unique(t2g_oncogenic$gs_name)
+
+t2g_gobp <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "BP") %>% 
+  dplyr::select(gs_name, gene_symbol) %>%
+  mutate(gs_name = gsub("_", " ", gs_name))
+
+```
+
+
 
 ```{r, rank based gsea}
 library(org.Hs.eg.db)
 library(KSEAapp)
+
+selected_mutations <- c("IDH1", "IDH2", "TP53", "NRAS", "KRAS", "FLT3.ITD", "NPM1_clinical", 
+                        IDH1_IDH2, KRAS_NRAS)
+
 ### KSEA pathway table
 KSDB <- read.csv(system.file('PSP&NetworKIN_Kinase_Substrate_Dataset_July2016.csv',
                              package='amlresistancenetworks'),stringsAsFactors = FALSE)
@@ -183,14 +209,39 @@ gsea_rank_results <- lapply(selected_mutations, function(mutation){
   gene_list <- diff_exp$logFC
   names(gene_list) <- diff_exp$feature
   
-  gsea_global <- gseGO(geneList = gene_list, OrgDb = org.Hs.eg.db, ont = "BP",
-        minGSSize = 10, maxGSSize = 500, pvalueCutoff = 0.05, keyType = "SYMBOL",
-              verbose = FALSE, eps = 1e-30, nPermSimple = 1000)@result %>%
+  
+  gsea_global_gobp <- GSEA(geneList = gene_list, eps = 1e-30, 
+                           minGSSize = 10, pvalueCutoff = 0.05, TERM2GENE = t2g_gobp)@result %>%
+    compress_enrichment(colname = "p.adjust", descending = FALSE) %>%
     dplyr::select(Description, setSize, p.adjust, NES) %>%
     dplyr::rename(pathway = Description, enrichment = NES, 
                   adj_p_val = p.adjust, set_size = setSize) %>%
     dplyr::mutate(data_type = "global",
-                  mutation = mutation)
+                  mutation = mutation,
+                  DB = "GO_BP")
+  
+  
+  gsea_global_hallmark <- GSEA(geneList = gene_list, eps = 1e-30,
+                               minGSSize = 10, pvalueCutoff = 0.05, TERM2GENE = t2g_hallmark)@result %>%
+    dplyr::select(Description, setSize, p.adjust, NES) %>%
+    dplyr::rename(pathway = Description, enrichment = NES, 
+                  adj_p_val = p.adjust, set_size = setSize) %>%
+    dplyr::mutate(data_type = "global",
+                  mutation = mutation,
+                  DB = "hallmark")
+  
+  
+  gsea_global_oncogenic <- GSEA(geneList = gene_list, eps = 1e-30,
+                                minGSSize = 10, pvalueCutoff = 0.05, TERM2GENE = t2g_oncogenic)@result %>%
+    dplyr::select(Description, setSize, p.adjust, NES) %>%
+    dplyr::rename(pathway = Description, enrichment = NES, 
+                  adj_p_val = p.adjust, set_size = setSize) %>%
+    dplyr::mutate(data_type = "global",
+                  mutation = mutation,
+                  DB = "oncogenic")
+  
+  gsea_global <- rbind(gsea_global_gobp, gsea_global_hallmark, gsea_global_oncogenic)
+  
 
   diff_exp <- differential_expression_results[[mutation]][[2]] %>%
     filter(datatype == "RNA") %>%
@@ -198,14 +249,39 @@ gsea_rank_results <- lapply(selected_mutations, function(mutation){
   gene_list <- diff_exp$logFC
   names(gene_list) <- diff_exp$feature
   
-  gsea_rna <- gseGO(geneList = gene_list, OrgDb = org.Hs.eg.db, ont = "BP",
-        minGSSize = 10, maxGSSize = 500, pvalueCutoff = 0.05, keyType = "SYMBOL",
-              verbose = FALSE, eps = 1e-30, nPermSimple = 1000)@result %>%
+  gsea_rna_gobp <- GSEA(geneList = gene_list, eps = 1e-30, 
+                        minGSSize = 10, pvalueCutoff = 0.05, TERM2GENE = t2g_gobp)@result %>%
+    compress_enrichment(colname = "p.adjust", descending = FALSE) %>%
     dplyr::select(Description, setSize, p.adjust, NES) %>%
     dplyr::rename(pathway = Description, enrichment = NES, 
                   adj_p_val = p.adjust, set_size = setSize) %>%
     dplyr::mutate(data_type = "RNA",
-                  mutation = mutation)
+                  mutation = mutation,
+                  DB = "GO_BP")
+  
+  
+  gsea_rna_hallmark <- GSEA(geneList = gene_list, eps = 1e-30,
+                            minGSSize = 10, pvalueCutoff = 0.05, TERM2GENE = t2g_hallmark)@result %>%
+    dplyr::select(Description, setSize, p.adjust, NES) %>%
+    dplyr::rename(pathway = Description, enrichment = NES, 
+                  adj_p_val = p.adjust, set_size = setSize) %>%
+    dplyr::mutate(data_type = "RNA",
+                  mutation = mutation,
+                  DB = "hallmark")
+  
+  
+  gsea_rna_oncogenic <- GSEA(geneList = gene_list, eps = 1e-30,
+                             minGSSize = 10, pvalueCutoff = 0.05, TERM2GENE = t2g_oncogenic)@result %>%
+    dplyr::select(Description, setSize, p.adjust, NES) %>%
+    dplyr::rename(pathway = Description, enrichment = NES, 
+                  adj_p_val = p.adjust, set_size = setSize) %>%
+    dplyr::mutate(data_type = "RNA",
+                  mutation = mutation,
+                  DB = "oncogenic")
+  
+  gsea_rna <- rbind(gsea_rna_gobp, gsea_rna_hallmark, gsea_rna_oncogenic)
+  
+  
   
   diff_exp <- differential_expression_results[[mutation]][[2]] %>%
     filter(datatype == "phospho") %>%
@@ -225,7 +301,8 @@ gsea_rank_results <- lapply(selected_mutations, function(mutation){
     dplyr::rename(pathway = Kinase.Gene, enrichment = z.score,
                   adj_p_val = FDR, set_size = m) %>%
     dplyr::mutate(data_type = "phospho",
-                  mutation = mutation) %>%
+                  mutation = mutation,
+                  DB = "KSDB") %>%
     filter(set_size > 3)
   
   gsea_all <- rbind(gsea_global, gsea_rna, ksea_phospho)
@@ -246,27 +323,29 @@ to_plot <- gsea_rank_results_df %>%
   filter(adj_p_val < 0.05) 
 
 categories_plot <- to_plot %>%
-  dplyr::select(mutation, data_type) %>%
+  dplyr::select(mutation, data_type, DB) %>%
   unique()
 rownames(categories_plot) <- 1:nrow(categories_plot)
 
 lapply(1:nrow(categories_plot), function(i){
   plot_mutation <- categories_plot$mutation[[i]]
   plot_data_type <- categories_plot$data_type[[i]]
+  plot_DB <- categories_plot$DB[[i]]
   if (plot_data_type %in% c("global", "RNA")){
     x_label <- "NES"
-    plot_title <- paste(plot_mutation, "GSEA in", plot_data_type)
+    plot_title <- paste(plot_DB, plot_mutation, "GSEA in", plot_data_type)
   } else {
     x_label <- "z-score"
-    plot_title <- paste(plot_mutation, "KSEA in", plot_data_type)
+    plot_title <- paste(plot_DB, plot_mutation, "KSEA in", plot_data_type)
   }
   
-  plot_path <- "./plots/gsea_rank_analysis/G(K)SEA_top_sig"
-  plot_path <- paste(plot_path, plot_mutation, plot_data_type, sep = "_") %>%
+  plot_path <- "./plots/gsea_rank_analysis/G(K)SEA"
+  plot_path <- paste(plot_path, plot_DB, plot_mutation, plot_data_type, sep = "_") %>%
     paste0(".png")
   plot_df <- to_plot %>%
     filter(mutation == plot_mutation) %>%
     filter(data_type == plot_data_type) %>%
+    filter(DB == plot_DB) %>%
     dplyr::select(pathway, enrichment, adj_p_val) %>%
     head(20)
   
@@ -274,8 +353,18 @@ lapply(1:nrow(categories_plot), function(i){
   plot_enrichment_result(plot_df, x_label, enrichment_title = plot_title)
   dev.off()
   
+  upload.plot(plot_path, parentId = "syn27220699")
+  
   "done"
 })
+
+
+```
+
+
+```{r}
+
+
 
 
 ```

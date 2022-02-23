@@ -164,7 +164,63 @@ plot_enrichment_result <- function(enrichment_result, enrichment_label,
 
 
 
-
+### James's function for compressing enrichment terms.
+### Terms which appear first in the table tend to be kept
+### over terms which are too similar but appear lower down.
+### colname determines the column used to sort the table.
+### small modifications to how the table is looped through make it a little faster
+compress_enrichment <- function(enrichment_array, threshold = .75, colname='Count',
+                                descending = FALSE) {
+  library('stringr')
+  
+  jaccard_index <- function(set1, set2) {
+    union = union(set1, set2)
+    union = length(union)
+    max_size = max(length(set1), length(set2))
+    if (union == max_size) {
+      return(1.)
+    }
+    return(as.double(length(intersect(set1, set2))) / as.double(union))
+  }
+  
+  # sort enrichment array by attribute of choice
+  enrichment_array <- enrichment_array%>%
+    dplyr::mutate(sortval=colname)
+  
+  if (descending){
+    enrichment_array <- enrichment_array %>%
+      dplyr::arrange(-sortval)
+  } else {
+    enrichment_array <- enrichment_array %>%
+      dplyr::arrange(sortval)
+  }
+  
+  # create names to iterate through and Jaccard distance between all
+  names <- enrichment_array$Description
+  
+  term_sets <-
+    stringr::str_split(enrichment_array$core_enrichment, "/")
+  
+  n_dim = length(names)
+  terms <- rep(TRUE, n_dim)
+  # start at top term, find similarity between lower terms, 
+  # there is one too similar, add to remove list
+  for (i in 1:n_dim) {
+    term_1 <- names[i]
+    if (terms[[i]] & i < n_dim)
+      for (j in (i+1):n_dim) {
+        term_2 <- names[j]
+        score = jaccard_index(unlist(term_sets[i]),
+                              unlist(term_sets[j]))
+        if (score > threshold)
+          terms[[j]] <- FALSE
+      }
+    
+  }
+  enrichment_array_keep <- enrichment_array[terms, ] %>%
+    dplyr::select(-sortval)
+  return(enrichment_array_keep)
+}
 
 
 
