@@ -18,7 +18,6 @@ differential expression for selected mutations.
 
 
 ```{r include=FALSE}
-library(clusterProfiler)
 library(dplyr)
 library(ggplot2)
 library(kableExtra)
@@ -26,10 +25,11 @@ library(kableExtra)
 source("../util/synapseUtil.R")
 source("../util/loading_data.R")
 source("../util/differential_expression_helper.R")
+source("../util/make_plots_util.R")
 
 
-#load("../Misc/load.combined.data 1-20-2022.RData")
-load.combined.data()
+load("../Misc/load.combined.data 1-20-2022.RData")
+# load.combined.data()
 metadata <- load.metadata()
 samples <- global.data %>%
   pull(Barcode.ID) %>% unique()
@@ -168,6 +168,8 @@ names(differential_expression_results) = sapply(differential_expression_results,
 ```
 
 
+
+
 ```{r}
 plot_df <- summary_table %>%
   select(-`Number.mutated`) %>%
@@ -180,7 +182,8 @@ plot_df <- summary_table %>%
 p <- ggplot(plot_df, aes(y = mutation, x = value, fill = name)) + 
   geom_bar(stat = 'identity') + xlab("Features differentially expressed")
 
-ggsave(filename = "mutational_differential_expression_barplot_count.png", plot = p)
+ggsave(filename = "./plots/mutational_differential_expression_barplot_count.png", plot = p)
+# upload.plot("./plots/mutational_differential_expression_barplot_count.png", parentId = "syn26529351")
 
 p
 
@@ -194,7 +197,7 @@ DT::datatable(summary_table)
 ```
 
 
-```{r include=FALSE}
+```{r eval=FALSE, include=FALSE}
 ### Run this to make all the heatmaps. A few will fail, due to the exactly one feature
 ### being selected to plot.** or failure to compute distances due to many NA
 dataset_names <- names(datasets)
@@ -226,8 +229,31 @@ for (i in 1:length(differential_expression_results)){
 
 
 ```{r}
+## Setup the databases to use in the tests
+library(clusterProfiler)
+library(msigdbr)
+
+t2g_hallmark <- msigdbr(species = "Homo sapiens", category = "H") %>% 
+  dplyr::select(gs_name, gene_symbol)
+## 50 unique terms
+# unique(t2g_hallmark$gs_name)
+
+t2g_oncogenic <- msigdbr(species = "Homo sapiens", category = "C6") %>% 
+  dplyr::select(gs_name, gene_symbol)
+## 189 unique terms
+# unique(t2g_oncogenic$gs_name)
+
+t2g_gobp <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "BP") %>% 
+  dplyr::select(gs_name, gene_symbol) %>%
+  mutate(gs_name = gsub("_", " ", gs_name))
+
+```
+
+
+
+
+```{r}
 ## Here we compute the enrichment results
-library(org.Hs.eg.db)
 
 selected_mutations <- c("IDH1", "IDH2", "TP53", "NRAS", "KRAS", "FLT3.ITD", "NPM1_clinical", 
                         IDH1_IDH2, KRAS_NRAS)
@@ -245,7 +271,10 @@ gsea_ora_results <- lapply(selected_mutations, function(mutation){
                                                   BgRatio = c(), 
                                                   pvalue = c(), 
                                                   p.adjust = c(), 
-                                                  Count = c())
+                                                  Count = c(),
+                                                  DB = c())
+  gsea_global_go <- gsea_global_hallmark <- gsea_global_oncogenic <- gsea_all
+  gsea_rna_go <- gsea_rna_hallmark <- gsea_rna_oncogenic <- gsea_all
   
   genes <- differential_expression_results[[mutation]][[2]] %>%
     filter(adj.P.Val < 0.05) %>%
@@ -253,10 +282,21 @@ gsea_ora_results <- lapply(selected_mutations, function(mutation){
     pull(feature)
   
   if (length(genes) > 0){
-    gsea_global <- enrichGO(genes, keyType = "SYMBOL", OrgDb = org.Hs.eg.db, ont = "BP",
-                            universe = universes[[1]])@result %>%
-      dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust, Count) %>%
-      mutate(mutation = mutation, data_type = "global")
+    gsea_global_go <- try(enricher(genes, TERM2GENE = t2g_gobp, universe = universes[[1]])@result %>%
+                            dplyr::rename(core_enrichment = geneID) %>%
+                            compress_enrichment(colname = "p.adjust", descending = FALSE) %>%
+                            dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust, Count) %>%
+                            mutate(mutation = mutation, data_type = "global", DB = "GO_BP"))
+    
+    gsea_global_hallmark <- try(enricher(genes, TERM2GENE = t2g_hallmark, universe = universes[[1]])@result %>%
+                                  dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust, Count) %>%
+                                  mutate(mutation = mutation, data_type = "global", DB = "hallmark"))
+    
+    gsea_global_oncogenic <- try(enricher(genes, TERM2GENE = t2g_oncogenic, universe = universes[[1]])@result %>%
+                                   dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust, Count) %>%
+                                   mutate(mutation = mutation, data_type = "global", DB = "oncogenic"))
+    
+    gsea_global <- rbind(gsea_global_go, gsea_global_hallmark, gsea_global_oncogenic)
   }
   
   genes <- differential_expression_results[[mutation]][[2]] %>%
@@ -265,10 +305,21 @@ gsea_ora_results <- lapply(selected_mutations, function(mutation){
     pull(feature)
 
   if (length(genes) > 0){
-    gsea_rna <- enrichGO(genes, keyType = "SYMBOL", OrgDb = org.Hs.eg.db, ont = "BP",
-                         universe = universes[[3]])@result %>%
-      dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust, Count) %>%
-      mutate(mutation = mutation, data_type = "rna")
+    gsea_rna_go <- try(enricher(genes, TERM2GENE = t2g_gobp, universe = universes[[3]])@result %>%
+                         dplyr::rename(core_enrichment = geneID) %>%
+                         compress_enrichment(colname = "p.adjust", descending = FALSE) %>%
+                         dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust, Count) %>%
+                         mutate(mutation = mutation, data_type = "RNA", DB = "GO_BP"))
+    
+    gsea_rna_hallmark <- try(enricher(genes, TERM2GENE = t2g_hallmark, universe = universes[[3]])@result %>%
+                               dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust, Count) %>%
+                               mutate(mutation = mutation, data_type = "RNA", DB = "hallmark"))
+    
+    gsea_rna_oncogenic <- try(enricher(genes, TERM2GENE = t2g_oncogenic, universe = universes[[3]])@result %>%
+                                dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust, Count) %>%
+                                mutate(mutation = mutation, data_type = "RNA", DB = "oncogenic"))
+    
+    gsea_rna <- rbind(gsea_rna_go, gsea_rna_hallmark, gsea_rna_oncogenic)
   }
   
   gsea_all <- rbind(gsea_all, gsea_global) %>%
@@ -278,7 +329,10 @@ gsea_ora_results <- lapply(selected_mutations, function(mutation){
   return(gsea_all)
 }) 
 
-gsea_ora_results_df <- do.call("rbind", gsea_ora_results)
+gsea_ora_results_df <- do.call("rbind", gsea_ora_results) %>%
+  filter(!grepl("Error", p.adjust)) %>%
+  mutate(p.adjust = as.numeric(p.adjust),
+         Count = as.numeric(Count))
 
 ```
 
@@ -290,21 +344,23 @@ to_plot <- gsea_ora_results_df %>%
   filter(p.adjust < 0.05) 
 
 categories_plot <- to_plot %>%
-  dplyr::select(mutation, data_type) %>%
+  dplyr::select(mutation, data_type, DB) %>%
   unique()
 rownames(categories_plot) <- 1:nrow(categories_plot)
 
 lapply(1:nrow(categories_plot), function(i){
   plot_mutation <- categories_plot$mutation[[i]]
   plot_data_type <- categories_plot$data_type[[i]]
-  plot_title <- paste(plot_mutation, plot_data_type)
+  plot_DB <- categories_plot$DB[[i]]
+  plot_title <- paste(plot_DB, plot_mutation, plot_data_type)
   
-  plot_path <- "./plots/over_representation_analysis/ORA_top_sig"
-  plot_path <- paste(plot_path, plot_mutation, plot_data_type, sep = "_") %>%
+  plot_path <- "./plots/over_representation_analysis/ORA"
+  plot_path <- paste(plot_path, plot_DB, plot_mutation, plot_data_type, sep = "_") %>%
     paste0(".png")
   plot_df <- to_plot %>%
     filter(mutation == plot_mutation) %>%
     filter(data_type == plot_data_type) %>%
+    filter(DB == plot_DB) %>%
     dplyr::select(Description, Count, p.adjust) %>%
     dplyr::rename(enrichment = Count,
                   pathway = Description,
@@ -315,9 +371,21 @@ lapply(1:nrow(categories_plot), function(i){
   plot_enrichment_result(plot_df, "Count", enrichment_title = plot_title)
   dev.off()
   
+  ## uploading to synapse
+  upload.plot(plot_path, parentId = "syn27220694")
+  
   "done"
 })
 
 ```
+
+
+
+```{r}
+
+
+```
+
+
 
 

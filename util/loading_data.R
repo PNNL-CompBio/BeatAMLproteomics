@@ -274,7 +274,7 @@ load.combined.data <- function(){
 make.msnset <- function(data, feature.col, sample.col = "Barcode.ID",
                         value.col = "LogRatio", metadata) {
   mat <- data %>%
-    select(sym(sample.col), sym(feature.col), sym(value.col)) %>%
+    dplyr::select(sym(sample.col), sym(feature.col), sym(value.col)) %>%
     pivot_wider(names_from = sym(sample.col), values_from = sym(value.col)) %>%
     column_to_rownames(feature.col) %>%
     as.matrix()
