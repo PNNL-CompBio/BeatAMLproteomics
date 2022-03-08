@@ -1,15 +1,19 @@
 signatures:
   - LM9
   - LM7c
-  - LM22
-  - PBMC
+#  - LM22
+#  - PBMC
 
 prot-algorithms:
   - cibersort
   - epic
-  - xcell
-  - mcpcounter
+#  - xcell
+#  - mcpcounter
 
-inFile:
+protFile:
   class: File
-  path: "./protData.tsv"
+  path: "./AML-tumor-prot-raw.tsv"
+
+rnaFile:
+  class: File
+  path: "./AML-tumor-mrna-raw.tsv"

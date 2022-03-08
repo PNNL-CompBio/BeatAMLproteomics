@@ -8,21 +8,23 @@ requirements:
   - class: SubworkflowFeatureRequirement
   - class: MultipleInputFeatureRequirement
   - class: ScatterFeatureRequirement
+  - class: StepInputExpressionRequirement
 
 inputs:
    signatures:
      type: string[]
    prot-algorithms:
      type: string[]
-   inFile:
+   protFile:
+     type: File
+   rnaFile:
      type: File
 
 outputs:
    deconvoluted:
-     type: File[]
+     type: File
      outputSource:
-      - run-all-algs-by-sig/deconvoluted
-
+      - run-best-algs-by-sig/deconvoluted
 
 steps:
    get-all-mat:
@@ -34,14 +36,39 @@ steps:
         sigMatrixName: signatures
       out:
         [sigMatrix]
-   run-all-algs-by-sig:
-      run: https://raw.githubusercontent.com/PNNL-CompBio/proteomicsTumorDeconv/main/metrics/run-deconv.cwl
-      #./../proteomicsTumorDeconv/metrics/run-deconv.cwl
-      scatter: [signature,alg]
-      scatterMethod: flat_crossproduct    
+   get-all-cors:
+      run: https://raw.githubusercontent.com/PNNL-CompBio/proteomicsTumorDeconv/main/metrics/correlations/deconv-corr-cwl-tool.cwl
+      scatter: [signature,mrnaAlg,protAlg]
+      scatterMethod: flat_crossproduct
       in:
+        transcriptomics: rnaFile
+        proteomics: protFile
+        cancerType:
+           valueFrom: "AML"
+        mrnaAlg: prot-algorithms
+        protAlg: prot-algorithms
         signature: get-all-mat/sigMatrix
-        alg: prot-algorithms
-        matrix: inFile
+        sampleType:
+           valueFrom: "all"
+      out:
+        [corr]
+   get-best-cor:
+       run: https://raw.githubusercontent.com/PNNL-CompBio/proteomicsTumorDeconv/localdata/metrics/correlations/best-deconv-cor-tool.cwl
+       in:
+         corFiles: get-all-cors/corr
+       out:
+         value
+   get-best-mat:
+       run: https://raw.githubusercontent.com/PNNL-CompBio/proteomicsTumorDeconv/main/signature_matrices/get-signature-matrix.cwl
+       in:
+          sigMatrixName: get-best-cor/value[1]
+       out:
+          [sigMatrix]
+   run-best-algs-by-sig:
+      run: https://raw.githubusercontent.com/PNNL-CompBio/proteomicsTumorDeconv/main/metrics/run-deconv.cwl
+      in:
+        signature: get-best-mat/sigMatrix
+        alg: get-best-cor/value[2]
+        matrix: protFile
       out:
         [deconvoluted]
