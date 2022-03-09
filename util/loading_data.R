@@ -49,13 +49,26 @@ load.phospho.data <- function(type = "Corrected"){
 
 
 ## Loads global data for the 210 patient experiment.
-load.global.data <- function(){
+load.global.data <- function(type = "Gene"){
   require(dplyr)
   
-  data <- querySynapseTable("syn25808020")
-  
-  data <- data %>%
-    select(Gene, Barcode.ID, LogRatio)
+  if (type == "Gene"){
+    data <- querySynapseTable("syn25808020")
+    data <- data %>%
+      select(Gene, Barcode.ID, LogRatio)
+    
+  } else if (type == "Peptide"){
+    syn <- synapseLogin()
+    data <- read.table(syn$get("syn25714612")$path, sep = "\t")
+    metadata <- read.table(syn$get("syn25807733")$path, 
+                           sep = "\t", header = TRUE)
+    
+    samples_abrev <- colnames(data) %>% sub("X", "", .) %>%
+      sub("^0", "", .)
+    rownames(metadata) <- metadata$SampleID.abbrev %>% 
+      as.character()
+    colnames(data) <- metadata[samples_abrev, "Barcode.ID"]
+  }
   
   return(data)
 }
