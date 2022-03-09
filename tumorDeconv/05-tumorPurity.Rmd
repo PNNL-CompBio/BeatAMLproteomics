@@ -1,0 +1,107 @@
+---
+title: "Tumor Purity Estimates"
+author: "Sara Gosline"
+date: "2/18/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(amlresistancenetworks)
+library(dplyr)
+library(tidyr)
+library(pheatmap)
+syn = synapseLogin()
+
+clusters <-read.table(syn$get('syn26642544')$path,sep='\t',header=T)
+
+
+clin <- read.table(syn$get('syn26642974')$path,quote='"',header=T)%>%
+  select(labId,FLT3_ITDCall)%>%
+  distinct()
+
+
+##collect cluster membeership, FLT3 status
+pat.annote <- clusters%>%
+  dplyr::select(k.5,k.8)%>%
+  mutate(k.5=as.factor(k.5),k.8=as.factor(k.8))%>%
+  tibble::rownames_to_column('labId')%>%left_join(clin)%>%
+  mutate(FLT3=ifelse(FLT3_ITDCall=='Negative','Negative','Positive'))%>%
+  tibble::column_to_rownames('labId')%>%
+  dplyr::select(`K5 Cluster`=k.5,`K8 Cluster`=k.8,`FLT3 ITD`=FLT3)
+
+```
+
+## Install/run ESTIMATE to get tumor purity
+
+The first step is to run ESTIMATE
+
+```{r eSTIMATE}
+
+if(!require(estimate)){
+  rforge <- "http://r-forge.r-project.org"
+  install.packages("estimate", repos=rforge, dependencies=TRUE)
+  library(estimate)
+}
+
+rna <- syn$tableQuery("select * from syn26545877")$asDataFrame()
+
+
+data('common_genes')
+
+
+rnatab<-rna%>%
+  dplyr::select(labId,display_label,`RNA counts`)%>%
+  distinct()%>%
+  subset(display_label%in%common_genes$GeneSymbol)%>%
+  pivot_wider(names_from='labId',values_from='RNA counts',values_fn=list(`RNA counts`=mean))%>%
+  dplyr::rename(Gene='display_label')%>%
+  as.data.frame()
+  #ibble::column_to_rownames('display_label')
+
+rownames(rnatab)<-rnatab$Gene
+
+data('SI_geneset',package='estimate')
+write.table(SI_geneset,file='gs.gct',sep='\t')
+
+write.table(rnatab[-1,],file='rna.txt',sep='\t',quote=F)
+
+aml <- c('rna.txt')
+filteredCommonGenes <- "combnorm.gct"
+tumStrom.estimate <- "ESTIMATE.gct"
+
+filterCommonGenes(input.f = aml, output.f = filteredCommonGenes, id = "GeneSymbol")
+
+estimateScore(filteredCommonGenes, tumStrom.estimate)
+
+#plotPurity(scores = tumStrom.estimate)
+
+
+```
+
+## Now we can plot purity estimates with cluster annotations
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+library(pheatmap)
+estimateScores.m <- t(dplyr::slice(read.delim(tumStrom.estimate)[2:ncol(rnatab)], 2:6))
+estimateCols <- estimateScores.m[1:1,2:5]
+estimateRows <- estimateScores.m[2:nrow(estimateScores.m),1:1]
+estimateScores.m <- estimateScores.m[2:nrow(estimateScores.m), 2:5]
+
+dims <- dim(estimateScores.m)
+estimateScores.m <-as.numeric(estimateScores.m)
+dim(estimateScores.m) <- dims
+
+rownames(estimateScores.m) <- sapply(estimateRows,function(x) gsub('X','',gsub('.','-',x,fixed=T)))
+colnames(estimateScores.m) <- estimateCols
+
+library(RColorBrewer)
+
+pheatmap::pheatmap(estimateScores.m[1:nrow(estimateScores.m),1:3], border = "gray", cellwidth = 8, cluster_cols = FALSE,annotation_row=pat.annote,labels_row = rep('',nrow(estimateScores.m)),filename='estimateResult.pdf')
+
+synTableStore(tibble::rownames_to_column(as.data.frame(estimateScores.m),'sampleID'),'ESTIMATE tumor purity','syn22128879')
+```
+
+
+
