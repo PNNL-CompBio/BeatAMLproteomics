@@ -1,7 +1,7 @@
 ---
-title: "Data availability sumamry"
+title: "Data availability summary"
 author: "Camilo Posso"
-date: "01/20/2022"
+date: "03/09/2022"
 output: 
   html_document:
     code_folding: hide
@@ -18,42 +18,74 @@ Making the table to use for circos plots. Must run inline for circos to work pro
 source("util/loading_data.R")
 source("util/synapseUtil.R")
 library(circlize)
+library(dplyr)
 
-#load("Misc/load.combined.data 1-20-2022.RData")
-load.combined.data()
+load("Misc/load.combined.data 3-09-2022.RData")
+# load.combined.data()
 
-samples.RNA <- unique(RNA.data$Barcode.ID)
 
-## WES is mutational data. samples.WES
+
+## drug data here
+drug_data_counts <- functional.data %>%
+  select(Barcode.ID, Inhibitor, AUC) %>%
+  unique() %>%
+  group_by(Barcode.ID) %>%
+  summarise(total = n()) %>%
+  as.data.frame()
+rownames(drug_data_counts) <- drug_data_counts$Barcode.ID
+
+
+## WES is mutational data
+samples_all <- global.data$Barcode.ID %>% unique()
 samples.WES <- unique(WES.data$Barcode.ID)
+samples.RNA <- unique(RNA.data$Barcode.ID)
 samples.common <- intersect(samples.RNA, samples.WES)
+samples_RNA_not_WES <- setdiff(samples.RNA, samples.common)
+samples_WES_not_RNA <- setdiff(samples.WES, samples.common)
+samples_RNA_or_WES <- union(samples.RNA, samples.WES)
+samples_rest <- setdiff(samples_all, samples_RNA_or_WES)
+
 n.common <- length(samples.common)
 n.WES <- length(samples.WES)
 n.RNA <- length(samples.RNA)
-n.RNA_WES <- length(setdiff(samples.RNA, samples.common))
-n.WES_RNA <- length(setdiff(samples.WES, samples.common))
-n.total <- length(global.data$Barcode.ID %>% unique())
+n.RNA_WES <- length(samples_RNA_not_WES)
+n.WES_RNA <- length(samples_WES_not_RNA)
+n.total <- length(samples_all)
 n.complement <- n.total - n.common - n.RNA_WES - n.WES_RNA
+
 
 table(meta$FLT3.ITD)
 n.filler <- 0
 
 
-
 df = data.frame(sector = c(rep("Common", n.common), rep("WES-RNA", n.WES_RNA), 
                            rep("RNA-WES", n.RNA_WES), rep("Rest", n.complement)),
-                x = c(1:n.common, 1:n.WES_RNA, 1:n.RNA_WES, 1:n.complement), 
+                Dummyx = c(1:n.common, 1:n.WES_RNA, 1:n.RNA_WES, 1:n.complement), 
                 Dummy1 = 1, Dummy2 = 1, Dummy3 = 1, Dummy4 = 1)
+rownames(df) <- c(samples.common, 
+                  samples_WES_not_RNA,
+                  samples_RNA_not_WES,
+                  samples_rest)
 
-df$sector <- factor(df$sector, levels = c("Common", "RNA-WES", "WES-RNA", "Rest"))
+df$sector <- factor(df$sector, levels = c("Common", "WES-RNA", "RNA-WES", "Rest"))
+df$number_drugs <- drug_data_counts[rownames(df), "total"]
+df <- df %>%
+  group_by(sector) %>%
+  arrange(number_drugs) %>%
+  ungroup(sector) %>%
+  arrange(sector)
+df$x <- c(1:n.common, 1:n.WES_RNA, 1:n.RNA_WES, 1:n.complement)
 
 ```
 
-Circos plot
+
+## Circos plot
+
 
 ```{r}
 setwd("./cohort_summary/")
-pdf(file = "data_sample_summary_circos.pdf", width = 5, height = 5)
+png(file = "data_sample_summary_circos.png", 
+    width = 5, height = 5, units = "in", res = 1200)
 circos.clear()
 circos.par("track.height" = 0.05, gap.degree = 0.02, start.degree = 90)
 circos.initialize(df$sector, x = df$x)
@@ -64,8 +96,9 @@ circos.track(df$sector, y = df$Dummy2, ylim = c(0.5, 1.5),
                circos.update(bg.border = "#FFFFFF")
              })
 chosen.colors = c("#CC79A7", "#CC79A7", "#FFFFFF", "#FFFFFF")
-circos.trackPoints(df$sector, df$x, df$Dummy2, cex = 0.6, col = chosen.colors)
-# highlight.sector("Common", col = "#FFFFFF")
+circos.trackPoints(df$sector, df$x, df$Dummy2, cex = 0.6, 
+                   col = chosen.colors, pch = 16)
+
 
 
 circos.track(df$sector, y = df$Dummy3, ylim = c(0.5, 1.5),
@@ -73,28 +106,56 @@ circos.track(df$sector, y = df$Dummy3, ylim = c(0.5, 1.5),
                circos.update(bg.border = "#FFFFFF")
              })
 chosen.colors = c("#E69F00", "#FFFFFF", "#E69F00", "#FFFFFF")
-circos.trackPoints(df$sector, df$x, df$Dummy3, cex = 0.6, col = chosen.colors)
+circos.trackPoints(df$sector, df$x, df$Dummy3, cex = 0.6, 
+                   col = chosen.colors, pch = 16)
 
 circos.track(df$sector, y = df$Dummy4, ylim = c(0.5, 1.5),
              panel.fun = function(x, y) {
                circos.update(bg.border = "#FFFFFF")
              })
 chosen.colors = c("#56B4E9", "#56B4E9", "#56B4E9", "#56B4E9")
-circos.trackPoints(df$sector, df$x, df$Dummy4, cex = 0.6, col = chosen.colors)
+circos.trackPoints(df$sector, df$x, df$Dummy4, cex = 0.6, 
+                   col = chosen.colors, pch = 16)
 
 circos.track(df$sector, y = df$Dummy4, ylim = c(0.5, 1.5),
              panel.fun = function(x, y) {
                circos.update(bg.border = "#FFFFFF")
              })
 chosen.colors = c("#009E73", "#009E73", "#009E73", "#009E73")
-circos.trackPoints(df$sector, df$x, df$Dummy4, cex = 0.6, col = chosen.colors)
+circos.trackPoints(df$sector, df$x, df$Dummy4, cex = 0.6, 
+                   col = chosen.colors, pch = 16)
+
+
+
+circos.par("track.height" = 0.5)
+circos.track(df$sector, y = df$number_drugs, x = df$x, ylim = c(130, 2),
+             panel.fun = function(x, y) {
+               circos.update(bg.border = "#FFFFFF")
+               circos.barplot(value = y, pos = x, col = "cadetblue", 
+                              border = "#FFFFFF")
+             })
+
+legend("topleft", inset = c(0,0), pch = c(21, 21, 21, 21), 
+       legend = c("Phospho", "Global", "RNA", "WES"),
+       col = c("#009E73", "#56B4E9", "#E69F00", "#CC79A7"),
+       pt.bg = c("#009E73", "#56B4E9", "#E69F00", "#CC79A7"),
+       bty = "n")
+
+
 dev.off()
 
 
 ```
 
 
+## Push to synapse
 
+```{r}
+source("../util/make_plots_util.R")
+## Uploading to the analysis folder, as this is an introductory summary figure
+upload.plot("data_sample_summary_circos.png", parentId = "syn26524060")
+
+```
 
 
 

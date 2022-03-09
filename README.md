@@ -54,7 +54,7 @@ These data are also uploaded to Synapse, and then parsed.
 | Description | Link |
 | --- | -- |
 | Waves 1to4 WES Data | [syn2648827](https://www.synapse.org/#!Synapse:syn26428827/tables/) |
-| Waves 1to4 RNASeq Data | [syn26428813](https://www.synapse.org/#!Synapse:syn26428813) |
+| Waves 1to4 RNASeq Data | [syn26545877](https://www.synapse.org/#!Synapse:syn26545877/tables/) |
 | Drug response data | [syn25813252](https://www.synapse.org/#!Synapse:syn25830473)|
 
 
