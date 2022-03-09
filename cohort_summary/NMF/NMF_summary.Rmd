@@ -10,6 +10,7 @@ editor_options:
   chunk_output_type: inline
 ---
 
+
 ```{r load data, include=FALSE}
 library(ggplot2)
 library(dplyr)
@@ -180,11 +181,11 @@ sample.cats <- meta %>%
   mutate(FLT3.ITD = as.factor(FLT3.ITD),
          PostChemotherapy = as.factor(PostChemotherapy),
          Barcode.ID = rownames(.), 
-         NRAS = case_when(rownames(.) %in% samples.RAS ~ TRUE,
+         RAS = case_when(rownames(.) %in% samples.RAS ~ TRUE,
                           TRUE ~ FALSE),
          NPM1 = case_when(rownames(.) %in% samples.NPM1 ~ TRUE,
                           TRUE ~ FALSE)) %>%
-  mutate(NRAS = as.factor(NRAS),
+  mutate(RAS = as.factor(RAS),
          NPM1 = as.factor(NPM1))
 
 ### Purity scores provide another measure of cluster fitness
@@ -471,7 +472,6 @@ ggsurvplot(sfit, palette = chosen.colors)
 #               sep = "\t", quote = F)
 
 ```
-
 
 
 
