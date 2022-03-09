@@ -19,14 +19,14 @@ data, including allele ratios. The FLT3.ITD column in particular changed slightl
 This pulls the existing metadata table and creates an updated metadata table with 
 the new FLT3.ITD column. This script is only meant to be run once.
 
+## Update from 12-10-2021 (changed FLT3)
 
-
-```{r}
+```{r eval=FALSE, include=FALSE}
 syn <- synapseLogin()
 
 ### Loading the previous metatadata. Still on Synapse for completeness
 
-summary.table <- read.xlsx("proteomics/data/BeatAML_complete_sample_summary/PNNL_clinical_summary_12_08_2021.xlsx") %>%
+summary.table <- read.xlsx("../proteomics/data/BeatAML_complete_sample_summary/PNNL_clinical_summary_12_08_2021.xlsx") %>%
   mutate(Barcode.ID = labId)
 
 newest.FLT3_ITD <- summary.table %>%
@@ -56,14 +56,67 @@ write.table(file = "proteomics/data/Batch Correction/BeatAML_Ex10_metadata_12_10
 The new metadata file is in the same folder as the old one on Synapse.
 
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 ### Uploaded to the Proteomics and QC folder on synapse.
-synapseStore(path = "proteomics/data/Batch Correction/BeatAML_Ex10_metadata_12_10_21.txt",
+synapseStore(path = "../proteomics/data/Batch Correction/BeatAML_Ex10_metadata_12_10_21.txt",
              parentId = "syn24171150")
 
 
 ```
+
+
+## Update from 03-08-2022 (Updated surval time for 4 samples from new OHSU data)
+## Added cytogenetic (AML fusion calls) to metadata
+
+
+
+```{r}
+syn <- synapseLogin()
+
+### Loading the previous metatadata. Still on Synapse for completeness
+
+summary.table <- read.xlsx("../proteomics/data/BeatAML_complete_sample_summary/PNNL_clinical_summary_12_08_2021_updated_OS_4patients_02_28_2022.xlsx") %>%
+  mutate(Barcode.ID = labId)
+
+newest_survival <- summary.table %>%
+  select(Barcode.ID, overallSurvival)
+
+
+## A few samples (5 in total) changed FLT3 status compared to the previous version
+phenodata.syn <- "syn26534982"
+phenodata <- read.table(syn$get(phenodata.syn)$path, sep = "\t",
+                        header = TRUE, colClasses = "character") %>%
+  left_join(newest_survival, by = "Barcode.ID") %>%
+  select(SampleID.full, SampleID.abbrev, Barcode.ID, Plex, Channel, 
+         Loading.Mass, specimen.type, specimen.location, 
+         Specimen.access.group.concatenated, FLT3.ITD, InitialAMLDiagnosis, 
+         PostChemotherapy, overallSurvival)
+
+## adding fusion calls for good measure
+fusion_calls <- read.table("../Misc/BeatAML extra metadata/cytogenetics_metadata.txt")
+
+phenodata <- left_join(phenodata, fusion_calls, by = "Barcode.ID")
+
+
+write.table(file = "../proteomics/data/BEATAML_complete_sample_summary/BeatAML_Ex10_metadata_12_10_21_updated_03_08_2022.txt", 
+            x = phenodata, sep = "\t", quote = F, row.names = F)
+
+```
+
+
+The new metadata file is in the same folder as the old one on Synapse.
+
+
+```{r}
+
+### Manually updated the file on synapse and updated name!!
+# synapseStore(path = "proteomics/data/Batch Correction/BeatAML_Ex10_metadata_12_10_21.txt",
+#              parentId = "syn24171150")
+
+
+```
+
 
 
 

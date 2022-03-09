@@ -25,6 +25,7 @@ load("Misc/load.combined.data 3-09-2022.RData")
 
 
 
+
 ## drug data here
 drug_data_counts <- functional.data %>%
   select(Barcode.ID, Inhibitor, AUC) %>%
@@ -33,6 +34,7 @@ drug_data_counts <- functional.data %>%
   summarise(total = n()) %>%
   as.data.frame()
 rownames(drug_data_counts) <- drug_data_counts$Barcode.ID
+
 
 
 ## WES is mutational data
@@ -149,6 +151,7 @@ dev.off()
 
 
 ## Push to synapse
+
 
 ```{r}
 source("../util/make_plots_util.R")
