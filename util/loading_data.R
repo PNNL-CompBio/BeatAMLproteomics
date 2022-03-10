@@ -11,14 +11,13 @@ load.metadata <- function(type = "Basic") {
                        header = TRUE, colClasses = "character")
   } else if (type == "Clinical") {
     syn <- synapseLogin()
-    clinical.syn <- "syn26532699"
+    clinical.syn <- "syn26642974"
     
-    meta <- read.table(syn$get(clinical.syn)$path, sep = "\t",
-                       header = TRUE, colClasses = "character")
+    meta <- read.table(syn$get(clinical.syn)$path) %>%
+      mutate(Barcode.ID = labId)
   } else {
     stop("You must choose either 'Basic' or 'Clinical' metadata")
   }
-  
   rownames(meta) <- meta$Barcode.ID
   
   return(meta)
@@ -202,7 +201,7 @@ load.drugfam.data <- function(){
 }
 
 
-load.WES.data <- function(){
+load.WES.data <- function(raw = TRUE){
   require(dplyr)
   
   data <- querySynapseTable("syn26428827") %>%
@@ -212,6 +211,13 @@ load.WES.data <- function(){
   
   data <- data %>%
     select(Barcode.ID, alt_ID, gene, symbol, refseq, t_vaf, hgvsc, hgvsp)
+  
+  if (!raw){
+    data <- data %>%
+      select(Barcode.ID, symbol, t_vaf) %>%
+      dplyr::rename(Gene = symbol) %>%
+      mutate(wesMutation = t_vaf > 0)
+  }
   
   return(data)
 }

@@ -236,11 +236,15 @@ extract.features <- function(result){
     sum(abs(connectivity(result[[i]]) - aggregate.connectivity))}
     ) %>%
     which.min()
+  message <- paste0("Result number ", index, " most closely resembles 
+                    the consensus clustering")
+  cat(message)
   
   chosen.result <- result[[index]]
   W <- chosen.result@fit@W
   
   chosen.sample.assignments <- apply(chosen.result@fit@H, 2, which.max) 
+  
   combined.assignment <- data.frame(chosenCluster = chosen.sample.assignments, 
                                     Barcode.ID = names(chosen.sample.assignments))
   
@@ -285,6 +289,13 @@ extract.features <- function(result){
 
 
 
+
+load_NMF_fdata <- function(){
+  syn <- synapseLogin()
+  data_syn <- "syn27644450"
+  fdata <- read.table(syn$get(data_syn)$path, sep = "\t")
+  return(fdata)
+}
 
 
 

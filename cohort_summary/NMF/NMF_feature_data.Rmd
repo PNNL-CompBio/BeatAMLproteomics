@@ -1,0 +1,110 @@
+---
+title: "NMF feature data"
+author: "Camilo Posso"
+date: "3/09/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r load data, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(NMF)
+library(openxlsx)
+
+source("../../util/loading_data.R")
+source("../../util/synapseUtil.R")
+source("../../util/make_plots_util.R")
+source("NMF_helper.R")
+
+# load.combined.data()
+load("../../Misc/load.combined.data 3-09-2022.RData")
+
+## Below we prepare the feature names from the large combined matrix passed to NMF.
+## To be clear, we recreate the relevant steps here as in the NMF_raw_reults.R script,
+## since we want to obtain an table to track the sign, dataset NMF index and feature name
+## we can repeatedly use.
+m.RNA <- make.msnset(RNA.data, feature.col = "Gene", 
+                     value.col = "RNA counts", metadata = meta)
+
+m.global <- make.msnset(global.data, feature.col = "Gene", 
+                     value.col = "LogRatio", metadata = meta)
+
+m.phospho <- make.msnset(phospho.data, feature.col = "SiteID", 
+                     value.col = "LogRatio", metadata = meta)
+
+
+mat.global <- exprs(m.global)
+mat.phospho <- exprs(m.phospho)
+mat.RNA <- exprs(m.RNA)
+
+WES.samples <- unique(WES.data$Barcode.ID)
+all.samples <- colnames(exprs(m.global))
+samples.complement <- setdiff(all.samples, WES.samples)
+
+
+## Adding all samples to the WES.data table, since any sample not present indicates
+## a mutation status of FALSE.
+WES.data.padding <- data.frame(Barcode.ID = samples.complement, 
+                               Gene = "FLT3", t_vaf = NA, wesMutation = FALSE)
+
+
+## A few feature + sample combinations are duplicated with different t_vaf, but of course wesMutation = TRUE.
+## So we group those and report the binary mutation.
+WES.data.numerical <- WES.data %>%
+  rbind(WES.data.padding) %>%
+  group_by(Barcode.ID, Gene) %>%
+  summarise(wesMutation = all(wesMutation)) %>%
+  ungroup(Barcode.ID, Gene) %>%
+  mutate(wesMutation = case_when(wesMutation ~ 1,
+                                 !wesMutation ~ 0))
+
+m.WES <- make.msnset(WES.data.numerical, feature.col = "Gene", 
+                      value.col = "wesMutation", metadata = meta)
+
+mat.WES <- exprs(m.WES)
+## Impute missing values with zero, meaning no mutation
+mat.WES[is.na(mat.WES)] <- 0
+
+datasets <- list(mat.global, mat.phospho, mat.RNA, mat.WES)
+
+samples.common <- Reduce(intersect, lapply(datasets, colnames))
+WES.sd <- apply(mat.WES[, samples.common], 1, sd) %>%
+  data.frame(Gene = rownames(mat.WES), sd = .)
+
+varying.WES.features <- WES.sd %>%
+  filter(sd != 0) %>%
+  pull(Gene)
+
+mat.WES <- mat.WES[varying.WES.features, ]
+
+datasets <- list(mat.global, mat.phospho, mat.RNA, mat.WES)
+mat <- Reduce(rbind, lapply(datasets, function(dataset){dataset[, samples.common]}))
+
+NMF_names <- data.frame(feature = rownames(mat), 
+                        data_type = c(rep("Global",nrow(mat.global)), 
+                                      rep("Phospho", nrow(mat.phospho)), 
+                                      rep("RNA", nrow(mat.RNA)),
+                                      rep("WES", nrow(mat.WES))),
+                        sign = rep("Positive", nrow(mat)),
+                        number_imputed = rowSums(is.na(mat)))
+
+NMF_names_minus <- NMF_names %>%
+  mutate(sign = "Negative")
+
+NMF_names <- rbind(NMF_names, NMF_names_minus) %>%
+  mutate(NMF_index = 1:nrow(.))
+
+write.table(NMF_names, "./Data/NMF_feature_data.txt", sep = "\t", quote = F)
+
+synapseStore("./Data/NMF_feature_data.txt", "syn26529350")
+
+```
+
+
+
