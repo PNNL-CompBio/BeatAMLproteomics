@@ -24,11 +24,11 @@ library(kableExtra)
 
 source("../util/synapseUtil.R")
 source("../util/loading_data.R")
-source("../util/differential_expression_helper.R")
+source("../util/mutational_analysis_helper.R")
 source("../util/make_plots_util.R")
 
 
-load("../Misc/load.combined.data 1-20-2022.RData")
+load("../Misc/load.combined.data 3-09-2022.RData")
 # load.combined.data()
 metadata <- load.metadata()
 samples <- global.data %>%
@@ -37,11 +37,7 @@ samples <- global.data %>%
 total_mutations <- WES.data %>%
   pull(Gene) %>% unique()
 
-## load clinical summary
-clinical_syn <- "syn26642974"
-syn <- synapseLogin()
-
-clinical_summary <- read.table(syn$get(clinical_syn)$path)
+all_mutation_data <- load_mutational_sample_data()
 
 IDH1_IDH2 <- "IDH1+IDH2"
 KRAS_NRAS <- "KRAS+NRAS"
@@ -118,38 +114,7 @@ m.phospho <- make.msnset(phospho.data, feature.col = "SiteID",
 datasets <- list(m.global, m.phospho, m.RNA)
 names(datasets) <- c("global", "phospho", "RNA")
 
-special_mutations <- WES.data %>%
-  filter(Gene %in% c("IDH1", "IDH2", "KRAS", "NRAS")) %>%
-  select(Gene, Barcode.ID) %>%
-  mutate(mutation = case_when(grepl("IDH", Gene) ~ IDH1_IDH2,
-                              TRUE ~ KRAS_NRAS)) %>%
-  select(Barcode.ID, mutation) %>%
-  dplyr::rename(Gene = mutation) %>%
-  unique()
-
-special_mutations_FLT3 <- metadata %>%
-  filter(FLT3.ITD == "TRUE") %>%
-  select(Barcode.ID) %>%
-  mutate(Gene = "FLT3.ITD")
-
-special_mutation_NPM1 <- clinical_summary %>%
-  select(labId, NPM1Call) %>% 
-  mutate(NPM1 = grepl("^Positive", NPM1Call),
-         Barcode.ID = labId) %>%
-  filter(NPM1) %>%
-  select(Barcode.ID) %>%
-  mutate(Gene = "NPM1_clinical")
-
-special_mutations <- special_mutations %>%
-  rbind(special_mutation_NPM1) %>%
-  rbind(special_mutations_FLT3)
-
-all_mutation_data <- WES.data %>%
-  select(Barcode.ID, Gene) %>%
-  rbind(special_mutations)
-
-
-mutations <- c(mutations, unique(special_mutations$Gene))
+mutations <- c(mutations, c(IDH1_IDH2, KRAS_NRAS, "NPM1_clinical", "FLT3.ITD"))
 ## NPM1 mutations are made from clinical summary data used instead of the WES data
 ## so we remove NPM1 here
 NPM1_WES_index <- which(mutations == "NPM1")
@@ -169,6 +134,24 @@ names(differential_expression_results) = sapply(differential_expression_results,
 
 
 
+```{r}
+selected_mutations <- c("IDH1", "IDH2", "TP53", "NRAS", "KRAS", "FLT3.ITD", "NPM1_clinical", 
+                        IDH1_IDH2, KRAS_NRAS)
+
+combined_diffexp <- lapply(selected_mutations, function(mutation){
+    dff <- differential_expression_results[[mutation]][[2]] %>%
+      mutate(mutation = mutation)
+  }) %>% do.call("rbind", .)
+
+# write.table(combined_diffexp, "selected_mutations_combined_differential_expression_results.txt", 
+#             sep = "\t", quote = F)
+# 
+# upload.plot("selected_mutations_combined_differential_expression_results.txt", 
+#             parentId = "syn26529351")
+
+```
+
+
 
 ```{r}
 plot_df <- summary_table %>%
@@ -184,6 +167,9 @@ p <- ggplot(plot_df, aes(y = mutation, x = value, fill = name)) +
 
 ggsave(filename = "./plots/mutational_differential_expression_barplot_count.png", plot = p)
 # upload.plot("./plots/mutational_differential_expression_barplot_count.png", parentId = "syn26529351")
+
+# ggsave(filename = "./plots/mutational_differential_expression_barplot_count.pdf", plot = p)
+# upload.plot("./plots/mutational_differential_expression_barplot_count.pdf", parentId = "syn26529351")
 
 p
 
@@ -333,6 +319,9 @@ gsea_ora_results_df <- do.call("rbind", gsea_ora_results) %>%
   filter(!grepl("Error", p.adjust)) %>%
   mutate(p.adjust = as.numeric(p.adjust),
          Count = as.numeric(Count))
+
+write.table(gsea_ora_results_df, "raw_tables/mutation_analysis_ORA_results_combined.txt", sep = "\t", quote = F)
+# upload.plot("raw_tables/mutation_analysis_ORA_results_combined.txt", parentId = "syn27220694")
 
 ```
 

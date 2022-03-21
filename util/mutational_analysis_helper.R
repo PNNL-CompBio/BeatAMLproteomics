@@ -223,5 +223,53 @@ compress_enrichment <- function(enrichment_array, threshold = .75, colname='Coun
 }
 
 
+load_mutational_sample_data <- function(){
+  print("Loading WES data")
+  WES_data <- load.WES.data(raw = FALSE)
+  
+  print("Loading clinical summary")
+  clinical_summary <- load.metadata("Clinical")
+  metadata <- load.metadata()
+  
+  print("Getting special mutations")
+  IDH1_IDH2 <- "IDH1+IDH2"
+  KRAS_NRAS <- "KRAS+NRAS"
+  
+  special_mutations <- WES_data %>%
+    filter(Gene %in% c("IDH1", "IDH2", "KRAS", "NRAS")) %>%
+    select(Gene, Barcode.ID) %>%
+    mutate(mutation = case_when(grepl("IDH", Gene) ~ IDH1_IDH2,
+                                TRUE ~ KRAS_NRAS)) %>%
+    select(Barcode.ID, mutation) %>%
+    dplyr::rename(Gene = mutation) %>%
+    unique()
+  
+  special_mutations_FLT3 <- metadata %>%
+    filter(FLT3.ITD == "TRUE") %>%
+    select(Barcode.ID) %>%
+    mutate(Gene = "FLT3.ITD")
+  
+  special_mutation_NPM1 <- clinical_summary %>%
+    select(labId, NPM1Call) %>% 
+    mutate(NPM1 = grepl("^Positive", NPM1Call),
+           Barcode.ID = labId) %>%
+    filter(NPM1) %>%
+    select(Barcode.ID) %>%
+    mutate(Gene = "NPM1_clinical")
+  
+  special_mutations <- special_mutations %>%
+    rbind(special_mutation_NPM1) %>%
+    rbind(special_mutations_FLT3)
+  
+  print("combining tables")
+  all_mutation_data <- WES_data %>%
+    select(Barcode.ID, Gene) %>%
+    rbind(special_mutations)
+  
+  return(all_mutation_data)
+}
+
+
+
 
 

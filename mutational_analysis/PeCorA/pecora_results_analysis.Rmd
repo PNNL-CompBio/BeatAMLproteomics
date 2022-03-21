@@ -1,0 +1,312 @@
+---
+title: "PeCorA and mutations - analysis of results"
+author: "Camilo Posso"
+date: "03/17/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(pheatmap)
+
+source("../../util/synapseUtil.R")
+source("../../util/loading_data.R")
+source("../../util/mutational_analysis_helper.R")
+source("pecora_scripts/pecora_analysis.R")
+
+syn <- synapseLogin()
+
+# load.combined.data()
+load("../../Misc/load.combined.data 3-09-2022.RData")
+
+clusters <- read.table(syn$get("syn26642544")$path, sep = "\t")
+
+global_peptide_corrected <- load.global.data("Peptide")
+global_data <- load.global.data()
+metadata <- load.metadata() %>%
+  left_join(clusters, by = "Barcode.ID")
+
+rownames(metadata) <- metadata$Barcode.ID
+
+all_mutation_data <- load_mutational_sample_data()
+
+f_data <- data.frame(feature = rownames(global_peptide_corrected)) %>%
+  mutate(Gene = sub("\\@.*$", "", feature),
+         Peptide = sub("^.*\\@", "", feature),
+         Protein = Gene) %>%
+  group_by(Protein) %>%
+  mutate(n_peptides = n()) %>%
+  ungroup(Protein) %>%
+  as.data.frame()
+rownames(f_data) <- f_data$feature
+
+IDH1_IDH2 <- "IDH1+IDH2"
+KRAS_NRAS <- "KRAS+NRAS"
+
+```
+
+
+```{r}
+m <- MSnSet(exprs = as.matrix(global_peptide_corrected),
+            pData = metadata[colnames(global_peptide_corrected), ],
+            fData = f_data)
+
+m_global <- make.msnset(global.data, feature.col = "Gene", metadata = metadata)
+
+syn <- synapseLogin()
+pecora_all_results <- read.table(syn$get("syn27842983")$path, sep = "\t")
+
+diffexp_all_results <- read.table(syn$get("syn27828350")$path, sep = "\t")
+
+selected_mutations <- unique(pecora_all_results$mutation)
+
+lapply(selected_mutations, function(mutation){
+  mutated_samples <- all_mutation_data %>%
+    filter(Gene == mutation) %>%
+    pull(Barcode.ID) %>%
+    unique()
+  
+  pData(m) <<- pData(m) %>%
+    mutate(dummy = rownames(.) %in% mutated_samples) %>%
+    mutate(!! mutation := as.character(dummy)) %>%
+    select(-dummy)
+})
+
+plot_pecora_heatmap <- function(m, Protein, var_interest){
+  annotation_col <- pData(m) %>%
+    select(FLT3.ITD)
+  
+  mat <- exprs(m)[fData(m)$Protein == Protein, ]
+  colors <- list("FLT3.ITD" = c("TRUE" = "black", "FALSE" = "white"))
+  pheatmap(mat, annotation_col = annotation_col, annotation_colors  = colors)
+}
+
+```
+
+
+
+Checking these significant genes against the genes which appear in the 
+phospho dataset, as well as the differentially regulated proteins and transcripts.
+
+
+```{r}
+
+pecora_summary_by_mutation <- lapply(selected_mutations, function(selected_mutation){
+  pecora_results <- pecora_all_results %>%
+    filter(adj_pval < 0.05) %>%
+    filter(mutation == selected_mutation)
+  
+  pecora_genes <- pecora_results %>%
+    pull(Protein) %>%
+    unique()
+  
+  phospho_genes <- phospho.data$Gene %>% unique()
+  
+  diffexp_global_genes <- diffexp_all_results %>%
+    filter(adj.P.Val < 0.05) %>%
+    filter(datatype == "global") %>%
+    filter(mutation == selected_mutation) %>%
+    pull(feature)
+  
+  diffexp_rna_genes <- diffexp_all_results %>%
+    filter(adj.P.Val < 0.05) %>%
+    filter(datatype == "RNA") %>%
+    filter(mutation == selected_mutation) %>%
+    pull(feature)
+  
+  pecora_results <- pecora_results %>%
+    mutate(`Phosphorylated protein` = Protein %in% phospho_genes,
+           `Differentially expressed in Global` = Protein %in% diffexp_global_genes,
+           `Differentially expressed in RNA` = Protein %in% diffexp_rna_genes)
+  
+  column_names <- c("Mutation", 
+                    "Proteins showing proteoform regulation", 
+                    "Phosphorylation detected",
+                    "Differentially regulated in Global",
+                    "Differentially regulated in RNA")
+  
+  common_diffexp_global <- pecora_genes[pecora_genes %in% diffexp_global_genes]
+  common_diffexp_rna <- pecora_genes[pecora_genes %in% diffexp_rna_genes]
+  common_phospho <- pecora_genes[pecora_genes %in% phospho_genes]
+  
+  out_df <- data.frame(selected_mutation,
+                       length(pecora_genes), 
+                       length(common_phospho),
+                       length(common_diffexp_global),
+                       length(common_diffexp_rna))
+  colnames(out_df) <- column_names
+
+  return(out_df)
+}) %>% do.call("rbind", .)
+
+
+```
+
+
+```{r}
+## load filtered msnid and masic data, remade from original crosstab making script made by Michael.
+raw_peptide_intensity <- read.table(syn$get("syn27899073")$path, sep = "\t") %>%
+  dplyr::rename(Peptide = peptide)
+pecora_all_results <- merge(pecora_all_results, raw_peptide_intensity, by = "Peptide")
+  
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+source("../../util/make_plots_util.R")
+for (selected_mutation in selected_mutations){
+  plot_df <- pecora_all_results %>%
+    filter(mutation == selected_mutation) %>%
+    mutate(significant = adj_pval < 0.05)
+  p <- ggplot(plot_df, aes(x = log10(raw_intensity), fill = significant)) + 
+        geom_histogram() + 
+        ggtitle("Raw peptide intensity") + 
+        scale_fill_manual(values = c("grey", "blue"), 
+                          name = paste0("Significant in PeCorA results of ", selected_mutation))
+  file_name <- paste0("../plots/PeCorA/pecora_raw_peptide_intensity_histogram_by_", 
+                      selected_mutation, "_significance.pdf")
+  ggsave(filename = file_name, 
+         plot = p)
+  
+  upload.plot(file_name, parentId = "syn27782451")
+}
+
+
+```
+
+
+
+```{r}
+library(msigdbr)
+t2g_hallmark <- msigdbr(species = "Homo sapiens", category = "H") %>% 
+  dplyr::select(gs_name, gene_symbol)
+## 50 unique terms
+# unique(t2g_hallmark$gs_name)
+
+t2g_go_ont <- msigdbr(species = "Homo sapiens", category = "C5") %>% 
+  dplyr::select(gs_name, gene_symbol) %>%
+  mutate(gs_name = gsub("_", " ", gs_name))
+
+## Reactome gives the most complete picture in this case
+t2g_curated <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  filter(gs_subcat == "CP:REACTOME") %>%
+  dplyr::select(gs_name, gene_symbol)
+
+```
+
+
+
+```{r}
+library(clusterProfiler)
+pecora_ora_results <- lapply(selected_mutations, function(selected_mutation){
+  all_genes <- unique(f_data$Protein)
+  
+  pecora_mutation <- pecora_all_results %>%
+    filter(mutation == selected_mutation)
+  
+  significant <- pecora_mutation %>%
+    filter(adj_pval < 0.001) %>%
+    pull(Protein)
+  
+  ## This helps determine which kinds of proteins have peptides which interact 
+  ## significantly with the mutation. We use over representation analysis to find
+  ## the function of the significant genes above.
+  if (length(significant) > 0){
+    print("Running ORA")
+    print(selected_mutation)
+    print(length(significant))
+    pecora_ora_go <- enricher(significant, TERM2GENE = t2g_go_ont, universe = all_genes)@result %>%
+      dplyr::rename(core_enrichment = geneID) %>%
+      dplyr::mutate(mutation = selected_mutation) %>%
+      dplyr::select(mutation, Description, GeneRatio, BgRatio, pvalue, p.adjust, Count)
+  } else {
+    pecora_ora_go <- data.frame(mutation = c(), Description = c(),
+                                GeneRatio = c(), BgRatio = c(), 
+                                pvalue = c(), p.adjust = c(), Count = c())
+  }
+  return(pecora_ora_go)
+}) %>% do.call("rbind", .)
+
+
+
+pecora_gsea_results <- lapply(selected_mutations, function(selected_mutation){
+  pecora_mutation <- pecora_all_results %>%
+    filter(mutation == selected_mutation)
+  
+  print(pecora_mutation$mutation %>% unique())
+
+  rank_df <- pecora_mutation %>%
+    group_by(Protein) %>%
+    summarise(significance = min(adj_pval)) %>%
+    arrange(significance)
+  
+  gene_list <- -log10(rank_df$significance)
+  names(gene_list) <- rank_df$Protein
+  
+  
+  ## This is similar to the above, in that we also try to find the function of the 
+  ## proteins which were selected by PeCorA. Here we order by significance and use this
+  ## ordering to run GSEA, a rank based test.
+  
+  ## Because the ENTIRE ordering is used in this test, we should be careful to not misinterpret any pathways
+  ## giving a negative enrichment score, as this is due to the genes in that pathway largely being
+  ## not significant, and therefore appearing near the BOTTOM of the list. I believe the focus ought to
+  ## be on the most significant pathways with a positive enrichment score (appearing near the top)
+  ## when interpreting these results, as these would be the pathways whose proteoforms* are significantly
+  ## interacting with FLT3.ITD. The order near the bottom of the list, is not very relevant here, 
+  ## and significantly affects the negative NES scores.
+  pecora_gsea_go <- GSEA(geneList = gene_list, eps = 1e-30, exponent = 0,
+                         minGSSize = 10, pvalueCutoff = 0.05, TERM2GENE = t2g_go_ont)@result %>%
+    compress_enrichment(colname = "p.adjust", descending = FALSE) %>%
+    dplyr::mutate(mutation = selected_mutation,
+                  database = "GO") %>%
+    dplyr::rename(pathway = Description, enrichment = NES, 
+                  adj_p_val = p.adjust, set_size = setSize) %>%
+    dplyr::select(mutation, pathway, set_size, adj_p_val, enrichment)
+}) %>% do.call("rbind", .)
+
+write.table(pecora_gsea_results, "pecora_all_gsea_results.txt", sep = "\t", quote = F)
+
+
+```
+
+
+```{r}
+source("../../util/make_plots_util.R")
+for (selected_mutation in selected_mutations){
+  pecora_mutation <- pecora_gsea_results %>%
+    filter(mutation == selected_mutation)
+  
+  plot_df <- pecora_mutation %>%
+    filter(enrichment > 0) %>%
+    dplyr::select(pathway, enrichment, adj_p_val) %>%
+    head(20)
+
+  print(pecora_mutation$mutation %>% unique())
+  
+  plot_path <- paste0("../plots/PeCorA/pecora_", selected_mutation, "_rank_gsea_go.pdf") %>%
+    sub("\\+", "_plus_", .)
+  plot_title <- paste0("PeCorA ", selected_mutation, " rank GSEA GO database")
+  p <- plot_enrichment_result(plot_df, "enrichment", 
+                              enrichment_title = plot_title)
+  ggsave(plot = p, filename = plot_path, width = 16, height = 12)
+  upload.plot(plot_path, parentId = "syn27782451")
+}
+
+
+```
+
+
+
+
+
+
+

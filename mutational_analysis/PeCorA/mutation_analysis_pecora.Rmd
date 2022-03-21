@@ -1,0 +1,131 @@
+---
+title: "PeCorA and mutations"
+author: "Camilo Posso"
+date: "03/10/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(pheatmap)
+
+source("../../util/synapseUtil.R")
+source("../../util/loading_data.R")
+source("../../util/mutational_analysis_helper.R")
+source("pecora_scripts/pecora_analysis.R")
+
+syn <- synapseLogin()
+
+clusters <- read.table(syn$get("syn26642544")$path, sep = "\t")
+
+global_peptide_corrected <- load.global.data("Peptide")
+global_data <- load.global.data()
+metadata <- load.metadata()
+
+all_mutation_data <- load_mutational_sample_data()
+
+f_data <- data.frame(feature = rownames(global_peptide_corrected)) %>%
+  mutate(Gene = sub("\\@.*$", "", feature),
+         Peptide = sub("^.*\\@", "", feature),
+         Protein = Gene) %>%
+  group_by(Protein) %>%
+  mutate(n_peptides = n()) %>%
+  ungroup(Protein) %>%
+  as.data.frame()
+rownames(f_data) <- f_data$feature
+
+IDH1_IDH2 <- "IDH1+IDH2"
+KRAS_NRAS <- "KRAS+NRAS"
+
+```
+
+
+```{r}
+m <- MSnSet(exprs = as.matrix(global_peptide_corrected),
+            pData = metadata[colnames(global_peptide_corrected), ],
+            fData = f_data)
+
+# selected_mutations <- c("TP53", "IDH1", "IDH2", "FLT3.ITD", "NPM1_clinical", IDH1_IDH2)
+selected_mutations <- c("IDH1", "IDH2", "TP53", "NRAS", "KRAS", "FLT3.ITD", "NPM1_clinical", 
+                        IDH1_IDH2, KRAS_NRAS)
+
+
+lapply(selected_mutations, function(mutation){
+  mutated_samples <- all_mutation_data %>%
+    filter(Gene == mutation) %>%
+    pull(Barcode.ID) %>%
+    unique()
+  
+  pData(m) <<- pData(m) %>%
+    mutate(dummy = rownames(.) %in% mutated_samples) %>%
+    mutate(!! mutation := as.character(dummy)) %>%
+    select(-dummy)
+})
+
+genes1 <- unique(global_data$Gene)
+genes2 <- unique(f_data$Gene)
+## Not all the genes in the gene level data show up in the peptide level data,
+## this is due to the filtering applied prior to correction of the peptide data.
+## The uncorrected data does contain all the genes found in the global gene level dataset.
+table(genes1 %in% genes2)
+
+```
+
+
+```{r}
+
+all_pecora_results <- lapply(selected_mutations, function(mutation){
+  print(mutation)
+  pecora_all_proteins <- pecora_analysis(m, mutation, f_data$Gene, 
+                                         median_mod = FALSE) %>%
+    mutate(mutation = mutation)
+}) %>% do.call("rbind", .)
+
+
+f_data2 <- f_data %>%
+  select(feature, n_peptides)
+
+all_pecora_results_write <- all_pecora_results %>%
+  dplyr::rename(feature = Peptide) %>%
+  mutate(Peptide = sub("^.*@", "", feature)) %>%
+  left_join(f_data2, by = "feature") %>%
+  select(mutation, feature, Protein, Peptide, adj_pval, n_peptides)
+  
+
+write.table(all_pecora_results_write, "pecora_all_results_backup.txt",
+            quote = FALSE, sep = "\t")
+
+```
+
+```{r}
+source("../../util/make_plots_util.R")
+
+upload.plot("pecora_all_results.txt", parentId = "syn27782451")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
