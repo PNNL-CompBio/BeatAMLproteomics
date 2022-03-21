@@ -134,6 +134,24 @@ names(differential_expression_results) = sapply(differential_expression_results,
 
 
 
+```{r}
+selected_mutations <- c("IDH1", "IDH2", "TP53", "NRAS", "KRAS", "FLT3.ITD", "NPM1_clinical", 
+                        IDH1_IDH2, KRAS_NRAS)
+
+combined_diffexp <- lapply(selected_mutations, function(mutation){
+    dff <- differential_expression_results[[mutation]][[2]] %>%
+      mutate(mutation = mutation)
+  }) %>% do.call("rbind", .)
+
+# write.table(combined_diffexp, "selected_mutations_combined_differential_expression_results.txt", 
+#             sep = "\t", quote = F)
+# 
+# upload.plot("selected_mutations_combined_differential_expression_results.txt", 
+#             parentId = "syn26529351")
+
+```
+
+
 
 ```{r}
 plot_df <- summary_table %>%
@@ -149,6 +167,9 @@ p <- ggplot(plot_df, aes(y = mutation, x = value, fill = name)) +
 
 ggsave(filename = "./plots/mutational_differential_expression_barplot_count.png", plot = p)
 # upload.plot("./plots/mutational_differential_expression_barplot_count.png", parentId = "syn26529351")
+
+# ggsave(filename = "./plots/mutational_differential_expression_barplot_count.pdf", plot = p)
+# upload.plot("./plots/mutational_differential_expression_barplot_count.pdf", parentId = "syn26529351")
 
 p
 
@@ -298,6 +319,9 @@ gsea_ora_results_df <- do.call("rbind", gsea_ora_results) %>%
   filter(!grepl("Error", p.adjust)) %>%
   mutate(p.adjust = as.numeric(p.adjust),
          Count = as.numeric(Count))
+
+write.table(gsea_ora_results_df, "raw_tables/mutation_analysis_ORA_results_combined.txt", sep = "\t", quote = F)
+# upload.plot("raw_tables/mutation_analysis_ORA_results_combined.txt", parentId = "syn27220694")
 
 ```
 

@@ -67,6 +67,8 @@ load.global.data <- function(type = "Gene"){
     rownames(metadata) <- metadata$SampleID.abbrev %>% 
       as.character()
     colnames(data) <- metadata[samples_abrev, "Barcode.ID"]
+    no_phospho_peptides <- which(!grepl("\\*", rownames(data)))
+    data <- data[no_phospho_peptides, ]
   }
   
   return(data)

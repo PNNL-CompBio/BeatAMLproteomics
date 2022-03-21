@@ -1,0 +1,194 @@
+---
+title: "Finding raw peptide intensities"
+author: "Michael Nestor - Camilo Posso"
+date: "`r format(Sys.Date(), '%m/%d/%Y')`"
+output: html_document
+---
+
+# Global Proteomics analysis
+
+The goal is to push raw peptide intensity data to an easy to use table on synapse.
+
+
+```{r setup}
+library(PlexedPiper)
+library(dplyr)
+library(PNNL.DMS.utils)
+data_package_num <- 3676
+
+
+if (!is_PNNL_DMS_connection_successful()) {
+  stop("No connection to DMS.")
+}
+
+data_folder <- "./data"
+```
+
+
+## 1. Read study design information
+
+Study design information in PlexedPiper is encoded in three tables: fractions, samples, and references. These tables can be made using metadata and should be stored on the DMS before processing.
+
+```{r read_study_design}
+# study_design <- get_study_design_by_dataset_package(data_package_num)
+# 
+# fractions <- study_design$fractions
+# samples <- study_design$samples
+# references <- study_design$references
+```
+
+## 2 Processing MS-GF+ data
+
+MS-GF+ data is processed in several steps. First, read MS-GF+ output from the DMS. (This step can take a while).
+
+```{r read_msgf}
+msgf_data_path <- file.path(data_folder, "msgfData_original.RData")
+if (file.exists(msgf_data_path)) {
+  load(msgf_data_path)
+} else {
+  msnid <- read_msgf_data_from_DMS(data_package_num)
+  save(msnid, file=msgf_data_path)
+}
+show(msnid)
+```
+
+### 2.1 Remap accessions
+
+This function remaps UniProt protein accessions to gene symbol.
+
+```{r remap_accessions}
+path_to_FASTA <- path_to_FASTA_used_by_DMS(data_package_num)
+
+library(Biostrings)
+fst <- readAAStringSet(path_to_FASTA)
+
+library(dplyr)
+library(stringr)
+conv <- data.frame(NAME = names(fst)) %>%
+  mutate(UNIPROT = str_extract(names(fst), "^(\\S)+"),
+         SYMBOL = str_extract(names(fst), "GN=(\\S)+")) %>%
+  dplyr::select(-NAME) %>%
+  mutate(UNIPROT = sub(".*\\|(.*)\\|.*", "\\1", UNIPROT),
+         SYMBOL = sub("GN=", "", SYMBOL))
+
+head(conv)
+
+msnid <- remap_accessions_uniprot_to_gene(msnid,
+                                          organism_name="Homo sapiens",
+                                          conversion_table = conv)
+
+table(is.na(msnid$accession))
+msnid <- apply_filter(msnid, "!is.na(accession)")
+show(msnid)
+```
+
+### 2.2 FDR filter
+
+We use the target-decoy search strategy method described in [(Elias 2010)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2922680/). Filtering is done first at peptide level, then at protein level, both with max FDR of 1%.
+
+```{r peptide_filter}
+msnid <- filter_msgf_data(msnid, level="peptide", fdr.max=0.01)
+show(msnid)
+```
+
+```{r protein_level_filter }
+path_to_FASTA <- path_to_FASTA_used_by_DMS(data_package_num)
+path_to_FASTA <- gsub("\\\\", "/", path_to_FASTA)
+path_to_FASTA_gene <- remap_accessions_uniprot_to_gene_fasta(path_to_FASTA)
+msnid <- compute_num_peptides_per_1000aa(msnid, path_to_FASTA_gene)
+head(msnid$peptides_per_1000aa)
+
+msnid <- filter_msgf_data(msnid, level="accession", fdr.max=0.01)
+show(msnid)
+```
+
+```{r remove_decoys}
+msnid <- apply_filter(msnid, "!isDecoy")
+show(msnid)
+```
+
+
+### 2.3 Parsimonious inference
+
+To reduce number of protein identifications, we use a parsimonious inference algorithm described in [(Zhang et al. 2007)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2810678/).
+
+```{r parsimonious_inference}
+msnid <- infer_parsimonious_accessions(msnid, unique_only=FALSE)
+save(msnid, file=file.path(data_folder, "msgfData_filtered.RData"))
+show(msnid)
+file.exists("./data/msgfData_filtered.RData")
+```
+
+## 3 Process MASIC data
+
+Output from the MASIC software is read from DMS, then filtered by inteference score.
+
+```{r read_masic}
+masic_data_path <- file.path(data_folder, "masicData_original.RData")
+
+if (file.exists(masic_data_path)) {
+  load(masic_data_path)
+} else {
+  masic_data <- read_masic_data_from_DMS(data_package_num,
+                                       interference_score = TRUE)
+  save(masic_data, file=masic_data_path)
+}
+
+nrow(masic_data)
+```
+
+```{r filter_masic}
+masic_data <- filter_masic_data(masic_data,
+                                interference_score_threshold = 0.5,
+                                s2n_threshold = 0)
+save(masic_data, file=file.path(data_folder, "masicData_filtered.RData"))
+
+nrow(masic_data)
+```
+
+
+## 4 Calculate raw peptide intensity
+
+```{r}
+library(PlexedPiper)
+library(dplyr)
+
+## These are the objects saved above. Recreated using Michaels original code.
+load("data/masicData_filtered.RData")
+load("data/msgfData_filtered.RData")
+
+aggregation_level <- c("accession", "peptide")
+linked <- PlexedPiper:::link_msms_and_reporter_intensities(msnid, masic_data, aggregation_level)
+
+global_peptide_corrected <- load.global.data(type = "Peptide")
+
+peptides_sanity <- unique(rownames(global_peptide_corrected)) %>%
+  sub("^.+\\@", "", .)
+sanity_check <- linked %>%
+  select(accession, peptide) %>%
+  unique()
+## 11 peptides from the peptide corrected data not found in the recreated msnid and masic. 
+## Possibly due to small updates to the conversion table used when processing the msnid
+table(peptides_sanity %in% sanity_check$peptide)
+
+raw_intensity_dataset <- rowSums(linked[, c("Ion_126.128", "Ion_127.125", "Ion_127.131", 
+                                            "Ion_128.128", "Ion_128.134", "Ion_129.131", 
+                                            "Ion_129.138", "Ion_130.135", "Ion_130.141", 
+                                            "Ion_131.138", "Ion_131.144")])
+raw_peptide_intensity <- linked %>%
+  select(peptide) %>%
+  mutate(raw_intensity_dataset) %>%
+  group_by(peptide) %>%
+  summarize(raw_intensity = sum(raw_intensity_dataset))
+
+write.table(raw_peptide_intensity, "data/raw_peptide_intensity.txt", sep = "\t", quote = F)
+source("../util/make_plots_util.R")
+upload.plot("./data/raw_peptide_intensity.txt", parentId = "syn27782451")
+
+```
+
+
+
+
+
+

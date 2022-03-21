@@ -57,3 +57,13 @@ Analysis/NMF/Data/
 util/differential_expression_helper_dev.R
 cohort_summary/cytogenetics_and_clusters.Rmd
 cohort_summary/data_sample_summary_circos.png
+
+# mutational analysis
+mutational_analysis/raw_tables
+
+# networks
+mutational_analysis/network_analysis/networks
+
+# PeCorA
+mutational_analysis/PeCorA/pecora_presentation
+mutational_analysis/PeCorA/pecora_scripts/pecora_example.R

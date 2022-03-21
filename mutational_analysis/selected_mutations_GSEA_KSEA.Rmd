@@ -277,6 +277,8 @@ gsea_rank_results <- lapply(selected_mutations, function(mutation){
 
 gsea_rank_results_df <- do.call("rbind", gsea_rank_results)
 
+write.table(gsea_rank_results_df, "raw_tables/mutation_analysis_GSEA_KSEA_results_combined.txt", sep = "\t", quote = F)
+# upload.plot("raw_tables/mutation_analysis_rank_GSEA_KSEA_combined.txt", parentId = "syn27220699")
 
 ```
 
