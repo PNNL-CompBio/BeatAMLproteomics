@@ -1,0 +1,359 @@
+---
+title: "Differentially expressed features in mutated samples: Network Analysis"
+author: "Sara Gosline"
+date: "3/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Network analysis 
+
+The goal of this document is to study the larger networks that comprise the differentially expressed features. We want to map all the features to one single network.
+
+```{r load data,message=F,echo=T,warning=F}
+
+library(PCSF)
+library(dplyr)
+library(ggplot2)
+
+source("../../util/synapseUtil.R")
+syn<-synapseLogin()
+
+
+combined_diffexp_results <- read.table(syn$get("syn27828350")$path, sep = "\t")
+
+network_input <- combined_diffexp_results %>%
+  filter(adj.P.Val < 0.05) %>%
+  dplyr::rename(data_type = datatype) %>%
+  mutate(weight = abs(logFC), nrand = 100)
+
+```
+
+
+## Create function to take proteins by type and map them to network
+
+We need to keep track of two things - one is the type of feature we are handling, and the other is the weight for the network.
+
+```{r network mapping,message=F,echo=T,warning=F}
+
+build_run_network <- function(gene_name, 
+                              gene_score, 
+                              gene_type,
+                              mutation,
+                              rands=100,
+                              store=FALSE){
+  
+  library(amlresistancenetworks)
+  print(unique(mutation))
+  
+  wes_inds <- which(gene_type=='WES')
+  rna_inds <- which(gene_type=='RNA')
+  prot_inds <- which(gene_type=='Global')
+  phos_inds <- which(gene_type=='Phospho')
+  
+  netname=paste0("differentially_expressed_in_", mutation, "_mutations")
+  
+    ##rename WES
+  wes_terms <- gene_score[wes_inds]
+  names(wes_terms) <- gene_name[wes_inds]
+  
+  #lets separate out the substrates from the phosphosite data
+  phgenes<-data.frame(genes=gene_name[phos_inds],val=gene_score[phos_inds])%>%
+    tidyr::separate(genes, into=c('gene','mod'),sep='-')%>%
+    mutate(modlist=strsplit(mod,split='s|t|y'))%>%
+    tidyr::unnest()%>%
+    rowwise()%>%
+    mutate(newgene=paste(gene,modlist,sep='-'))
+  
+  kin_terms <- phgenes$val
+  names(kin_terms) <- phgenes$newgene
+  
+ # print(kin_terms)
+  prot_terms <- gene_score[prot_inds]
+  names(prot_terms) <- gene_name[prot_inds]
+  
+
+  rna_terms <- gene_score[rna_inds]
+  names(rna_terms) <- gene_name[rna_inds]
+  
+  start_time <- Sys.time()
+  print(start_time)
+  netlist = amlresistancenetworks::computePhosphoNetwork(phos.vals=kin_terms,
+                                                     prot.vals=prot_terms,
+                                                     gene.vals=wes_terms,
+                                                     rna.vals=rna_terms,
+                                                     beta=1.5,
+                                                     nrand=rands,
+                                                     fname=netname)
+  print(Sys.time() - start_time)
+  graph =netlist$graph
+  fname = netlist$fname[1]
+  print(fname)
+  if(store){
+    synapseStore(fname,'syn27831953')
+  }  
+  return(graph)
+}
+
+```
+
+Now we can run the analysis
+
+
+```{r k5 cluster analysis}
+
+nets <- network_input %>%
+  group_by(mutation) %>%
+  dplyr::summarize(net=list(build_run_network(feature,
+                                           weight,
+                                           data_type,
+                                           mutation,
+                                           nrand,store=FALSE)))
+
+
+## KRAS+NRAS genes (12 in total) are making the PCSF_rand function crash:
+    ## Error in PCSF_rand(ppi, abs(terms), n = 10, r = 0.2, w = 4, b = beta,  : 
+    ## Subnetwork can not be identified for a given parameter set.
+    ## Provide a compatible b or mu value with your terminal prize list...
+# To recreate, get to the try(PCSF_rand(ppi, abs(terms), ...) line
+# debug(build_run_network)
+# k5_nets <- network_input %>%
+#   filter(mutation == "KRAS+NRAS") %>%
+#   mutate(nrand=10,
+#          weight = -log10(adj.P.Val))%>%
+#   group_by(mutation)%>%
+#   dplyr::summarize(net=list(build_run_network(feature,
+#                                            weight,
+#                                            data_type,
+#                                            mutation,
+#                                            nrand,store=FALSE)))
+
+getNetStats <- function(net_list,orig_tab){
+  require(igraph)
+  ##create table of metagene features based on wht was included/excluded from the network
+  node_tab<-purrr::map2_dfr(.x=net_list$Cluster,.y=net_list$net,.f=function(Cluster,net){
+    g<-net
+    data.frame(node=names(V(g)),prizes=vertex.attributes(g)$prize,
+               types=vertex.attributes(g)$type,lfc=vertex.attributes(g)$logFoldChange,
+               geneTypes=vertex.attributes(g)$nodeType,Cluster=rep(Cluster,length(V(g))))
+  } )
+  
+  graph_counts <- node_tab%>%group_by(geneTypes,types,Cluster)%>%summarize(count=n())%>%
+    dplyr::rename(data_type='geneTypes',source='types')
+  orig_counts <- orig_tab%>%group_by(data_type,Cluster)%>%summarize(count=n())%>%
+    mutate(source='Metagene')
+
+  ##counts of how man proteins/genes/phosphosites in each
+  return(rbind(graph_counts,orig_counts))  
+}
+
+# DT::datatable(getNetStats(nets,network_input))
+
+```
+
+
+```{r}
+source("../../util/make_plots_util.R")
+net_paths <- list.files("./networks/", "network_differentially_expressed_in_")
+for (net_path in net_paths){
+  upload.plot(net_path, parentId = "syn27831953")
+}
+
+
+```
+
+
+```{r}
+## FLT3 already done. IDH1 fails with given mu and b values.
+## IDH11+IDH2, IDH2, and KRAS all done, KRAS+NRAS fails.
+## NPM1_clinical and TP53 also done
+network_input <- network_input %>%
+  filter(mutation != "FLT3.ITD") %>%
+  filter(mutation != "IDH1+IDH2") %>%
+  filter(mutation != "IDH2") %>%
+  filter(mutation != "KRAS") %>%
+  filter(mutation != "TP53") %>%
+  filter(mutation != "NPM1_clinical")
+
+table(network_input$mutation)
+
+```
+
+
+Now we can run these two smaller inputs with a greater beta value.
+
+
+```{r}
+## Tyring another beta value with networks that gave empty graphs before.
+build_run_network <- function(gene_name, 
+                              gene_score, 
+                              gene_type,
+                              mutation,
+                              rands=100,
+                              store=FALSE){
+  
+  library(amlresistancenetworks)
+  print(unique(mutation))
+  
+  wes_inds <- which(gene_type=='WES')
+  rna_inds <- which(gene_type=='RNA')
+  prot_inds <- which(gene_type=='Global')
+  phos_inds <- which(gene_type=='Phospho')
+  
+  netname=paste0("differentially_expressed_in_", mutation, "_mutations")
+  
+    ##rename WES
+  wes_terms <- gene_score[wes_inds]
+  names(wes_terms) <- gene_name[wes_inds]
+  
+  #lets separate out the substrates from the phosphosite data
+  phgenes<-data.frame(genes=gene_name[phos_inds],val=gene_score[phos_inds])%>%
+    tidyr::separate(genes, into=c('gene','mod'),sep='-')%>%
+    mutate(modlist=strsplit(mod,split='s|t|y'))%>%
+    tidyr::unnest()%>%
+    rowwise()%>%
+    mutate(newgene=paste(gene,modlist,sep='-'))
+  
+  kin_terms <- phgenes$val
+  names(kin_terms) <- phgenes$newgene
+  
+ # print(kin_terms)
+  prot_terms <- gene_score[prot_inds]
+  names(prot_terms) <- gene_name[prot_inds]
+  
+
+  rna_terms <- gene_score[rna_inds]
+  names(rna_terms) <- gene_name[rna_inds]
+  
+  start_time <- Sys.time()
+  print(start_time)
+  netlist = amlresistancenetworks::computePhosphoNetwork(phos.vals=kin_terms,
+                                                     prot.vals=prot_terms,
+                                                     gene.vals=wes_terms,
+                                                     rna.vals=rna_terms,
+                                                     beta=2.0,
+                                                     nrand=rands,
+                                                     fname=netname)
+  print(Sys.time() - start_time)
+  graph =netlist$graph
+  fname = netlist$fname[1]
+  print(fname)
+  if(store){
+    synapseStore(fname,'syn27831953')
+  }  
+  return(graph)
+}
+
+
+nets <- network_input %>%
+  group_by(mutation) %>%
+  dplyr::summarize(net=list(build_run_network(feature,
+                                           weight,
+                                           data_type,
+                                           mutation,
+                                           nrand,store=FALSE)))
+
+```
+
+
+
+
+```{r}
+## IDH1 worked, but KRAS+NRAS is still failing
+network_input <- network_input %>%
+  filter(mutation != "IDH1")
+
+table(network_input$mutation)
+
+```
+
+
+Now we can run these two smaller inputs with a greater beta value.
+
+
+```{r}
+## Tyring another beta value with networks that gave empty graphs before.
+build_run_network <- function(gene_name, 
+                              gene_score, 
+                              gene_type,
+                              mutation,
+                              rands=100,
+                              store=FALSE){
+  
+  library(amlresistancenetworks)
+  print(unique(mutation))
+  
+  wes_inds <- which(gene_type=='WES')
+  rna_inds <- which(gene_type=='RNA')
+  prot_inds <- which(gene_type=='Global')
+  phos_inds <- which(gene_type=='Phospho')
+  
+  netname=paste0("differentially_expressed_in_", mutation, "_mutations")
+  
+    ##rename WES
+  wes_terms <- gene_score[wes_inds]
+  names(wes_terms) <- gene_name[wes_inds]
+  
+  #lets separate out the substrates from the phosphosite data
+  phgenes<-data.frame(genes=gene_name[phos_inds],val=gene_score[phos_inds])%>%
+    tidyr::separate(genes, into=c('gene','mod'),sep='-')%>%
+    mutate(modlist=strsplit(mod,split='s|t|y'))%>%
+    tidyr::unnest()%>%
+    rowwise()%>%
+    mutate(newgene=paste(gene,modlist,sep='-'))
+  
+  kin_terms <- phgenes$val
+  names(kin_terms) <- phgenes$newgene
+  
+ # print(kin_terms)
+  prot_terms <- gene_score[prot_inds]
+  names(prot_terms) <- gene_name[prot_inds]
+  
+
+  rna_terms <- gene_score[rna_inds]
+  names(rna_terms) <- gene_name[rna_inds]
+  
+  start_time <- Sys.time()
+  print(start_time)
+  netlist = amlresistancenetworks::computePhosphoNetwork(phos.vals=kin_terms,
+                                                     prot.vals=prot_terms,
+                                                     gene.vals=wes_terms,
+                                                     rna.vals=rna_terms,
+                                                     beta=2.5,
+                                                     nrand=rands,
+                                                     fname=netname)
+  print(Sys.time() - start_time)
+  graph =netlist$graph
+  fname = netlist$fname[1]
+  print(fname)
+  if(store){
+    synapseStore(fname,'syn27831953')
+  }  
+  return(graph)
+}
+
+
+nets <- network_input %>%
+  group_by(mutation) %>%
+  dplyr::summarize(net=list(build_run_network(feature,
+                                           weight,
+                                           data_type,
+                                           mutation,
+                                           nrand,store=FALSE)))
+
+```
+
+
+
+```{r}
+source("../../util/make_plots_util.R")
+net_paths <- list.files("./networks/", "network_differentially_expressed_in_") %>%
+  paste0("./networks/", .)
+for (net_path in net_paths){
+  upload.plot(net_path, parentId = "syn27831953")
+}
+
+```
