@@ -15,7 +15,6 @@ The goal of this document is to study the larger networks that comprise the meta
 
 ```{r load data,message=F,echo=T,warning=F}
 
-library(PCSF)
 source("../util/synapseUtil.R")
 library(dplyr)
 syn<-synapseLogin()
@@ -46,9 +45,9 @@ library(ggplot2)
 
 
 ##summary of features
-ggplot(k5)+geom_bar(aes(x=Cluster,fill=data_type),position='dodge')
+ggplot(k5_weights)+geom_bar(aes(x=Cluster,fill=data_type),position='dodge')
 
-ggplot(k8)+geom_bar(aes(x=Cluster,fill=data_type),position='dodge')
+ggplot(k8_weights)+geom_bar(aes(x=Cluster,fill=data_type),position='dodge')
 
 
 ```
@@ -114,12 +113,16 @@ build_run_network <- function(gene_name,
 
   rna_terms <- gene_score[rna_inds]
   names(rna_terms) <- gene_name[rna_inds]
+  if(length(gene_name)>200)
+    x=1
+  else
+    x=100
   
   netlist = amlresistancenetworks::computePhosphoNetwork(phos.vals=kin_terms,
                                                      prot.vals=prot_terms,
                                                      gene.vals=wes_terms,
                                                      rna.vals=rna_terms,
-                                                     beta=1.5,
+                                                     beta=x*.1,
                                                      nrand=rands,
                                                      fname=netname)
   graph =netlist$graph
@@ -132,12 +135,12 @@ build_run_network <- function(gene_name,
 }
 
 print("K5 Clusters")
-k5%>%group_by(data_type,Cluster)%>%summarize(numFeatures=n())%>%arrange(Cluster)%>%
+k5_weights%>%group_by(data_type,Cluster)%>%summarize(numFeatures=n())%>%arrange(Cluster)%>%
   DT::datatable()
 
 
 print('K8 Clusters')
-k8%>%group_by(data_type, Cluster)%>%summarize(numFeatures=n())%>%arrange(Cluster)%>%
+k8_weights%>%group_by(data_type, Cluster)%>%summarize(numFeatures=n())%>%arrange(Cluster)%>%
   DT::datatable()
 ```
 
@@ -182,13 +185,13 @@ Now we can summarize the networks for the k5 clusters, and move on to k8 cluster
 
 ```{r k8 cluster analysis}
 
-k8_nets <- k8_weights %>%
-    mutate(k=8,nrand=100)%>%
-    group_by(Cluster)%>%
-    dplyr::summarize(net=list(build_run_network(feature,weight,data_type,Cluster,k,nrand,
-                                                store=TRUE)))
+#k8_nets <- k8_weights %>%
+#    mutate(k=8,nrand=100)%>%
+#    group_by(Cluster)%>%
+#    dplyr::summarize(net=list(build_run_network(feature,weight,data_type,Cluster,k,nrand,
+                                            #    store=TRUE)))
 
-DT::datatable(getNetStats(k8_nets,k8_weights))
+#DT::datatable(getNetStats(k8_nets,k8_weights))
 
 
 ```
