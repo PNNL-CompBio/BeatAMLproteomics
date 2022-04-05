@@ -1,14 +1,14 @@
 signatures:
-  - LM9
+        #  - LM9
+  - LM22
+  - PBMC
   - LM7c
-#  - LM22
-#  - PBMC
-
+  - LM9
 prot-algorithms:
   - cibersort
   - epic
-#  - xcell
-#  - mcpcounter
+  - xcell
+  - mcpcounter
 
 protFile:
   class: File

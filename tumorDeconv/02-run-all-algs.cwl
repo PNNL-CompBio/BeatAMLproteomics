@@ -37,38 +37,47 @@ steps:
       out:
         [sigMatrix]
    get-all-cors:
-      run: https://raw.githubusercontent.com/PNNL-CompBio/proteomicsTumorDeconv/main/metrics/correlations/deconv-corr-cwl-tool.cwl
-      scatter: [signature,mrnaAlg,protAlg]
+      run: https://raw.githubusercontent.com/PNNL-CompBio/proteomicsTumorDeconv/localdata/metrics/mrna-prot/deconv-cor-single-mat.cwl
+      scatter: [signature,alg]
       scatterMethod: flat_crossproduct
       in:
-        transcriptomics: rnaFile
-        proteomics: protFile
-        cancerType:
-           valueFrom: "AML"
-        mrnaAlg: prot-algorithms
-        protAlg: prot-algorithms
+        mrna-file: rnaFile
+        prot-file: protFile
+        alg: prot-algorithms
         signature: get-all-mat/sigMatrix
-        sampleType:
-           valueFrom: "all"
+        cancerType:
+          valueFrom: "AML"
+        tissueType:
+          valueFrom: "all"
       out:
-        [corr]
-   get-best-cor:
+        [cell-cor-file,mat-dist-file,mrna-deconv,pat-cor-file,prot-deconv]
+   get-best-cor-mat:
        run: https://raw.githubusercontent.com/PNNL-CompBio/proteomicsTumorDeconv/localdata/metrics/correlations/best-deconv-cor-tool.cwl
        in:
-         corFiles: get-all-cors/corr
+         alg_or_mat:
+           valueFrom: "mat"
+         corFiles: get-all-cors/cell-cor-file
        out:
-         value
+         [value]
    get-best-mat:
        run: https://raw.githubusercontent.com/PNNL-CompBio/proteomicsTumorDeconv/main/signature_matrices/get-signature-matrix.cwl
        in:
-          sigMatrixName: get-best-cor/value[1]
+          sigMatrixName: get-best-cor-mat/value
        out:
           [sigMatrix]
+   get-best-cor-alg:
+      run: https://raw.githubusercontent.com/PNNL-CompBio/proteomicsTumorDeconv/localdata/metrics/correlations/best-deconv-cor-tool.cwl
+      in:
+        alg_or_mat:
+          valueFrom: "alg"
+        corFiles: get-all-cors/cell-cor-file
+      out:
+        [value]
    run-best-algs-by-sig:
-      run: https://raw.githubusercontent.com/PNNL-CompBio/proteomicsTumorDeconv/main/metrics/run-deconv.cwl
+      run: https://raw.githubusercontent.com/PNNL-CompBio/proteomicsTumorDeconv/localdata/metrics/run-deconv.cwl
       in:
         signature: get-best-mat/sigMatrix
-        alg: get-best-cor/value[2]
+        alg: get-best-cor-alg/value
         matrix: protFile
       out:
         [deconvoluted]

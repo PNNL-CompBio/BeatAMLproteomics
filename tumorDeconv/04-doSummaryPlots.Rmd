@@ -20,32 +20,49 @@ clusters <-read.table(syn$get('syn26642544')$path,sep='\t',header=T)
 
 
 clin <- read.table(syn$get('syn26642974')$path,quote='"',header=T)%>%
-  select(labId,FLT3_ITDCall)%>%
+  select(labId,FLT3_ITDCall,percentBlastsBM,percentBlastsPB)%>%
   distinct()
 
+estimate <- syn$tableQuery('select * from syn27148720')$asDataFrame()%>%
+  dplyr::rename(labId='sampleID')%>%
+  dplyr::select(labId,TumorPurity)
 
 ##collect cluster membeership, FLT3 status
 pat.annote <- clusters%>%
   dplyr::select(k.5,k.8)%>%
   mutate(k.5=as.factor(k.5),k.8=as.factor(k.8))%>%
   tibble::rownames_to_column('labId')%>%left_join(clin)%>%
+ # left_join(estimate)%>%
   mutate(FLT3=ifelse(FLT3_ITDCall=='Negative','Negative','Positive'))%>%
   tibble::column_to_rownames('labId')%>%
-  dplyr::select(`K5 Cluster`=k.5,`K8 Cluster`=k.8,`FLT3 ITD`=FLT3)
+  mutate(`Bone marrow blasts`=as.numeric(percentBlastsBM),
+                `Blood blasts`=as.numeric(percentBlastsPB))%>%
+  dplyr::select(`K5 Cluster`=k.5,`K8 Cluster`=k.8,`FLT3 ITD`=FLT3,`Bone marrow blasts`,`Blood blasts`)
+              #,TumorPurity)
 
 #pat.annote <- data.frame(K5_cluster=clusters$k.5,K8_cluster=clusters$k.8)
 #,flt3=clin)
 
+k8.colors= c("#999999", "#E69F00", "#56B4E9", "#009E73", 
+                       "#F0E442", "#0072B2", "#D55E00", "#CC79A7")#rev(c("#fff7fb","#ece2f0","#d0d1e6","#a6bddb","#67a9cf","#3690c0","#02818a","#016450"))
+names(k8.colors)=seq(1,8)
+k5.colors=c("#fef0d9","#fdcc8a","#fc8d59","#e34a33","#b30000")
+names(k5.colors)=seq(1,5)
+flt3.colors<-c(Positive='#f0f0f0',Negative='#636363')
 ```
 
 
 Now for each matrix/algorithm let's plot.
 
-```{r do plots}
+```{r do plots, warning=F, message=F}
 
-algs = unique(decontab$algorithm)
-mats = unique(decontab$matrix)
 
+#algs = unique(decontab$algorithm)
+#mats = unique(decontab$matrix)
+algs = 'xcell'
+mats = 'LM7c'
+
+ann.colors=list(`K5 Cluster`=k8.colors[1:5],`FLT3 ITD`=flt3.colors)#,`Blood blasts`=grey.colors(100),`Bone marrow blasts`=grey.colors(100))
 res = lapply(algs,function(a){
   lapply(mats,function(m){
     fname = paste0(a,'-',m,'.pdf')
@@ -55,10 +72,129 @@ res = lapply(algs,function(a){
       select('Cell type','sample','cellPop')%>%
       pivot_wider(names_from='sample',values_from='cellPop')%>%
             tibble::column_to_rownames('Cell type')%>%
-      as.matrix()%>%
-      pheatmap(.,filename=fname,labels_col=rep("",ncol(.)),annotation_col=pat.annote)
-    synapseStore(fname,parentId='syn27092543')
+      as.matrix()
+    
+    anns=c('K5 Cluster','FLT3 ITD','Blood blasts','Bone marrow blasts')
+    
+    pheatmap(tmat,labels_col=rep("",ncol(tmat)),annotation_col=pat.annote[,anns],annotation_colors=ann.colors,cellheight=12,cellwidth=2,clustering_distance_cols = 'correlation')
+    f2name=paste0('k5-',fname) 
+    pheatmap(tmat,filename=f2name,labels_col=rep("",ncol(tmat)),annotation_col=pat.annote[,anns],annotation_colors=ann.colors,cellheight=12,cellwidth=2,clustering_distance_cols = 'correlation',height=8)
+    synapseStore(f2name,parentId='syn27092543')
+  
+    
+    anns=c('K8 Cluster','FLT3 ITD','Blood blasts','Bone marrow blasts')
+    ann.colors=list(`K8 Cluster`=k8.colors,`FLT3 ITD`=flt3.colors)#,`Blood blasts`=grey.colors(100),`Bone marrow blasts`=grey.colors(100))
+
+    pheatmap(tmat,labels_col=rep("",ncol(tmat)),annotation_col=pat.annote[,anns],annotation_colors=ann.colors,cellheight=12,cellwidth=2,clustering_distance_cols = 'correlation')
+    f2name=paste0('k8-',fname) 
+    pheatmap(tmat,filename=f2name,labels_col=rep("",ncol(tmat)),annotation_col=pat.annote[,anns],annotation_colors=ann.colors,cellheight=12,cellwidth=2,clustering_distance_cols = 'correlation',height=8)
+    synapseStore(f2name,parentId='syn27092543')
+    
+    })
+  
+})
+
+```
+
+Now we want to assess cluster specific enrichment. For each cluster, rank the samples by presence of each cell type to determine if they are enriched?
+
+```{r cluster enrichment,warning=FALSE,message=FALSE}
+siglist<-pat.annote%>%
+  tibble::rownames_to_column('patId')%>%
+  pivot_longer(cols=c('K5 Cluster','K8 Cluster'),names_to='k',values_to='cluster_number')%>%
+  mutate(cluster=paste(k,cluster_number))%>%
+  select(patId,cluster,k,cluster_number)
+
+counts<-siglist%>%group_by(cluster)%>%summarize(count=n())
+counts$fill <- max(counts$count)-counts$count
+
+patmat<-purrr::map_dfc(.x=unique(siglist$cluster),.f=function(x) c(subset(siglist,cluster==x)$patId,rep('',subset(counts,cluster==x)$fill)))%>%
+  as.data.frame()
+
+colnames(patmat)<-unique(siglist$cluster)
+
+clusSigs <- list(names=unique(siglist$cluster),desc=unique(siglist$cluster),sizes=counts$count,matrix=t(patmat))
+#decontab%>%
+#  group_by(`Cell type`,matrix,algorithm)%>%
+#  arrange(cellPop, decreasing=T)%>%
+
+library(leapR)
+
+res = do.call(rbind,lapply(algs,function(a){
+  do.call(rbind,lapply(mats,function(m){
+#    fname = paste0(a,'-',m,'.pdf')
+    tmat <- subset(decontab,algorithm==a)%>%
+      subset(matrix==m)%>%
+      tibble::remove_rownames()%>%
+      select('Cell type','sample','cellPop')%>%
+      pivot_wider(names_from='Cell type',values_from='cellPop')%>%
+            tibble::column_to_rownames('sample')
+    
+     do.call(rbind,lapply(colnames(tmat),function(x) leapR::leapR(tmat,geneset=clusSigs,enrichment_method='enrichment_in_order',primary_column=x)%>%
+                            tibble::rownames_to_column('cluster')%>%
+                            mutate(CellType=x,algorithm=a,matrix=m)))
+
+  }))
+}))%>%
+  dplyr::select(cluster,CellType,algorithm,matrix,BH_pvalue,SignedBH_pvalue)%>%
+  subset(BH_pvalue<0.01)
+
+DT::datatable(res)
+```
+
+From here we can dive into specific cell types and see how they can be expressed across the clusters.
+
+```{r plot clusters,warning=FALSE,message=F}
+library(ggplot2)
+
+res = lapply(algs,function(a){
+  lapply(mats,function(m){
+    fname = paste0(a,'-boxplot-',m,'.pdf')
+    tmat <- subset(decontab,algorithm==a)%>%
+      subset(matrix==m)%>%
+      dplyr::rename(patId='sample')%>%left_join(siglist)%>%
+      subset(!is.na((k)))
+    
+    ##first look at k5
+    tmat%>%subset(k=='K5 Cluster')%>%
+  ggplot(aes(x=`Cell type`,y=cellPop,fill=cluster_number))+
+      geom_boxplot()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5))+scale_fill_manual(values=k8.colors)+scale_color_manual(values=k8.colors)+theme_minimal()
+
+    f2name=paste0('k5-',fname)
+    ggsave(f2name)
+    synapseStore(f2name,parentId='syn27092543')
+    
+  names(k8.colors)<-c(unique((tmat$`Cell type`)),'')  
+  tmat%>%subset(k=='K5 Cluster')%>%
+  ggplot(aes(x=`cluster_number`,y=cellPop,fill=`Cell type`))+
+      geom_boxplot()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5))+scale_fill_manual(values=k8.colors)+scale_color_manual(values=k8.colors)+theme_minimal()
+
+    f2name=paste0('k5-cell-',fname)
+    ggsave(f2name)
+    synapseStore(f2name,parentId='syn27092543')
+      
+    ###now set for k8
+    tmat%>%subset(k=='K8 Cluster')%>%
+  ggplot(aes(x=`Cell type`,y=cellPop,fill=cluster_number))+
+      geom_boxplot()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5))+scale_fill_manual(values=k8.colors)+scale_color_manual(values=k8.colors)+theme_minimal()
+
+    f2name=paste0('k8-',fname)
+    ggsave(f2name)
+    synapseStore(f2name,parentId='syn27092543')
+    
+  tmat%>%subset(k=='K8 Cluster')%>%
+  ggplot(aes(x=`cluster_number`,y=cellPop,fill=`Cell type`))+
+      geom_boxplot()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5))+scale_fill_manual(values=k8.colors)+scale_color_manual(values=k8.colors)+theme_minimal()
+
+    f2name=paste0('k8-cell-',fname)
+    ggsave(f2name)
+    synapseStore(f2name,parentId='syn27092543')
   })
 })
+
+#p<-decontab%>%
+#  dplyr::rename(patId='sample')%>%left_join(siglist)%>%
+#  ggplot(aes(x=`Cell type`,y=cellPop,col=cluster,fill=cluster))+geom_boxplot()+facet_grid(algorithm~matrix)+
+  #theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 
 ```
