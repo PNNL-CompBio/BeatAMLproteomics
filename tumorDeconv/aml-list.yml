@@ -1,0 +1,14 @@
+signatures:
+  - AML
+prot-algorithms:
+  - cibersort
+  - epic
+  - mcpcounter
+  - xcell
+protFile:
+  class: File
+  path: "./AML-tumor-prot-raw.tsv"
+
+rnaFile:
+  class: File
+  path: "./AML-tumor-mrna-raw.tsv"
