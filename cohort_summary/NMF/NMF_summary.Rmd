@@ -23,6 +23,7 @@ library(survminer)
 source("../../util/loading_data.R")
 source("../../util/synapseUtil.R")
 source("../../util/make_plots_util.R")
+source("../../util/mutational_analysis_helper.R")
 source("NMF_helper.R")
 
 # load.combined.data()
@@ -78,6 +79,7 @@ kaplan.df.full <- get.clusters(results) %>%
 colnames(kaplan.df.full) <- sub("=", "", colnames(kaplan.df.full))
 
 adjacencies <- lapply(results, consensus)
+mutational_data <- load_mutational_sample_data()
 
 ```
 
@@ -85,9 +87,7 @@ adjacencies <- lapply(results, consensus)
 
 
 ```{r}
-
-chosen.colors <- c("#F8766D", "#CD9600", "#7CAE00", "#00BE67", 
-                   "#00BFC4", "#00A9FF", "#C77CFF", "#FF61CC")
+chosen.colors <- subtype_colors
 
 ```
 
@@ -174,6 +174,9 @@ samples.RAS <- WES.data %>%
 samples.NPM1 <- WES.data %>%
   filter(Gene == "NPM1") %>%
   pull(Barcode.ID)
+samples_NPM1_clinical <- mutational_data %>%
+  filter(Gene == "NPM1_clinical") %>%
+  pull(Barcode.ID)
 
 sample.cats <- meta %>%
   filter(Barcode.ID %in% samples.common) %>%
@@ -184,9 +187,12 @@ sample.cats <- meta %>%
          RAS = case_when(rownames(.) %in% samples.RAS ~ TRUE,
                           TRUE ~ FALSE),
          NPM1 = case_when(rownames(.) %in% samples.NPM1 ~ TRUE,
-                          TRUE ~ FALSE)) %>%
+                          TRUE ~ FALSE),
+         NPM1_clinical = case_when(rownames(.) %in% samples_NPM1_clinical ~ TRUE,
+                                   TRUE ~ FALSE)) %>%
   mutate(RAS = as.factor(RAS),
-         NPM1 = as.factor(NPM1))
+         NPM1 = as.factor(NPM1),
+         NPM1_clinical = as.factor(NPM1_clinical))
 
 ### Purity scores provide another measure of cluster fitness
 purity.scores.normalized <- lapply(results, clustering.purity, sample.cats, normalized = TRUE) %>%
@@ -205,6 +211,19 @@ p.celing <- sapply(enrichment, function(xx){max(xx[,-1])}) %>% max() %>% ceiling
 
 flt3_numeric <- summary.table %>%
   select(labId, FLT3_MAF, FLT3_AR) %>%
+  dplyr::rename(Barcode.ID = labId)
+
+fab_annotations <- summary.table %>%
+  select(labId, fabBlastMorphology) %>%
+  mutate(FAB = case_when(fabBlastMorphology %in% c("M0", "M0/M1") ~ "None",
+                         fabBlastMorphology %in% c("M1") ~ "M1",
+                         fabBlastMorphology %in% c("M2") ~ "M2",
+                         fabBlastMorphology %in% c("M3") ~ "M3",
+                         fabBlastMorphology %in% c("M4", "M4eo") ~ "M4",
+                         fabBlastMorphology %in% c("M5", "M5a", "M5b") ~ "M5",
+                         fabBlastMorphology %in% c("NOS") ~ "None",
+                         TRUE ~ "None")) %>%
+  select(labId, FAB) %>%
   dplyr::rename(Barcode.ID = labId)
 
 ## pheatmap column labels
@@ -232,14 +251,20 @@ ann.labels <- ann.labels %>%
   mutate(NPM1 = case_when(!is.na(NPM1) ~ NPM1,
                           TRUE ~ 0),
          RAS = case_when(!is.na(RAS) ~ RAS,
-                          TRUE ~ 0)) %>%
+                          TRUE ~ 0),
+         NPM1_clinical = case_when(Barcode.ID %in% samples_NPM1_clinical ~ TRUE,
+                                   TRUE ~ FALSE),
+         NPM1_clinical = as.factor(NPM1_clinical)) %>%
   left_join(flt3_numeric, by = "Barcode.ID") %>%
+  left_join(fab_annotations, by = "Barcode.ID") %>%
+  mutate(FAB = factor(FAB, levels = c("M0", "M1", "M2", "M3", "M4", "M5", "None"))) %>%
   column_to_rownames("Barcode.ID") %>%
   as.data.frame() %>%
-  select(PostChemotherapy, NPM1, RAS, vitalStatus, FLT3.ITD, FLT3_MAF, FLT3_AR) %>%
+  select(PostChemotherapy, NPM1, NPM1_clinical, RAS, vitalStatus, FLT3.ITD, FLT3_MAF, FLT3_AR, FAB) %>%
   dplyr::rename(`FLT3_MAF (percentage)` = FLT3_MAF)
 
-
+## Slimming down annotations
+ann.labels <- ann.labels[, c("RAS", "FLT3.ITD", "NPM1_clinical", "FAB",  "vitalStatus")]
 
 ## White to dark purple (like the snow storms on weather maps)
 colors.wp <- scales::seq_gradient_pal("#FFFFFF", "#4A0078", "Lab")(seq(0,1,length.out = p.celing*10 + 1))
@@ -250,8 +275,12 @@ colors.wp <- scales::seq_gradient_pal("#FFFFFF", "#4A0078", "Lab")(seq(0,1,lengt
 ann.colors <- lapply(names(ann.labels), function(x){
   if (is.numeric(ann.labels[[x]])) {
     c("white", "black")
+  } else if (length(levels(ann.labels[[x]])) == 7) {
+    c("M0" = "#800000", "M1" = "#191970", "M2" = "#006400", 
+      "M3" = "#ffd700", "M4" = "#00ff00", "M5" = "#87ceeb",
+      "None" = "white")
   } else if (length(levels(ann.labels[[x]])) == 2) {
-  c(`FALSE` = "white", `TRUE` = "darkgrey")
+    c(`FALSE` = "white", `TRUE` = "darkgrey")
   } else {
     c("Alive" = "white", "Dead" = "darkgrey", "Unknown" = "brown")
   }
@@ -270,7 +299,10 @@ plots <- lapply(1:7, function(i){
     select(everything(), -Cluster) %>% 
     as.data.frame()
   
-  xx <- xx[, -1]
+  ## slimming down annotations
+  p.labels <- p.labels %>%
+    select(-`Enrichment in NPM1`, -`Enrichment in PostChemotherapy`)
+  xx <- xx[, -c(1, 3, 5)] 
   
   xx.colors <- lapply(colnames(xx), function(category){
     p.max <- max(xx[category]) %>% ceiling()
@@ -295,6 +327,19 @@ plots <- lapply(1:7, function(i){
   ## cluster assignment.
   hc_cluster <- hclust(as.dist(1-adjacencies[[i]]), method = "average")
   
+  ## Working on arranging the order by cluster
+  # sample_order <- ann.labels %>%
+  #   mutate(Barcode.ID = rownames(.)) %>%
+  #   merge(cluster.assignment, by = "Barcode.ID")
+  # rownames(sample_order) <- sample_order$Barcode.ID
+  # sample_order <- sample_order[rownames(ann.labels), ]
+  # sample_order <- sample_order[hc_cluster$order, ]
+  # sample_order <- sample_order %>%
+  #   arrange(Cluster)
+  
+  heatmap_mat <- adjacencies[[i]]
+  # heatmap_mat <- heatmap_mat[sample_order$Barcode.ID, sample_order$Barcode.ID]
+  
   p.labels <- p.labels %>%
     mutate(Barcode.ID = rownames(.)) %>%
     left_join(cluster.assignment, by = "Barcode.ID") %>%
@@ -304,17 +349,16 @@ plots <- lapply(1:7, function(i){
   xx.colors[["Cluster"]] = chosen.colors[1:length(unique(p.labels$Cluster))]
   names(xx.colors[["Cluster"]]) <- as.character(1:n.levels)
   
-
-  make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = NULL,
+  make.pheatmap(heatmap_mat, filename = paths[[i]], parentId = NULL,
                 annotation_col = ann.labels, annotation_colors = xx.colors,
                 show_rownames = FALSE, show_colnames = FALSE, main = titles[[i]],
-                annotation_row = p.labels, height = 16, width = 16, format = "png",
+                annotation_row = p.labels, height = 18, width = 16, format = "png",
                 cluster_rows = hc_cluster, cluster_cols = hc_cluster)
 
-  make.pheatmap(adjacencies[[i]], filename = paths[[i]], parentId = parentID,
+  make.pheatmap(heatmap_mat, filename = paths[[i]], parentId = parentID,
                 annotation_col = ann.labels, annotation_colors = xx.colors,
                 show_rownames = FALSE, show_colnames = FALSE, main = titles[[i]],
-                annotation_row = p.labels, height = 16, width = 16, format = "pdf",
+                annotation_row = p.labels, height = 18, width = 16, format = "pdf",
                 cluster_rows = hc_cluster, cluster_cols = hc_cluster)
   
   return("Done")
@@ -326,14 +370,12 @@ plots <- lapply(1:7, function(i){
 
 ```{r}
 
-### Chunk to upload the sample to cluster assignment
+# ## Chunk to upload the sample to cluster assignment
 # sample_cluster_assignment <- get.clusters(results) %>%
 #   select(Barcode.ID, everything())
 # 
 # rownames(sample_cluster_assignment) <- sample_cluster_assignment$Barcode.ID
-# 
-# write.table(sample_cluster_assignment[, 1:8], "Data/sample_to_cluster_assignments.txt", sep = "\t", quote = F)
-# 
+# write.table(sample_cluster_assignment, "Data/sample_to_cluster_assignments.txt", sep = "\t", quote = F)
 # synapseStore("Data/sample_to_cluster_assignments.txt", parentId = "syn26529350")
 
 ```
@@ -504,7 +546,7 @@ sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k8, data = kaplan.df.full)
 
 name <- "Data/survival_plots_by_cluster_k_8.pdf"
 ggsurvplot(sfit, palette = chosen.colors[1:8])
-ggsave(file = name)
+# ggsave(file = name)
 
 
 ```
