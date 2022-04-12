@@ -58,8 +58,8 @@ util/differential_expression_helper_dev.R
 cohort_summary/cytogenetics_and_clusters.Rmd
 cohort_summary/data_sample_summary_circos.png
 
-# NMF cluster analysis
-cohort_summary/NMF/model_scripts
+# NMF prediction signature analysis
+cohort_summary/NMF/model_scripts/elastic_net_binomial_models
 
 # mutational analysis
 mutational_analysis/raw_tables
