@@ -4,6 +4,12 @@
 
 
 library(pheatmap)
+library(RColorBrewer)
+
+
+data_type_colors <<- park_palette("Badlands", 3)
+subtype_colors <<- brewer.pal(8,'Set2');
+
 
 
 make.pheatmap <- function(mat, filename, width = 7, height = 7, 
