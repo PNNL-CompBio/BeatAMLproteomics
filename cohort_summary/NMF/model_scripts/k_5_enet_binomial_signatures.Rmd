@@ -185,8 +185,7 @@ Signature heatmap
 
 
 ```{r}
-chosen.colors <- c("#00ced1", "#ffa500", "#00ff00", "#0000ff", 
-                   "#ff1493")
+chosen.colors <- subtype_colors[1:5]
 
 chosen_alpha <- 0.1
 signatures <- signatures %>%

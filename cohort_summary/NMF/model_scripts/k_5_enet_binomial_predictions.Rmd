@@ -28,6 +28,7 @@ library(groupdata2)
 source("../../../util/synapseUtil.R")
 source("../../../util/loading_data.R")
 source("../../../util/mutational_analysis_helper.R")
+source("../../../util/make_plots_util.R")
 source("../NMF_helper.R")
 
 
@@ -216,6 +217,9 @@ rownames(meta_c) <- meta_c$Barcode.ID
 meta_c_new <- meta_c %>%
     filter(is.na(k.5))
 
+meta_c_train <- meta_c %>%
+  filter(!is.na(k.5))
+
 
 cluster_5 <- make_prediction("5", 0.1, FALSE)
 cluster_4 <- make_prediction("4", 0.1, FALSE)
@@ -223,8 +227,7 @@ cluster_3 <- make_prediction("3", 0.1, FALSE)
 cluster_2 <- make_prediction("2", 0.1, FALSE)
 cluster_1 <- make_prediction("1", 0.1, FALSE)
 
-chosen.colors <- c("#F8766D", "#CD9600", "#7CAE00", "#00BE67",
-                   "#00BFC4", "#00A9FF", "#C77CFF", "#FF61CC")
+chosen.colors <- subtype_colors
 
 all <- cbind(cluster_1, cluster_2, cluster_3, cluster_4, cluster_5)
 probs <- all[,c(3,6,9,12,15)]
@@ -242,6 +245,10 @@ meta_c_plot <- meta_c_new %>%
 sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ assgn, data = meta_c_plot)
 ggsurvplot(sfit, palette = chosen.colors[1:5], data = meta_c_plot) + ggtitle("Unclustered samples, conf > 30% (37/51 samples)")
 ggsave("elastic_net_binomial_models/survival_predicted_clusters_enet_binomial.pdf", width = 7, height = 7)
+
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k.5, data = meta_c_train)
+ggsurvplot(sfit, palette = chosen.colors[1:5], data = meta_c_train) + ggtitle("159 Clustered samples")
+ggsave("elastic_net_binomial_models/survival_clustered_samples.pdf", width = 7, height = 7)
 
 ```
 
@@ -363,38 +370,66 @@ meta_new_show <- meta_c_new %>%
   filter(conf == "OK") %>%
   dplyr::select(Barcode.ID, `Cluster 3`, FLT3, NPM1, NPM1_clinical) %>%
   dplyr::group_by(`Cluster 3`) %>%
-  dplyr::mutate(`Fraction FLT3.ITD cluster` = sum(FLT3)/n(),
-                `Fraction NPM1 cluster` = sum(NPM1)/n(),
-                `Fraction NPM1_clinical cluster` = sum(NPM1_clinical)/n()) %>%
+  dplyr::mutate(`Fraction FLT3.ITD Cluster` = sum(FLT3)/n(),
+                `Fraction NPM1 Cluster` = sum(NPM1)/n(),
+                `Fraction NPM1_clinical Cluster` = sum(NPM1_clinical)/n()) %>%
   ungroup(`Cluster 3`) %>%
-  dplyr::mutate(`Fraction FLT3.ITD background` = sum(FLT3)/n(),
-                `Fraction NPM1 background` = sum(NPM1)/n(),
-                `Fraction NPM1_clinical background` = sum(NPM1_clinical)/n()) %>%
+  dplyr::mutate(`Fraction FLT3.ITD Background` = sum(FLT3)/n(),
+                `Fraction NPM1 Background` = sum(NPM1)/n(),
+                `Fraction NPM1_clinical Background` = sum(NPM1_clinical)/n()) %>%
   arrange(`Cluster 3`)
 
 meta_train_show <- meta_c_train %>%
   dplyr::select(Barcode.ID, `Cluster 3`, FLT3, NPM1, NPM1_clinical) %>%
   dplyr::group_by(`Cluster 3`) %>%
-  dplyr::mutate(`Fraction FLT3.ITD cluster` = sum(FLT3)/n(),
-                `Fraction NPM1 cluster` = sum(NPM1)/n(),
-                `Fraction NPM1_clinical cluster` = sum(NPM1_clinical)/n()) %>%
+  dplyr::mutate(`Fraction FLT3.ITD Cluster` = sum(FLT3)/n(),
+                `Fraction NPM1 Cluster` = sum(NPM1)/n(),
+                `Fraction NPM1_clinical Cluster` = sum(NPM1_clinical)/n()) %>%
   ungroup(`Cluster 3`) %>%
-  dplyr::mutate(`Fraction FLT3.ITD background` = sum(FLT3)/n(),
-                `Fraction NPM1 background` = sum(NPM1)/n(),
-                `Fraction NPM1_clinical background` = sum(NPM1_clinical)/n()) %>%
+  dplyr::mutate(`Fraction FLT3.ITD Background` = sum(FLT3)/n(),
+                `Fraction NPM1 Background` = sum(NPM1)/n(),
+                `Fraction NPM1_clinical Background` = sum(NPM1_clinical)/n()) %>%
   arrange(`Cluster 3`)
 
-show_df1 <- cbind(t(meta_train_show[1, 6:8]), t(meta_train_show[1, 9:11])) %>% as.data.frame()
-colnames(show_df1) <- c("Fraction in cluster", "Fraction in background")
-rownames(show_df1) <- c("FLT3.ITD", "NPM1", "NPM1_clinical")
-mut_enrichment <- mutation_enrichment_train[3, 2:4] %>% unlist() %>% unname()
-show_df1$enrichment <- mut_enrichment
 
-show_df2 <- cbind(t(meta_new_show[1, 6:8]), t(meta_new_show[1, 9:11])) %>% as.data.frame()
-colnames(show_df2) <- c("Fraction in cluster", "Fraction in background")
-rownames(show_df2) <- c("FLT3.ITD", "NPM1", "NPM1_clinical")
-mut_enrichment <- mutation_enrichment_new[3, 2:4] %>% unlist() %>% unname()
-show_df2$enrichment <- mut_enrichment
+show_df1 <- meta_new_show %>%
+  filter(`Cluster 3` == "Cluster 3") %>%
+  select(matches("Fraction")) %>%
+  unique() %>%
+  mutate(Group = c("Predicted"))
+
+show_df2 <- meta_train_show %>%
+  filter(`Cluster 3` == "Cluster 3") %>%
+  select(matches("Fraction")) %>%
+  unique() %>%
+  mutate(Group = c("Train"))
+
+show_df <- rbind(show_df1, show_df2) %>%
+  pivot_longer(-Group, names_to = "Fraction") %>%
+  mutate(mutation = sub("Fraction (.*) .*$", "\\1", Fraction),
+         Setting = sub("Fraction .* (.*)$", "\\1", Fraction)) 
+
+mut_enrichment <- mutation_enrichment_train[3, 2:4] %>% unlist() %>% unname() %>% signif(3)
+plot_df_train <- show_df %>%
+  filter(Group == "Train")
+plot_df_train$mutation <- paste(plot_df_train$mutation, mut_enrichment)
+
+mut_enrichment <- mutation_enrichment_new[3, 2:4] %>% unlist() %>% unname() %>% signif(3)
+plot_df_new <- show_df %>%
+  filter(Group == "Predicted")
+plot_df_new$mutation <- paste(plot_df_new$mutation, mut_enrichment)
+
+ggplot(plot_df_new, aes(x = mutation, y = value, group = Setting, fill = Setting)) + 
+  geom_bar(stat = 'identity', position = position_dodge()) +
+  scale_fill_manual(values = c("Cluster" = "#16182A", "Cluster" = "grey")) +
+  ylab("Fraction") + ggtitle("Unclustered samples, cluster 3")
+ggsave("elastic_net_binomial_models/mutation_enrichment_predicted_cluster_3.pdf", height = 7, width = 7)
+
+ggplot(plot_df_train, aes(x = mutation, y = value, group = Setting, fill = Setting)) + 
+  geom_bar(stat = 'identity', position = position_dodge()) +
+  scale_fill_manual(values = c("Cluster" = "#16182A", "Cluster" = "grey")) +
+  ylab("Fraction") + ggtitle("159 Clustered samples")
+ggsave("elastic_net_binomial_models/mutation_enrichment_clustered_samples_cluster_3.pdf", height = 7, width = 7)
 
 ```
 
@@ -435,27 +470,50 @@ ggplot(meta_c_train, aes(x = Venetoclax, fill = `Cluster 3`)) +
   ggtitle("Venetoclax, 159 clustered samples")
 ggplot(meta_c_new %>% filter(conf == "OK"), aes(x = Venetoclax, fill = `Cluster 3`)) + 
   geom_density(alpha = alpha_c, adjust = adjust_c) + 
-  ggtitle("Venetoclax, 51 new samples")
+  ggtitle("Venetoclax, new samples")
 
 ggplot(meta_c_train, aes(x = Sorafenib, fill = `Cluster 3`)) + 
   geom_density(alpha = alpha_c, adjust = adjust_c) + 
   ggtitle("Sorafenib, 159 clustered samples")
 ggplot(meta_c_new %>% filter(conf == "OK"), aes(x = Sorafenib, fill = `Cluster 3`)) + 
   geom_density(alpha = alpha_c, adjust = adjust_c) + 
-  ggtitle("Sorafenib, 51 new samples")
+  ggtitle("Sorafenib, new samples")
 
 ggplot(meta_c_train, aes(x = `Trametinib (GSK1120212)`, fill = `Cluster 3`)) + 
   geom_density(alpha = alpha_c, adjust = adjust_c) + 
   ggtitle("Trametinib (GSK1120212), 159 clustered samples")
 ggplot(meta_c_new %>% filter(conf == "OK"), aes(x = `Trametinib (GSK1120212)`, fill = `Cluster 3`)) + 
   geom_density(alpha = alpha_c, adjust = adjust_c) + 
-  ggtitle("Trametinib (GSK1120212), 51 new samples")
+  ggtitle("Trametinib (GSK1120212), new samples")
+
+```
+
+
+```{r}
+table_show <- meta_c_new %>%
+  filter(conf == "OK") %>%
+  mutate(Cluster = case_when(assgn == "1" ~ "Cluster 1",
+                             assgn == "2" ~ "Cluster 2",
+                             assgn == "3" ~ "Cluster 3",
+                             assgn == "4" ~ "Cluster 4",
+                             assgn == "5" ~ "Cluster 5"))
+table(table_show$Cluster)
 
 ```
 
 
 
 
+```{r}
+table_show <- meta_c_train %>%
+  mutate(Cluster = case_when(k.5 == "1" ~ "Cluster 1",
+                             k.5 == "2" ~ "Cluster 2",
+                             k.5 == "3" ~ "Cluster 3",
+                             k.5 == "4" ~ "Cluster 4",
+                             k.5 == "5" ~ "Cluster 5"))
+table(table_show$Cluster)
+
+```
 
 
 

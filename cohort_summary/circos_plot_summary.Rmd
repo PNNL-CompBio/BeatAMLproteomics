@@ -97,7 +97,7 @@ circos.track(df$sector, y = df$Dummy2, ylim = c(0.5, 1.5),
              panel.fun = function(x, y) {
                circos.update(bg.border = "#FFFFFF")
              })
-chosen.colors = c("#CC79A7", "#CC79A7", "#FFFFFF", "#FFFFFF")
+chosen.colors = c(data_type_colors[[4]], data_type_colors[[4]], "#FFFFFF", "#FFFFFF")
 circos.trackPoints(df$sector, df$x, df$Dummy2, cex = 0.6, 
                    col = chosen.colors, pch = 16)
 
@@ -107,7 +107,7 @@ circos.track(df$sector, y = df$Dummy3, ylim = c(0.5, 1.5),
              panel.fun = function(x, y) {
                circos.update(bg.border = "#FFFFFF")
              })
-chosen.colors = c("#E69F00", "#FFFFFF", "#E69F00", "#FFFFFF")
+chosen.colors = c(data_type_colors[[3]], "#FFFFFF", data_type_colors[[3]], "#FFFFFF")
 circos.trackPoints(df$sector, df$x, df$Dummy3, cex = 0.6, 
                    col = chosen.colors, pch = 16)
 
@@ -115,7 +115,8 @@ circos.track(df$sector, y = df$Dummy4, ylim = c(0.5, 1.5),
              panel.fun = function(x, y) {
                circos.update(bg.border = "#FFFFFF")
              })
-chosen.colors = c("#56B4E9", "#56B4E9", "#56B4E9", "#56B4E9")
+chosen.colors = c(data_type_colors[[2]], data_type_colors[[2]], 
+                  data_type_colors[[2]], data_type_colors[[2]])
 circos.trackPoints(df$sector, df$x, df$Dummy4, cex = 0.6, 
                    col = chosen.colors, pch = 16)
 
@@ -123,7 +124,8 @@ circos.track(df$sector, y = df$Dummy4, ylim = c(0.5, 1.5),
              panel.fun = function(x, y) {
                circos.update(bg.border = "#FFFFFF")
              })
-chosen.colors = c("#009E73", "#009E73", "#009E73", "#009E73")
+chosen.colors = c(data_type_colors[[1]], data_type_colors[[1]], 
+                  data_type_colors[[1]], data_type_colors[[1]])
 circos.trackPoints(df$sector, df$x, df$Dummy4, cex = 0.6, 
                    col = chosen.colors, pch = 16)
 
@@ -138,9 +140,9 @@ circos.track(df$sector, y = df$number_drugs, x = df$x, ylim = c(130, 2),
              })
 
 legend("topleft", inset = c(0,0), pch = c(21, 21, 21, 21), 
-       legend = c("Phospho", "Global", "RNA", "WES"),
-       col = c("#009E73", "#56B4E9", "#E69F00", "#CC79A7"),
-       pt.bg = c("#009E73", "#56B4E9", "#E69F00", "#CC79A7"),
+       legend = c("Global", "Phospho", "RNA", "WES"),
+       col = data_type_colors,
+       pt.bg = data_type_colors,
        bty = "n")
 
 

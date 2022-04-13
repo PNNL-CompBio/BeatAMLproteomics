@@ -130,6 +130,8 @@ names(differential_expression_results) = sapply(differential_expression_results,
   xx[[1]]$mutation[[1]]
 })
 
+saveRDS(differential_expression_results, "./raw_tables/all_mutations_diffexp_results.RDS")
+
 ```
 
 
@@ -143,33 +145,42 @@ combined_diffexp <- lapply(selected_mutations, function(mutation){
       mutate(mutation = mutation)
   }) %>% do.call("rbind", .)
 
-# write.table(combined_diffexp, "selected_mutations_combined_differential_expression_results.txt", 
+# write.table(combined_diffexp, "./raw_tables/selected_mutations_combined_differential_expression_results.txt",
 #             sep = "\t", quote = F)
 # 
 # upload.plot("selected_mutations_combined_differential_expression_results.txt", 
 #             parentId = "syn26529351")
+#
+# combined_diffexp <- read.table("raw_tables/selected_mutations_combined_differential_expression_results.txt", sep = "\t")
 
 ```
 
 
 
 ```{r}
+plot_colors <- data.frame("Global" = data_type_colors[[1]],
+                 "Phospho" = data_type_colors[[2]],
+                 "RNA" = data_type_colors[[3]])
 plot_df <- summary_table %>%
   select(-`Number.mutated`) %>%
   pivot_longer(-mutation) %>%
   mutate(name = sub("^.*in ", "", name)) %>%
+  mutate(name = case_when(name == "global" ~ "Global",
+                          name == "phospho" ~ "Phospho",
+                          name == "RNA" ~ "RNA")) %>%
   mutate(individual_bar = paste(mutation, name)) %>%
   arrange(-value) %>%
   mutate(mutation = factor(mutation, levels = unique(mutation)))
 
 p <- ggplot(plot_df, aes(y = mutation, x = value, fill = name)) + 
-  geom_bar(stat = 'identity') + xlab("Features differentially expressed")
+  geom_bar(stat = 'identity') + xlab("Features differentially expressed") +
+  scale_fill_manual(values = plot_colors)
 
 ggsave(filename = "./plots/mutational_differential_expression_barplot_count.png", plot = p)
 # upload.plot("./plots/mutational_differential_expression_barplot_count.png", parentId = "syn26529351")
 
-# ggsave(filename = "./plots/mutational_differential_expression_barplot_count.pdf", plot = p)
-# upload.plot("./plots/mutational_differential_expression_barplot_count.pdf", parentId = "syn26529351")
+ggsave(filename = "./plots/mutational_differential_expression_barplot_count.pdf", plot = p)
+upload.plot("./plots/mutational_differential_expression_barplot_count.pdf", parentId = "syn26529351")
 
 p
 

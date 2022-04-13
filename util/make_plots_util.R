@@ -4,11 +4,16 @@
 
 
 library(pheatmap)
+library(nationalparkcolors)
 library(RColorBrewer)
 
 
-data_type_colors <<- park_palette("Badlands", 3)
-subtype_colors <<- brewer.pal(8,'Set2');
+data_type_colors <<- park_palette("Badlands", 4) %>% as.character()
+subtype_colors <<- brewer.pal(8,'Set2')
+## Rearranging a bit.
+subtype_colors <<- c(subtype_colors[1:2], subtype_colors[[6]], 
+                     subtype_colors[4:5], subtype_colors[[3]], 
+                     subtype_colors[7:8])
 
 
 

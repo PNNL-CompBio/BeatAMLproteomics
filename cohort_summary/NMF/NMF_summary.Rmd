@@ -390,17 +390,7 @@ knitr::include_graphics("Data/consensus_map_k_3.png")
 
 ```
 
-```{r}
 
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k3, data = kaplan.df.full)
-
-name <- "Data/survival_plots_by_cluster_k_3.png"
-png(filename = name)
-ggsurvplot(sfit, palette = chosen.colors[1:3])
-dev.off()
-
-
-```
 
 
 $$\\[0.1in]$$
@@ -413,16 +403,7 @@ knitr::include_graphics("Data/consensus_map_k_4.png")
 
 ```
 
-```{r}
 
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k4, data = kaplan.df.full)
-
-name <- "Data/survival_plots_by_cluster_k_4.png"
-png(filename = name)
-ggsurvplot(sfit, palette = chosen.colors[1:4])
-dev.off()
-
-```
 
 
 $$\\[0.1in]$$
@@ -435,17 +416,7 @@ knitr::include_graphics("Data/consensus_map_k_5.png")
 
 ```
 
-```{r}
 
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k5, data = kaplan.df.full)
-
-name <- "Data/survival_plots_by_cluster_k_5.png"
-png(filename = name)
-ggsurvplot(sfit, palette = chosen.colors[1:5])
-dev.off()
-
-
-```
 
 
 $$\\[0.1in]$$
@@ -458,17 +429,7 @@ knitr::include_graphics("Data/consensus_map_k_8.png")
 
 ```
 
-```{r}
 
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k8, data = kaplan.df.full)
-
-name <- "Data/survival_plots_by_cluster_k_8.png"
-png(filename = name)
-ggsurvplot(sfit, palette = chosen.colors)
-dev.off()
-
-
-```
 
 ## uploading to synapse
 
@@ -479,7 +440,7 @@ sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k2, data = kaplan.df.full)
 
 name <- "Data/survival_plots_by_cluster_k_2.pdf"
 ggsurvplot(sfit, palette = chosen.colors[1:2])
-ggsave(file = name)
+ggsave(file = name, height = 7, width = 7)
 
 
 ```
@@ -490,7 +451,7 @@ sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k3, data = kaplan.df.full)
 
 name <- "Data/survival_plots_by_cluster_k_3.pdf"
 ggsurvplot(sfit, palette = chosen.colors[1:3])
-ggsave(file = name)
+ggsave(file = name, height = 7, width = 7)
 
 
 ```
@@ -501,7 +462,7 @@ sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k4, data = kaplan.df.full)
 
 name <- "Data/survival_plots_by_cluster_k_4.pdf"
 ggsurvplot(sfit, palette = chosen.colors[1:4])
-ggsave(file = name)
+ggsave(file = name, height = 7, width = 7)
 
 
 ```
@@ -512,7 +473,7 @@ sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k5, data = kaplan.df.full)
 
 name <- "Data/survival_plots_by_cluster_k_5.pdf"
 ggsurvplot(sfit, palette = chosen.colors[1:5])
-ggsave(file = name)
+ggsave(file = name, height = 7, width = 7)
 
 
 ```
@@ -523,7 +484,7 @@ sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k6, data = kaplan.df.full)
 
 name <- "Data/survival_plots_by_cluster_k_6.pdf"
 ggsurvplot(sfit, palette = chosen.colors[1:6])
-ggsave(file = name)
+ggsave(file = name, height = 7, width = 7)
 
 
 ```
@@ -535,7 +496,7 @@ sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k7, data = kaplan.df.full)
 
 name <- "Data/survival_plots_by_cluster_k_7.pdf"
 ggsurvplot(sfit, palette = chosen.colors[1:7])
-ggsave(file = name)
+ggsave(file = name, height = 7, width = 7)
 
 
 ```
@@ -546,7 +507,7 @@ sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k8, data = kaplan.df.full)
 
 name <- "Data/survival_plots_by_cluster_k_8.pdf"
 ggsurvplot(sfit, palette = chosen.colors[1:8])
-# ggsave(file = name)
+ggsave(file = name, height = 7, width = 7)
 
 
 ```
