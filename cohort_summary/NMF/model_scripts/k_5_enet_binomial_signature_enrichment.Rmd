@@ -1,0 +1,645 @@
+---
+title: "Cluster 5 binomial signature enrichment"
+author: "Camilo Posso"
+date: "04/04/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+library(clusterProfiler)
+library(msigdbr)
+library(RColorBrewer)
+
+source("../../../util/synapseUtil.R")
+source("../../../util/loading_data.R")
+source("../../../util/mutational_analysis_helper.R")
+
+
+load("../../../Misc/load.combined.data 3-09-2022.RData")
+# load.combined.data()
+global_data <- global.data
+RNA_data <- RNA.data %>%
+  dplyr::rename(LogRatio = `RNA counts`)
+
+
+```
+
+
+
+```{r}
+
+cluster_assignments <- read.table("../Data/sample_to_cluster_assignments.txt", sep = "\t")
+diff_markers_k5 <- read.table("../../../Misc/Extra NMF/whoknows/differential_markers_k5.txt", sep = "\t")
+
+summary.syn <- "syn26642974"
+summary.table <- read.table("../Data/PNNL_clinical_summary_12_08_2021_updated_OS_4patients_02_28_2022.txt") %>%
+  as.data.frame()
+
+rownames(summary.table) <- summary.table$labId
+summary.table <- summary.table[rownames(meta), ]
+meta$vitalStatus <- summary.table$vitalStatus
+meta <- meta %>%
+  dplyr::mutate(vitalStatus = case_when(vitalStatus == "Dead" ~ 2,
+                                 TRUE ~ 1))
+
+cluster_samples <- cluster_assignments$Barcode.ID
+global_data <- global.data %>%
+  dplyr::filter(Barcode.ID %in% cluster_samples)
+global_data_test <- global.data %>%
+  dplyr::filter(!(Barcode.ID %in% cluster_samples))
+
+
+mat_df <- pivot_wider(global_data, names_from = Barcode.ID, 
+                   values_from = LogRatio) %>%
+  as.data.frame() 
+rownames(mat_df) <- mat_df$Gene
+
+data_mat_train_all <- mat_df[, -1] %>% as.matrix()
+mat_test_df <- pivot_wider(global_data_test, names_from = Barcode.ID, 
+                           values_from = LogRatio) %>%
+  as.data.frame() 
+rownames(mat_test_df) <- mat_df$Gene
+data_mat_test_all <- mat_test_df[, -1] %>% as.matrix()
+
+complete_cases <- complete.cases(data_mat_train_all) & complete.cases(data_mat_test_all)
+data_mat_train_all <- data_mat_train_all[complete_cases, ]
+data_mat_test_all <- data_mat_test_all[complete_cases, ]
+
+signatures <- read.table("./elastic_net_binomial_models/enet_binomial_all_signatures.txt", sep = "\t")
+prot_universe <- rownames(data_mat_train_all)
+
+```
+
+
+
+Setting up helper function for finding signature enrichment.
+
+
+```{r}
+
+get_signature_helper <- function(chosen_cluster, chosen_alpha, diff_markers, t2g){
+  sigs <- signatures %>% 
+    dplyr::filter(diff_marker == diff_markers) %>%
+    dplyr::filter(alpha == chosen_alpha) %>%
+    dplyr::filter(Cluster == chosen_cluster) %>%
+    pull(Gene)
+    
+  set.seed(117)
+  enrichment <- enricher(sigs, 
+                         TERM2GENE = t2g, 
+                         universe = prot_universe,
+                         pvalueCutoff = 1,
+                         minGSSize = 10)@result %>%
+    dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust, geneID) %>%
+    dplyr::rename(core_enrichment = geneID) %>%
+    compress_enrichment(colname = "p.adjust") %>%
+    dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust) %>%
+    dplyr::mutate(alpha = chosen_alpha, cluster = chosen_cluster, diff_markers = diff_markers)
+  
+  return(enrichment)
+}
+
+
+```
+
+
+Running for all alpha and all clusters.
+
+
+## GO BP
+
+```{r include=FALSE}
+t2g <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "BP") %>% 
+  dplyr::select(gs_name, gene_symbol) %>%
+  mutate(gs_name = gsub("_", " ", gs_name))
+
+all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    print(paste(chosen_alpha, chosen_cluster))
+    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
+                                        diff_markers = TRUE, t2g = t2g)
+    sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
+                                    diff_markers = FALSE, t2g = t2g)
+    
+    out <- rbind(sig_markers, sig_all)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .) %>%
+  dplyr::mutate(DB = "GO BP")
+
+write.table(all_signature_enrichment, "elastic_net_binomial_models/protein_signatures_gobp.txt", 
+            sep = "\t", quote = F)
+
+
+```
+
+
+
+
+
+## GO cellular component
+
+
+```{r include=FALSE}
+t2g <- msigdbr(species = "Homo sapiens", category = "C5") %>%
+  dplyr::filter(gs_subcat == "GO:CC") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  mutate(gs_name = gsub("_", " ", gs_name))
+
+all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+  print(paste("cluster =", chosen_cluster))
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    print(paste("alpha =", chosen_alpha))
+    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
+                                        diff_markers = TRUE, t2g = t2g)
+    sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
+                                    diff_markers = FALSE, t2g = t2g)
+    
+    out <- rbind(sig_markers, sig_all)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .) %>%
+  dplyr::mutate(DB = "GO CC")
+
+write.table(all_signature_enrichment, "elastic_net_binomial_models/protein_signatures_gocc.txt", 
+            sep = "\t", quote = F)
+
+
+```
+
+
+
+
+## GO Molecular function
+
+
+```{r include=FALSE}
+t2g <- msigdbr(species = "Homo sapiens", category = "C5") %>%
+  dplyr::filter(gs_subcat == "GO:MF") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  mutate(gs_name = gsub("_", " ", gs_name))
+
+all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+  print(paste("cluster =", chosen_cluster))
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    print(paste("alpha =", chosen_alpha))
+    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
+                                        diff_markers = TRUE, t2g = t2g)
+    sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
+                                    diff_markers = FALSE, t2g = t2g)
+    
+    out <- rbind(sig_markers, sig_all)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .) %>%
+  dplyr::mutate(DB = "GO MF")
+
+write.table(all_signature_enrichment, "elastic_net_binomial_models/protein_signatures_gomf.txt", 
+            sep = "\t", quote = F)
+
+
+```
+
+
+
+
+## GO Human phenotype
+
+
+```{r include=FALSE}
+t2g <- msigdbr(species = "Homo sapiens", category = "C5") %>%
+  dplyr::filter(gs_subcat == "HPO") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  mutate(gs_name = gsub("_", " ", gs_name))
+
+all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+  print(paste("cluster =", chosen_cluster))
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    print(paste("alpha =", chosen_alpha))
+    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
+                                        diff_markers = TRUE, t2g = t2g)
+    sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
+                                    diff_markers = FALSE, t2g = t2g)
+    
+    out <- rbind(sig_markers, sig_all)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .) %>%
+  dplyr::mutate(DB = "GO HP")
+
+write.table(all_signature_enrichment, "elastic_net_binomial_models/protein_signatures_gohp.txt", 
+            sep = "\t", quote = F)
+
+
+```
+
+
+
+
+
+
+## Hallmarks
+
+
+```{r include=FALSE}
+t2g <- msigdbr(species = "Homo sapiens", category = "H") %>% 
+  dplyr::select(gs_name, gene_symbol)
+
+all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    print(paste(chosen_alpha, chosen_cluster))
+    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
+                                        diff_markers = TRUE, t2g = t2g)
+    sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
+                                    diff_markers = FALSE, t2g = t2g)
+    
+    out <- rbind(sig_markers, sig_all)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .) %>%
+  dplyr::mutate(DB = "Hallmark")
+
+write.table(all_signature_enrichment, "elastic_net_binomial_models/protein_signatures_hallmark.txt", 
+            sep = "\t", quote = F)
+
+
+```
+
+
+## Oncogenic
+
+
+```{r include=FALSE}
+t2g <- msigdbr(species = "Homo sapiens", category = "C6") %>% 
+  dplyr::select(gs_name, gene_symbol)
+
+all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    print(paste(chosen_alpha, chosen_cluster))
+    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
+                                        diff_markers = TRUE, t2g = t2g)
+    sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
+                                    diff_markers = FALSE, t2g = t2g)
+    
+    out <- rbind(sig_markers, sig_all)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .) %>%
+  dplyr::mutate(DB = "Oncogenic")
+
+write.table(all_signature_enrichment, "elastic_net_binomial_models/protein_signatures_oncogenic.txt", 
+            sep = "\t", quote = F)
+
+
+```
+
+
+
+## Curated: Chemical and genetic perturbations
+
+
+```{r include=FALSE}
+t2g <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CGP") %>%
+  dplyr::select(gs_name, gene_symbol) 
+
+all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    print(paste(chosen_alpha, chosen_cluster))
+    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
+                                        diff_markers = TRUE, t2g = t2g)
+    sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
+                                    diff_markers = FALSE, t2g = t2g)
+    
+    out <- rbind(sig_markers, sig_all)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .) %>%
+  dplyr::mutate(DB = "curated cgp")
+
+write.table(all_signature_enrichment, "elastic_net_binomial_models/protein_signatures_curated_cgp.txt", 
+            sep = "\t", quote = F)
+
+
+```
+
+
+
+
+## Curated: REACTOME
+
+
+```{r include=FALSE}
+t2g <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CP:REACTOME") %>%
+  dplyr::select(gs_name, gene_symbol) 
+
+all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    print(paste(chosen_alpha, chosen_cluster))
+    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
+                                        diff_markers = TRUE, t2g = t2g)
+    sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
+                                    diff_markers = FALSE, t2g = t2g)
+    
+    out <- rbind(sig_markers, sig_all)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .) %>%
+  dplyr::mutate(DB = "curated reactome")
+
+write.table(all_signature_enrichment, "elastic_net_binomial_models/protein_signatures_curated_reactome.txt", 
+            sep = "\t", quote = F)
+
+
+```
+
+
+
+
+## Regulatory
+
+
+```{r include=FALSE}
+t2g <- msigdbr(species = "Homo sapiens", category = "C3") %>% 
+  dplyr::select(gs_name, gene_symbol) 
+
+all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    print(paste(chosen_alpha, chosen_cluster))
+    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
+                                        diff_markers = TRUE, t2g = t2g)
+    sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
+                                    diff_markers = FALSE, t2g = t2g)
+    
+    out <- rbind(sig_markers, sig_all)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .) %>%
+  dplyr::mutate(DB = "regulatory")
+
+write.table(all_signature_enrichment, "elastic_net_binomial_models/protein_signatures_regulatory.txt", 
+            sep = "\t", quote = F)
+
+
+```
+
+
+
+## Computational Cancer Gene Neighborhoods
+
+
+```{r include=FALSE}
+t2g <- msigdbr(species = "Homo sapiens", category = "C4") %>% 
+  dplyr::filter(gs_subcat == "CGN") %>%
+  dplyr::select(gs_description, gene_symbol, gs_name) %>%
+  dplyr::mutate(gs_name = paste0(gs_name, "_", gs_description)) %>%
+  dplyr::select(gs_name, gene_symbol)
+
+all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    print(paste(chosen_alpha, chosen_cluster))
+    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
+                                        diff_markers = TRUE, t2g = t2g)
+    sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
+                                    diff_markers = FALSE, t2g = t2g)
+    
+    out <- rbind(sig_markers, sig_all)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .) %>%
+  dplyr::mutate(DB = "computational CGN")
+
+write.table(all_signature_enrichment, "elastic_net_binomial_models/protein_signatures_computational_cgn.txt", 
+            sep = "\t", quote = F)
+
+
+```
+
+
+
+## Computational Cancer Modules
+
+
+```{r include=FALSE}
+t2g <- msigdbr(species = "Homo sapiens", category = "C4") %>% 
+  dplyr::filter(gs_subcat == "CM") %>%
+  dplyr::select(gs_description, gene_symbol, gs_name) %>%
+  dplyr::mutate(gs_name = paste0(gs_name, "_", gs_description)) %>%
+  dplyr::select(gs_name, gene_symbol)
+
+all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    print(paste(chosen_alpha, chosen_cluster))
+    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
+                                        diff_markers = TRUE, t2g = t2g)
+    sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
+                                    diff_markers = FALSE, t2g = t2g)
+    
+    out <- rbind(sig_markers, sig_all)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .) %>%
+  dplyr::mutate(DB = "computational CM")
+
+write.table(all_signature_enrichment, "elastic_net_binomial_models/protein_signatures_computational_cm.txt", 
+            sep = "\t", quote = F)
+
+
+```
+
+
+
+## Immunologic
+
+
+
+```{r include=FALSE}
+t2g <- msigdbr(species = "Homo sapiens", category = "C7") %>% 
+  dplyr::select(gs_name, gene_symbol) 
+
+all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    print(paste(chosen_alpha, chosen_cluster))
+    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
+                                        diff_markers = TRUE, t2g = t2g)
+    sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
+                                    diff_markers = FALSE, t2g = t2g)
+    
+    out <- rbind(sig_markers, sig_all)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .) %>%
+  dplyr::mutate(DB = "immunologic")
+
+write.table(all_signature_enrichment, "elastic_net_binomial_models/protein_signatures_immunologic.txt", 
+            sep = "\t", quote = F)
+
+
+```
+
+
+
+
+
+## Quick summary to decide on alpha
+
+
+
+```{r}
+sig_gobp <- read.table("elastic_net_binomial_models/protein_signatures_gobp.txt", sep = "\t")
+sig_gocc <- read.table("elastic_net_binomial_models/protein_signatures_gocc.txt", sep = "\t")
+sig_gomf <- read.table("elastic_net_binomial_models/protein_signatures_gomf.txt", sep = "\t")
+sig_gohp <- read.table("elastic_net_binomial_models/protein_signatures_gohp.txt", sep = "\t")
+sig_hallmarks <- read.table("elastic_net_binomial_models/protein_signatures_hallmark.txt", sep = "\t")
+sig_oncogenic <- read.table("elastic_net_binomial_models/protein_signatures_oncogenic.txt", sep = "\t")
+sig_curated_cgp <- read.table("elastic_net_binomial_models/protein_signatures_curated_cgp.txt", sep = "\t")
+sig_curated_reactome <- read.table("elastic_net_binomial_models/protein_signatures_curated_reactome.txt", sep = "\t")
+sig_regulatory <- read.table("elastic_net_binomial_models/protein_signatures_regulatory.txt", sep = "\t")
+sig_computational_cgn <- read.table("elastic_net_binomial_models/protein_signatures_computational_cgn.txt", sep = "\t")
+sig_computational_cm <- read.table("elastic_net_binomial_models/protein_signatures_computational_cm.txt", sep = "\t")
+sig_immunologic <- read.table("elastic_net_binomial_models/protein_signatures_immunologic.txt", sep = "\t")
+
+all_enrichment <- list("gobp" = sig_gobp,
+                       "gocc" = sig_gocc,
+                       "gomf" = sig_gomf,
+                       "gohp" = sig_gohp,
+                       "hallmarks" = sig_hallmarks,
+                       "oncogenic" = sig_oncogenic,
+                       "curated cgp" = sig_curated_cgp,
+                       "curated reactome" = sig_curated_reactome,
+                       "regulatory" = sig_regulatory,
+                       "computational cgn" = sig_computational_cgn,
+                       "computational cm" = sig_computational_cm,
+                       "immunologic" = sig_immunologic)
+
+
+
+```
+
+Plotting the number of significant pathways for every alpha + cluster combination.
+
+```{r include=FALSE}
+
+lapply(names(all_enrichment), function(result_name){
+  print(result_name)
+  result <- all_enrichment[[result_name]]
+  plot_title <- paste0("Total significant, database = ",
+                       result_name, " diff markers FALSE")
+  plot_path <- paste0("./elastic_net_binomial_models/total_significant_database_", 
+                      result_name,
+                      ".png")
+  
+  counts <- result %>%
+    dplyr::filter(p.adjust < 0.05) %>%
+    dplyr::filter(diff_markers == FALSE) %>%
+    dplyr::group_by(cluster, alpha) %>%
+    summarize(total_significant = n()) %>%
+    dplyr::ungroup(cluster, alpha)
+  
+  if(length(counts$cluster %>% unique()) > 1 & length(counts$alpha %>% unique()) > 1){
+    counts <- pivot_wider(counts, names_from = alpha, values_from = total_significant, values_fill = 0)
+    counts_mat <- counts[, -1] %>% as.matrix()
+    rownames(counts_mat) <- paste("Cluser", counts$cluster)
+    counts_mat <- counts_mat[, sort(colnames(counts_mat))]
+    
+    png(plot_path, width = 800, height = 800)
+    pheatmap(counts_mat, cluster_rows = F, cluster_cols = F, main = plot_title, display_numbers = TRUE)
+    dev.off()
+  }
+  
+})
+
+
+lapply(names(all_enrichment), function(result_name){
+  print(result_name)
+  result <- all_enrichment[[result_name]]
+  plot_title <- paste0("Total significant, database = ",
+                       result_name, " diff markers TRUE")
+  plot_path <- paste0("./elastic_net_binomial_models/total_significant_database_", 
+                      result_name, "_diff_markers",
+                      ".png")
+  
+  counts <- result %>%
+    dplyr::filter(p.adjust < 0.05) %>%
+    dplyr::filter(diff_markers == TRUE) %>%
+    dplyr::group_by(cluster, alpha) %>%
+    summarize(total_significant = n()) %>%
+    dplyr::ungroup(cluster, alpha)
+  
+  if(length(counts$cluster %>% unique()) > 1 & length(counts$alpha %>% unique()) > 1){
+    counts <- pivot_wider(counts, names_from = alpha, values_from = total_significant, values_fill = 0)
+    counts_mat <- counts[, -1] %>% as.matrix()
+    rownames(counts_mat) <- paste("Cluser", counts$cluster)
+    counts_mat <- counts_mat[, sort(colnames(counts_mat))]
+    
+    png(plot_path, width = 800, height = 800)
+    pheatmap(counts_mat, cluster_rows = F, cluster_cols = F, main = plot_title, display_numbers = TRUE)
+    dev.off()
+  }
+
+})
+
+
+```
+
+
+In the end, enrichment analysis of the protein signatures (Elastic net $\alpha = 0.1$) using
+the Curated CGP (Chemical and Genetic perturbations) and the Gene Ontology BP produced the most
+significant terms for each cluster. We summarize these two below as a heatmaps. The Cluster 2 signature
+was the most difficult to get enrichment for.
+
+
+
+```{r}
+library(pheatmap)
+
+plot_results <- all_enrichment[c("gobp", "curated cgp")]
+names(plot_results) <- c("Gene Ontology - Biological Process", 
+                         "Curated Chemical and Genetic perturbations")
+
+lapply(names(plot_results), function(result_name){
+  
+  plot_df <- plot_results[[result_name]] %>%
+    dplyr::filter(diff_markers == FALSE) %>%
+    dplyr::filter(p.adjust < 0.05) %>%
+    dplyr::filter(alpha == 0.1) %>%
+    dplyr::select(Description, cluster) %>%
+    dplyr::mutate(sig = 1) %>%
+    pivot_wider(names_from = cluster, values_from = sig)
+  
+  plot_df <- plot_df %>%
+    dplyr::mutate(Description = str_wrap(Description, width = 55))
+  
+  plot_mat <- as.matrix(plot_df[, -1])
+  rownames(plot_mat) <- plot_df$Description
+  plot_mat[is.na(plot_mat)] <- 0 
+  colnames(plot_mat) <- paste("Cluster", colnames(plot_mat))
+  
+  plot_title <- result_name
+  result_name <- gsub(" ", "_", result_name)
+  plot_path <- paste0("./elastic_net_binomial_models/protein_signatures_", result_name, ".png")
+  
+  png(plot_path, width = 2000, height = 2300, res = 200)
+  pheatmap(plot_mat, cluster_cols = F, cluster_rows = F, 
+           color = c("#F5F1E9", "#161729"), legend = F)
+  dev.off()
+})
+
+
+```
+
+
