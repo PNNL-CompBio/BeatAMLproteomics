@@ -20,31 +20,23 @@ library(dplyr)
 library(ggplot2)
 library(kableExtra)
 library(glmnet)
-library(survminer)
-library(survival)
 library(groupdata2)
-
 
 source("../../../util/synapseUtil.R")
 source("../../../util/loading_data.R")
 source("../../../util/mutational_analysis_helper.R")
+source("../../../util/make_plots_util.R")
 
 
 load("../../../Misc/load.combined.data 3-09-2022.RData")
 # load.combined.data()
-global_data <- global.data
-RNA_data <- RNA.data %>%
-  dplyr::rename(LogRatio = `RNA counts`)
 
 ```
 
 
 
 ```{r}
-
 cluster_assignments <- read.table("../Data/sample_to_cluster_assignments.txt", sep = "\t")
-diff_markers_k5 <- read.table("../../../Misc/Extra NMF/whoknows/differential_markers_k5.txt", sep = "\t")
-
 summary.syn <- "syn26642974"
 summary.table <- read.table("../Data/PNNL_clinical_summary_12_08_2021_updated_OS_4patients_02_28_2022.txt") %>%
   as.data.frame()
@@ -55,33 +47,107 @@ meta$vitalStatus <- summary.table$vitalStatus
 meta <- meta %>%
   mutate(vitalStatus = case_when(vitalStatus == "Dead" ~ 2,
                                  TRUE ~ 1))
-
 cluster_samples <- cluster_assignments$Barcode.ID
-global_data <- global.data %>%
-  filter(Barcode.ID %in% cluster_samples)
-global_data_test <- global.data %>%
-  filter(!(Barcode.ID %in% cluster_samples))
 
+## filtering for complete features
+global_features <- global.data %>%
+  group_by(Gene) %>%
+  summarize(total = n()) %>%
+  filter(total == 210) %>%
+  pull(Gene)
 
-mat_df <- pivot_wider(global_data, names_from = Barcode.ID, 
-                   values_from = LogRatio) %>%
-  as.data.frame() 
-rownames(mat_df) <- mat_df$Gene
+phospho_features <- phospho.data %>%
+  group_by(SiteID) %>%
+  summarize(total = n()) %>%
+  filter(total == 210) %>%
+  pull(SiteID)
 
-data_mat_train_all <- mat_df[, -1] %>% as.matrix()
+RNA_features <- RNA.data %>%
+  group_by(Gene) %>%
+  summarize(total = n()) %>%
+  filter(total == 159) %>%
+  pull(Gene)
 
-mat_test_df <- pivot_wider(global_data_test, names_from = Barcode.ID, 
-                           values_from = LogRatio) %>%
-  as.data.frame() 
-rownames(mat_test_df) <- mat_df$Gene
-data_mat_test_all <- mat_test_df[, -1] %>% as.matrix()
+## Splitting data into train and test.
+## Global
+global_mat_train <- global.data %>%
+  filter(Barcode.ID %in% cluster_samples) %>%
+  dplyr::rename(feature = Gene) %>%
+  filter(feature %in% global_features) %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(global_mat_train) <- global_mat_train$feature
+global_mat_train <- global_mat_train[, -1] %>% as.matrix()
 
-complete_cases <- complete.cases(data_mat_train_all) & complete.cases(data_mat_test_all)
-data_mat_train_all <- data_mat_train_all[complete_cases, ]
-data_mat_test_all <- data_mat_test_all[complete_cases, ]
+global_mat_test <- global.data %>%
+  filter(!(Barcode.ID %in% cluster_samples)) %>%
+  dplyr::rename(feature = Gene) %>%
+  filter(feature %in% global_features) %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(global_mat_test) <- global_mat_test$feature
+global_mat_test <- global_mat_test[, -1] %>% as.matrix()
+
+## Phospho
+phospho_mat_train <- phospho.data %>%
+  filter(Barcode.ID %in% cluster_samples) %>%
+  select(Barcode.ID, SiteID, LogRatio) %>%
+  dplyr::rename(feature = SiteID) %>%
+  filter(feature %in% phospho_features) %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(phospho_mat_train) <- phospho_mat_train$feature
+phospho_mat_train <- phospho_mat_train[, -1] %>% as.matrix()
+
+phospho_mat_test <- phospho.data %>%
+  filter(!(Barcode.ID %in% cluster_samples)) %>%
+  select(Barcode.ID, SiteID, LogRatio) %>%
+  dplyr::rename(feature = SiteID) %>%
+  filter(feature %in% phospho_features) %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(phospho_mat_test) <- phospho_mat_test$feature
+phospho_mat_test <- phospho_mat_test[, -1] %>% as.matrix()
+
+## RNA
+RNA_mat_train <- RNA.data %>%
+  filter(Barcode.ID %in% cluster_samples) %>%
+  dplyr::rename(feature = Gene,
+                LogRatio = `RNA counts`) %>%
+  filter(feature %in% RNA_features)  %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(RNA_mat_train) <- RNA_mat_train$feature
+RNA_mat_train <- RNA_mat_train[, -1] %>% as.matrix()
+
+## Standardizing
+global_mat_train <- sweep(global_mat_train, 1, apply(global_mat_train, 1, mean), FUN = '-')
+global_mat_train <- sweep(global_mat_train, 1, apply(global_mat_train, 1, sd), FUN = '/')
+global_mat_test <- sweep(global_mat_test, 1, apply(global_mat_test, 1, mean), FUN = '-')
+global_mat_test <- sweep(global_mat_test, 1, apply(global_mat_test, 1, sd), FUN = '/')
+
+phospho_mat_train <- sweep(phospho_mat_train, 1, apply(phospho_mat_train, 1, mean), FUN = '-')
+phospho_mat_train <- sweep(phospho_mat_train, 1, apply(phospho_mat_train, 1, sd), FUN = '/')
+phospho_mat_test <- sweep(phospho_mat_test, 1, apply(phospho_mat_test, 1, mean), FUN = '-')
+phospho_mat_test <- sweep(phospho_mat_test, 1, apply(phospho_mat_test, 1, sd), FUN = '/')
+
+RNA_mat_train <- sweep(RNA_mat_train, 1, apply(RNA_mat_train, 1, mean), FUN = '-')
+RNA_mat_train <- sweep(RNA_mat_train, 1, apply(RNA_mat_train, 1, sd), FUN = '/')
+
+## Setting up metadata for training models
+enet_meta <- left_join(meta, cluster_assignments, by = "Barcode.ID") %>%
+  filter(!is.na(k.5)) %>%
+  mutate(overallSurvival = as.numeric(overallSurvival),
+         k.5 = as.character(k.5)) %>%
+  select(Barcode.ID, overallSurvival, vitalStatus, k.5)
+rownames(enet_meta) <- enet_meta$Barcode.ID
 
 ```
-
 
 
 
@@ -89,57 +155,29 @@ Setting up helper function for finding a statistically sound combination of $\al
 and $\lambda$ to build the model for cluster prediction on. 
 
 
+
 ```{r}
 
-train_model <- function(chosen_cluster, chosen_alpha, random_state, diff_markers){
+train_model <- function(data_mat, chosen_cluster, chosen_alpha, random_state){
   cluster_lab <- paste("Cluster", chosen_cluster)
-  
-  data_mat <- data_mat_train_all
-  data_mat_test <- data_mat_test_all
-  if (diff_markers){
-    cluster_markers <- diff_markers_k5 %>% 
-      filter(Cluster == chosen_cluster) %>%
-      filter(data_type == "Global") %>%
-      filter(significance < 0.05) %>%
-      filter(feature %in% rownames(data_mat_train_all)) %>%
-      pull(feature)
-    
-    data_mat <- data_mat[cluster_markers, ]
-    data_mat_test <- data_mat_test[cluster_markers, ]
-  }
-  
-
-  cluster_bool <- cluster_assignments %>%
+  cluster_bool <- enet_meta %>%
     mutate(cluster_bool = case_when(k.5 == chosen_cluster ~ cluster_lab,
                                     TRUE ~ paste("Not", cluster_lab))) %>%
     pull(cluster_bool) %>%
     as.factor()
+  names(cluster_bool) <- enet_meta$Barcode.ID
+  cluster_bool <- cluster_bool[colnames(data_mat)]
   
-  names(cluster_bool) <- cluster_assignments$Barcode.ID
-  cluster_bool <- cluster_bool[colnames(data_mat_train_all)]
-  
-  meta_c <- left_join(meta, cluster_assignments, by = "Barcode.ID") %>%
-    mutate(overallSurvival = as.numeric(overallSurvival),
-           k.5 = as.character(k.5))
-  rownames(meta_c) <- meta_c$Barcode.ID
-  
-  meta_c_train <- meta_c %>%
-    filter(!is.na(k.5)) %>%
+  meta_c_train <- enet_meta %>%
     mutate(Cluster = case_when(k.5 == chosen_cluster ~ cluster_lab,
                                TRUE ~ paste("Not", cluster_lab))) %>%
-    group_by(Cluster) %>%
-    # mutate(weight = 1 - n()/159) %>%
-    # ungroup(Cluster) %>%
     as.data.frame()
-  
   rownames(meta_c_train) <- meta_c_train$Barcode.ID
-  
-  # weights <- meta_c_train[colnames(data_mat), "weight"]
   
   lambda_max <- 1.5
   ## Using an fixed lambda path. This is so that we can compare
-  ## alpha values more appropriately. This makes a single lambda_path
-  ## with an appropriate range for any alpha between 0 and 1. 
+  ## alpha values more appropriately. Makes a single lambda_path
+  ## with containing an appropriate range for any alpha between 0 and 1. 
   lambda_path <- round(exp(seq(log(lambda_max), log(lambda_max*0.000005), 
                                length.out = 200)), digits = 10)
   # hist(log(lambda_path))
@@ -177,8 +215,8 @@ for the class we are predicting, determined by the 'chosen_cluster' parameter.
 
 
 ```{r}
-run_cv_grid <- function(chosen_cluster,
-                        diff_markers,
+run_cv_grid <- function(data_mat,
+                        chosen_cluster,
                         n_trials = 20,
                         master_random_state = 117,
                         alpha_values = c(0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1)){
@@ -189,8 +227,8 @@ run_cv_grid <- function(chosen_cluster,
   all_cvm <- lapply(random_states, function(random_state){
     ## Running cv over the grid using the folds determined by random_state
     grid_results <- lapply(alpha_values, function(chosen_alpha){
-      cvm_results <- train_model(chosen_cluster, chosen_alpha, 
-                                 random_state, diff_markers)
+      cvm_results <- train_model(data_mat, chosen_cluster, 
+                                 chosen_alpha, random_state)
     }) %>% do.call("cbind", .)
   })
   
@@ -210,31 +248,41 @@ derived from a combined dataset which includes phospho data as well as RNA count
 
 
 ```{r eval=FALSE, include=FALSE}
-cluster_5_results <- run_cv_grid(chosen_cluster = "5", diff_markers = TRUE)
-cluster_4_results <- run_cv_grid(chosen_cluster = "4", diff_markers = TRUE)
-cluster_3_results <- run_cv_grid(chosen_cluster = "3", diff_markers = TRUE)
-cluster_2_results <- run_cv_grid(chosen_cluster = "2", diff_markers = TRUE)
-cluster_1_results <- run_cv_grid(chosen_cluster = "1", diff_markers = TRUE)
+cluster_5_results_global <- run_cv_grid(global_mat_train, chosen_cluster = "5")
+cluster_4_results_global <- run_cv_grid(global_mat_train, chosen_cluster = "4")
+cluster_3_results_global <- run_cv_grid(global_mat_train, chosen_cluster = "3")
+cluster_2_results_global <- run_cv_grid(global_mat_train, chosen_cluster = "2")
+cluster_1_results_global <- run_cv_grid(global_mat_train, chosen_cluster = "1")
 
-cluster_5_results_v2 <- run_cv_grid(chosen_cluster = "5", diff_markers = FALSE)
-cluster_4_results_v2 <- run_cv_grid(chosen_cluster = "4", diff_markers = FALSE)
-cluster_3_results_v2 <- run_cv_grid(chosen_cluster = "3", diff_markers = FALSE)
-cluster_2_results_v2 <- run_cv_grid(chosen_cluster = "2", diff_markers = FALSE)
-cluster_1_results_v2 <- run_cv_grid(chosen_cluster = "1", diff_markers = FALSE)
+cluster_5_results_phospho <- run_cv_grid(phospho_mat_train, chosen_cluster = "5")
+cluster_4_results_phospho <- run_cv_grid(phospho_mat_train, chosen_cluster = "4")
+cluster_3_results_phospho <- run_cv_grid(phospho_mat_train, chosen_cluster = "3")
+cluster_2_results_phospho <- run_cv_grid(phospho_mat_train, chosen_cluster = "2")
+cluster_1_results_phospho <- run_cv_grid(phospho_mat_train, chosen_cluster = "1")
 
-all_results <- list("Cluster 5 diff markers" = cluster_5_results,
-                    "Cluster 5 all data" = cluster_5_results_v2,
-                    "Cluster 4 diff markers" = cluster_4_results,
-                    "Cluster 4 all data" = cluster_4_results_v2,
-                    "Cluster 3 diff markers" = cluster_3_results,
-                    "Cluster 3 all data" = cluster_3_results_v2,
-                    "Cluster 2 diff markers" = cluster_2_results,
-                    "Cluster 2 all data" = cluster_2_results_v2,
-                    "Cluster 1 diff markers" = cluster_1_results,
-                    "Cluster 1 all data" = cluster_1_results_v2)
-saveRDS(all_results, "./elastic_net_binomial_models/elastic_net_results_k_5.RDS")
+cluster_5_results_RNA <- run_cv_grid(RNA_mat_train, chosen_cluster = "5")
+cluster_4_results_RNA <- run_cv_grid(RNA_mat_train, chosen_cluster = "4")
+cluster_3_results_RNA <- run_cv_grid(RNA_mat_train, chosen_cluster = "3")
+cluster_2_results_RNA <- run_cv_grid(RNA_mat_train, chosen_cluster = "2")
+cluster_1_results_RNA <- run_cv_grid(RNA_mat_train, chosen_cluster = "1")
 
+all_results <- list("Cluster 5 Global" = cluster_5_results_global,
+                    "Cluster 5 Phospho" = cluster_5_results_phospho,
+                    "Cluster 5 RNA" = cluster_5_results_RNA,
+                    "Cluster 4 Global" = cluster_4_results_global,
+                    "Cluster 4 Phospho" = cluster_4_results_phospho,
+                    "Cluster 4 RNA" = cluster_4_results_RNA,
+                    "Cluster 3 Global" = cluster_3_results_global,
+                    "Cluster 3 Phospho" = cluster_3_results_phospho,
+                    "Cluster 3 RNA" = cluster_3_results_RNA,
+                    "Cluster 2 Global" = cluster_2_results_global,
+                    "Cluster 2 Phospho" = cluster_2_results_phospho,
+                    "Cluster 2 RNA" = cluster_2_results_RNA,
+                    "Cluster 1 Global" = cluster_1_results_global,
+                    "Cluster 1 Phospho" = cluster_1_results_phospho,
+                    "Cluster 1 RNA" = cluster_1_results_RNA)
 
+saveRDS(all_results, "./elastic_net_binomial_models/elastic_net_binomial_results_k_5.RDS")
 
 ```
 
@@ -244,167 +292,84 @@ Finding the appropriate lambda range.
 
 ```{r eval=FALSE, include=FALSE}
 bound_mult <- 2.0
-min_bounds_all <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
-  lambda_min <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
-    data_mat <- data_mat_train_all
-    cluster_lab <- paste("Cluster", chosen_cluster)
-    
-    cluster_bool <- cluster_assignments %>%
-      dplyr::mutate(cluster_bool = case_when(k.5 == chosen_cluster ~ cluster_lab,
-                                        TRUE ~ paste("Not", cluster_lab))) %>%
-      pull(cluster_bool) %>%
-      as.factor()
-    
-    names(cluster_bool) <- cluster_assignments$Barcode.ID
-    cluster_bool <- cluster_bool[colnames(data_mat)]
-    model <- glmnet(x = t(data_mat),
-                    y = cluster_bool,
-                    family = 'binomial',
-                    alpha = chosen_alpha)
-    min(model$lambda)
-  }) %>% unlist()
-}) %>% do.call("cbind", .) %>%
-  as.data.frame()
-min_bounds_all <- as.matrix(min_bounds_all)*bound_mult 
+bounds <- lapply(list(global_mat_train, phospho_mat_train, RNA_mat_train), function(data_mat){
+  print(nrow(data_mat))
+  min_bounds <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+    lambda_min <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
 
-# min_bounds_all <- apply(min_bounds_all, 1, function(yy){
-#   rep(max(yy), 5)
-# }) %>% t()
+      cluster_lab <- paste("Cluster", chosen_cluster)
+      cluster_bool <- enet_meta %>%
+        dplyr::mutate(cluster_bool = case_when(k.5 == chosen_cluster ~ cluster_lab,
+                                          TRUE ~ paste("Not", cluster_lab))) %>%
+        pull(cluster_bool) %>%
+        as.factor()
+      
+      names(cluster_bool) <- enet_meta$Barcode.ID
+      cluster_bool <- cluster_bool[colnames(data_mat)]
+      model <- glmnet(x = t(data_mat),
+                      y = cluster_bool,
+                      family = 'binomial',
+                      alpha = chosen_alpha)
+      min(model$lambda)
+    }) %>% unlist()
+  }) %>% do.call("cbind", .) 
+  min_bounds <- as.matrix(min_bounds)*bound_mult 
   
-colnames(min_bounds_all) <- as.character(1:5)
-rownames(min_bounds_all) <- as.character(1:10/10)
-
-max_bounds_all <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
-  lambda_max <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
-    data_mat <- data_mat_train_all
-    cluster_lab <- paste("Cluster", chosen_cluster)
-    
-    cluster_bool <- cluster_assignments %>%
-      dplyr::mutate(cluster_bool = case_when(k.5 == chosen_cluster ~ cluster_lab,
-                                        TRUE ~ paste("Not", cluster_lab))) %>%
-      pull(cluster_bool) %>%
-      as.factor()
-    
-    names(cluster_bool) <- cluster_assignments$Barcode.ID
-    cluster_bool <- cluster_bool[colnames(data_mat)]
-    model <- glmnet(x = t(data_mat),
-                    y = cluster_bool,
-                    family = 'binomial',
-                    alpha = chosen_alpha)
-    max(model$lambda)
-  }) %>% unlist()
-}) %>% do.call("cbind", .) %>%
-  as.data.frame()
-max_bounds_all <- as.matrix(max_bounds_all)*bound_mult 
-
-# max_bounds_all <- apply(max_bounds_all, 1, function(yy){
-#   rep(max(yy), 5)
-# }) %>% t()
-
-colnames(max_bounds_all) <- as.character(1:5)
-rownames(max_bounds_all) <- as.character(1:10/10)
-
+  max_bounds <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+    lambda_max <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
+      cluster_lab <- paste("Cluster", chosen_cluster)
+      
+      cluster_bool <- enet_meta %>%
+        dplyr::mutate(cluster_bool = case_when(k.5 == chosen_cluster ~ cluster_lab,
+                                          TRUE ~ paste("Not", cluster_lab))) %>%
+        pull(cluster_bool) %>%
+        as.factor()
+      
+      names(cluster_bool) <- enet_meta$Barcode.ID
+      cluster_bool <- cluster_bool[colnames(data_mat)]
+      model <- glmnet(x = t(data_mat),
+                      y = cluster_bool,
+                      family = 'binomial',
+                      alpha = chosen_alpha)
+      max(model$lambda)
+    }) %>% unlist()
+  }) %>% do.call("cbind", .)
+  max_bounds <- as.matrix(max_bounds)*bound_mult 
+  
+  
+  colnames(max_bounds) <- as.character(1:5)
+  rownames(max_bounds) <- as.character(1:10/10)
+  colnames(min_bounds) <- as.character(1:5)
+  rownames(min_bounds) <- as.character(1:10/10)
+  
+  list("min_bounds" = min_bounds,
+       "max_bounds" = max_bounds)
+})
+  
 
 ```
 
 
-Doing the same, but now for the parallel analysis using the differential markers.
 
 
 ```{r eval=FALSE, include=FALSE}
-
-min_bounds_mark <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
-  lambda_min <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
-    data_mat <- data_mat_train_all
-    cluster_lab <- paste("Cluster", chosen_cluster)
-    cluster_markers <- diff_markers_k5 %>% 
-      dplyr::filter(Cluster == chosen_cluster) %>%
-      dplyr::filter(data_type == "Global") %>%
-      dplyr::filter(significance < 0.05) %>%
-      dplyr::filter(feature %in% rownames(data_mat_train_all)) %>%
-      pull(feature)
-    
-    data_mat <- data_mat[cluster_markers, ]
-    
-    cluster_bool <- cluster_assignments %>%
-      dplyr::mutate(cluster_bool = case_when(k.5 == chosen_cluster ~ cluster_lab,
-                                        TRUE ~ paste("Not", cluster_lab))) %>%
-      pull(cluster_bool) %>%
-      as.factor()
-    
-    names(cluster_bool) <- cluster_assignments$Barcode.ID
-    cluster_bool <- cluster_bool[colnames(data_mat)]
-    model <- glmnet(x = t(data_mat),
-                    y = cluster_bool,
-                    family = 'binomial',
-                    alpha = chosen_alpha)
-    min(model$lambda)
-  }) %>% unlist()
-}) %>% do.call("cbind", .) %>%
-  as.data.frame()
-min_bounds_mark <- as.matrix(min_bounds_mark)*bound_mult 
-
-colnames(min_bounds_mark) <- as.character(1:5)
-rownames(min_bounds_mark) <- as.character(1:10/10)
-
-max_bounds_mark <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
-  lambda_max <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
-    data_mat <- data_mat_train_all
-    cluster_lab <- paste("Cluster", chosen_cluster)
-    cluster_markers <- diff_markers_k5 %>% 
-      dplyr::filter(Cluster == chosen_cluster) %>%
-      dplyr::filter(data_type == "Global") %>%
-      dplyr::filter(significance < 0.05) %>%
-      dplyr::filter(feature %in% rownames(data_mat_train_all)) %>%
-      pull(feature)
-    
-    data_mat <- data_mat[cluster_markers, ]
-    
-    cluster_bool <- cluster_assignments %>%
-      dplyr::mutate(cluster_bool = case_when(k.5 == chosen_cluster ~ cluster_lab,
-                                        TRUE ~ paste("Not", cluster_lab))) %>%
-      pull(cluster_bool) %>%
-      as.factor()
-    
-    names(cluster_bool) <- cluster_assignments$Barcode.ID
-    cluster_bool <- cluster_bool[colnames(data_mat)]
-    model <- glmnet(x = t(data_mat),
-                    y = cluster_bool,
-                    family = 'binomial',
-                    alpha = chosen_alpha)
-    max(model$lambda)
-  }) %>% unlist()
-}) %>% do.call("cbind", .) %>%
-  as.data.frame()
-max_bounds_mark <- as.matrix(max_bounds_mark)*bound_mult 
-
-colnames(max_bounds_mark) <- as.character(1:5)
-rownames(max_bounds_mark) <- as.character(1:10/10)
-
+all_bounds <- list("min_bounds_Global" = bounds[[1]]$min_bounds,
+                   "max_bounds_Global" = bounds[[1]]$max_bounds,
+                   "min_bounds_Phospho" = bounds[[2]]$min_bounds,
+                   "max_bounds_Phospho" = bounds[[2]]$max_bounds,
+                   "min_bounds_RNA" = bounds[[3]]$min_bounds,
+                   "max_bounds_RNA" = bounds[[3]]$max_bounds,
+                   "bound_mult" = bound_mult)
+saveRDS(all_bounds, "./elastic_net_binomial_models/all_bounds.RDS")
 
 ```
 
-
-```{r eval=FALSE, include=FALSE}
-bounds <- list("min_bounds_all" = min_bounds_all,
-               "max_bounds_all" = max_bounds_all,
-               "min_bounds_mark" = min_bounds_mark,
-               "max_bounds_mark" = max_bounds_mark,
-               "bound_mult" = bound_mult)
-saveRDS(bounds, "./elastic_net_binomial_models/bounds.RDS")
-
-```
 
 
 ```{r}
-all_results <- readRDS("elastic_net_binomial_models/elastic_net_results_k_5.RDS")
-bounds <- readRDS("elastic_net_binomial_models/bounds.RDS")
-bounds <- readRDS("elastic_net_binomial_models/bounds.RDS")
-min_bounds_all <- bounds$min_bounds_all
-max_bounds_all <- bounds$max_bounds_all
-min_bounds_mark <- bounds$min_bounds_mark
-max_bounds_mark <- bounds$max_bounds_mark
-bound_mult <- bounds$bound_mult
+all_results <- readRDS("elastic_net_binomial_models/elastic_net_binomial_results_k_5.RDS")
+all_bounds <- readRDS("elastic_net_binomial_models/all_bounds.RDS")
+bound_mult <- all_bounds$bound_mult
 
 ```
 
@@ -417,36 +382,43 @@ Plotting errors by cluster
 
 ```{r}
 chosen_alpha <- 0.1
-diff_markers <- FALSE
-best_result <- function(chosen_cluster, chosen_alpha, diff_markers){
-  result_name <- paste0("Cluster ", chosen_cluster)
-  if (diff_markers){
-    result_name <- paste0(result_name, " diff markers")
-    xx <- all_results[[result_name]]
-    max_lambda <- max_bounds_mark[chosen_alpha, chosen_cluster]
-    min_lambda <- min_bounds_mark[chosen_alpha, chosen_cluster]
-  } else {
-    result_name <- paste0(result_name, " all data")
-    xx <- all_results[[result_name]]
-    max_lambda <- max_bounds_all[as.character(chosen_alpha), chosen_cluster]
-    min_lambda <- min_bounds_all[as.character(chosen_alpha), chosen_cluster]
-  }
+best_result <- function(chosen_cluster, chosen_alpha, chosen_type){
+  result_name <- paste("Cluster", chosen_cluster, chosen_type)
+  xx <- all_results[[result_name]]
+  
+  min_bounds <- all_bounds[[paste0("min_bounds_", chosen_type)]]
+  max_bounds <- all_bounds[[paste0("max_bounds_", chosen_type)]]
+  
+  min_lambda <- min_bounds[as.character(chosen_alpha), chosen_cluster]
+  max_lambda <- max_bounds[as.character(chosen_alpha), chosen_cluster]
+  
   allowed_lambda <- as.numeric(rownames(xx)) > min_lambda
   allowed_lambda <- allowed_lambda & (as.numeric(rownames(xx)) < max_lambda)
   cvm <- min(xx[allowed_lambda, paste("alpha =", chosen_alpha)])
   return(cvm)
 }
 
-best_error <- lapply(c("1", "2", "3", "4", "5"), best_result, 
-                     chosen_alpha, diff_markers) %>% unlist()
+best_error_global <- lapply(c("1", "2", "3", "4", "5"), best_result, 
+                            chosen_alpha, "Global") %>% unlist()
+best_error_phospho <- lapply(c("1", "2", "3", "4", "5"), best_result, 
+                             chosen_alpha, "Phospho") %>% unlist()
+best_error_RNA <- lapply(c("1", "2", "3", "4", "5"), best_result, 
+                         chosen_alpha, "RNA") %>% unlist()
 
 summary <- data.frame(Cluster = c("1", "2", "3", "4", "5"), 
-                      `Best prediction error` = best_error)
+                      `Best prediction error` = best_error_global, data_type = "Global") %>%
+  rbind(data.frame(Cluster = c("1", "2", "3", "4", "5"),
+                   `Best prediction error` = best_error_phospho, data_type = "Phospho")) %>%
+  rbind(data.frame(Cluster = c("1", "2", "3", "4", "5"),
+                   `Best prediction error` = best_error_RNA, data_type = "RNA"))
 plot_df <- summary
 
-ggplot(plot_df, aes(x = Cluster, y = Best.prediction.error)) + 
-  geom_bar(stat = 'identity', width = 0.27, fill = "dodgerblue4") + theme_minimal() +
-  ggtitle("Elastic Net best prediction results") + xlab("Cluster")
+ggplot(summary, aes(x = Cluster, y = Best.prediction.error, fill = data_type)) + 
+  geom_bar(stat = 'identity', width = 0.33, position = position_dodge()) + 
+  scale_fill_manual(values = data_type_colors) +
+  ggtitle("Elastic Net best prediction results") +
+  xlab("Cluster") +
+  theme_minimal()
 ggsave(paste0("elastic_net_binomial_models/prediction_errors_enet_binomial_", chosen_alpha, ".pdf"))
 
 

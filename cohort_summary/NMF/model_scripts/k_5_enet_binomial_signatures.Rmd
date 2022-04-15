@@ -19,7 +19,6 @@ editor_options:
 library(dplyr)
 library(ggplot2)
 library(glmnet)
-library(clusterProfiler)
 library(msigdbr)
 library(RColorBrewer)
 
@@ -31,9 +30,6 @@ source("../../../util/make_plots_util.R")
 
 load("../../../Misc/load.combined.data 3-09-2022.RData")
 # load.combined.data()
-global_data <- global.data
-RNA_data <- RNA.data %>%
-  dplyr::rename(LogRatio = `RNA counts`)
 
 ```
 
@@ -41,9 +37,6 @@ RNA_data <- RNA.data %>%
 
 ```{r}
 cluster_assignments <- read.table("../Data/sample_to_cluster_assignments.txt", sep = "\t")
-
-diff_markers_k5 <- read.table("../../../Misc/Extra NMF/whoknows/differential_markers_k5.txt", sep = "\t")
-
 summary.syn <- "syn26642974"
 summary.table <- read.table("../Data/PNNL_clinical_summary_12_08_2021_updated_OS_4patients_02_28_2022.txt") %>%
   as.data.frame()
@@ -52,35 +45,107 @@ rownames(summary.table) <- summary.table$labId
 summary.table <- summary.table[rownames(meta), ]
 meta$vitalStatus <- summary.table$vitalStatus
 meta <- meta %>%
-  dplyr::mutate(vitalStatus = case_when(vitalStatus == "Dead" ~ 2,
+  mutate(vitalStatus = case_when(vitalStatus == "Dead" ~ 2,
                                  TRUE ~ 1))
-
 cluster_samples <- cluster_assignments$Barcode.ID
 
-global_data <- global.data %>%
-  dplyr::filter(Barcode.ID %in% cluster_samples)
+## filtering for complete features
+global_features <- global.data %>%
+  group_by(Gene) %>%
+  summarize(total = n()) %>%
+  filter(total == 210) %>%
+  pull(Gene)
 
-global_data_test <- global.data %>%
-  dplyr::filter(!(Barcode.ID %in% cluster_samples))
+phospho_features <- phospho.data %>%
+  group_by(SiteID) %>%
+  summarize(total = n()) %>%
+  filter(total == 210) %>%
+  pull(SiteID)
 
+RNA_features <- RNA.data %>%
+  group_by(Gene) %>%
+  summarize(total = n()) %>%
+  filter(total == 159) %>%
+  pull(Gene)
 
-mat_df <- pivot_wider(global_data, names_from = Barcode.ID, 
-                   values_from = LogRatio) %>%
-  as.data.frame() 
-rownames(mat_df) <- mat_df$Gene
+## Splitting data into train and test.
+## Global
+global_mat_train <- global.data %>%
+  filter(Barcode.ID %in% cluster_samples) %>%
+  dplyr::rename(feature = Gene) %>%
+  filter(feature %in% global_features) %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(global_mat_train) <- global_mat_train$feature
+global_mat_train <- global_mat_train[, -1] %>% as.matrix()
 
-data_mat_train_all <- mat_df[, -1] %>% as.matrix()
+global_mat_test <- global.data %>%
+  filter(!(Barcode.ID %in% cluster_samples)) %>%
+  dplyr::rename(feature = Gene) %>%
+  filter(feature %in% global_features) %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(global_mat_test) <- global_mat_test$feature
+global_mat_test <- global_mat_test[, -1] %>% as.matrix()
 
+## Phospho
+phospho_mat_train <- phospho.data %>%
+  filter(Barcode.ID %in% cluster_samples) %>%
+  select(Barcode.ID, SiteID, LogRatio) %>%
+  dplyr::rename(feature = SiteID) %>%
+  filter(feature %in% phospho_features) %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(phospho_mat_train) <- phospho_mat_train$feature
+phospho_mat_train <- phospho_mat_train[, -1] %>% as.matrix()
 
-mat_test_df <- pivot_wider(global_data_test, names_from = Barcode.ID, 
-                           values_from = LogRatio) %>%
-  as.data.frame() 
-rownames(mat_test_df) <- mat_df$Gene
-data_mat_test_all <- mat_test_df[, -1] %>% as.matrix()
+phospho_mat_test <- phospho.data %>%
+  filter(!(Barcode.ID %in% cluster_samples)) %>%
+  select(Barcode.ID, SiteID, LogRatio) %>%
+  dplyr::rename(feature = SiteID) %>%
+  filter(feature %in% phospho_features) %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(phospho_mat_test) <- phospho_mat_test$feature
+phospho_mat_test <- phospho_mat_test[, -1] %>% as.matrix()
 
-complete_cases <- complete.cases(data_mat_train_all) & complete.cases(data_mat_test_all)
-data_mat_train_all <- data_mat_train_all[complete_cases, ]
-data_mat_test_all <- data_mat_test_all[complete_cases, ]
+## RNA
+RNA_mat_train <- RNA.data %>%
+  filter(Barcode.ID %in% cluster_samples) %>%
+  dplyr::rename(feature = Gene,
+                LogRatio = `RNA counts`) %>%
+  filter(feature %in% RNA_features)  %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(RNA_mat_train) <- RNA_mat_train$feature
+RNA_mat_train <- RNA_mat_train[, -1] %>% as.matrix()
+
+## Standardizing
+global_mat_train <- sweep(global_mat_train, 1, apply(global_mat_train, 1, mean), FUN = '-')
+global_mat_train <- sweep(global_mat_train, 1, apply(global_mat_train, 1, sd), FUN = '/')
+global_mat_test <- sweep(global_mat_test, 1, apply(global_mat_test, 1, mean), FUN = '-')
+global_mat_test <- sweep(global_mat_test, 1, apply(global_mat_test, 1, sd), FUN = '/')
+
+phospho_mat_train <- sweep(phospho_mat_train, 1, apply(phospho_mat_train, 1, mean), FUN = '-')
+phospho_mat_train <- sweep(phospho_mat_train, 1, apply(phospho_mat_train, 1, sd), FUN = '/')
+phospho_mat_test <- sweep(phospho_mat_test, 1, apply(phospho_mat_test, 1, mean), FUN = '-')
+phospho_mat_test <- sweep(phospho_mat_test, 1, apply(phospho_mat_test, 1, sd), FUN = '/')
+
+RNA_mat_train <- sweep(RNA_mat_train, 1, apply(RNA_mat_train, 1, mean), FUN = '-')
+RNA_mat_train <- sweep(RNA_mat_train, 1, apply(RNA_mat_train, 1, sd), FUN = '/')
+
+## Setting up metadata for training models
+enet_meta <- left_join(meta, cluster_assignments, by = "Barcode.ID") %>%
+  filter(!is.na(k.5)) %>%
+  mutate(overallSurvival = as.numeric(overallSurvival),
+         k.5 = as.character(k.5)) %>%
+  select(Barcode.ID, overallSurvival, vitalStatus, k.5)
+rownames(enet_meta) <- enet_meta$Barcode.ID
 
 ```
 
@@ -89,13 +154,9 @@ Loading model results.
 
 
 ```{r}
-all_results <- readRDS("elastic_net_binomial_models/elastic_net_results_k_5.RDS")
-bounds <- readRDS("elastic_net_binomial_models/bounds.RDS")
-min_bounds_all <- bounds$min_bounds_all
-max_bounds_all <- bounds$max_bounds_all
-min_bounds_mark <- bounds$min_bounds_mark
-max_bounds_mark <- bounds$max_bounds_mark
-bound_mult <- bounds$bound_mult
+all_results <- readRDS("elastic_net_binomial_models/elastic_net_binomial_results_k_5.RDS")
+all_bounds <- readRDS("elastic_net_binomial_models/all_bounds.RDS")
+bound_mult <- all_bounds$bound_mult
 
 ```
 
@@ -105,73 +166,64 @@ Getting cluster signatures.
 
 
 
-```{r include=FALSE}
-  
-signatures <- data.frame(Cluster = c(), Gene = c(), alpha = c(), diff_marker = c())
-for (diff_markers in c(TRUE, FALSE)) {
-  if (diff_markers){
-    min_bounds <- min_bounds_mark
-    max_bounds <- max_bounds_mark
+```{r}
+get_signature <- function(chosen_cluster, chosen_alpha, chosen_type){
+  if (chosen_type == "Global"){
+    data_mat <- global_mat_train
+  } else if (chosen_type == "Phospho"){
+    data_mat <- phospho_mat_train
   } else {
-    min_bounds <- min_bounds_all
-    max_bounds <- max_bounds_all
+    data_mat <- RNA_mat_train
   }
-  for (chosen_cluster in c("1", "2", "3", "4", "5")){
-    for (chosen_alpha in c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)) {
-      if (diff_markers){
-        results_name <- paste0("Cluster ", chosen_cluster, " diff markers")
-        data_mat <- data_mat_train_all
-        cluster_markers <- diff_markers_k5 %>% 
-          dplyr::filter(Cluster == chosen_cluster) %>%
-          dplyr::filter(data_type == "Global") %>%
-          dplyr::filter(significance < 0.05) %>%
-          dplyr::filter(feature %in% rownames(data_mat_train_all)) %>%
-          pull(feature)
-        
-        data_mat <- data_mat[cluster_markers, ]
-      } else {
-        results_name <- paste0("Cluster ", chosen_cluster, " all data")
-        data_mat <- data_mat_train_all
-      }
-      
-      cluster_lab <- paste("Cluster", chosen_cluster)
-      xx <- all_results[[results_name]]
-      
-      min_lambda <- min_bounds[[as.character(chosen_alpha), chosen_cluster]]
-      max_lambda <- max_bounds[[as.character(chosen_alpha), chosen_cluster]]
-      allowed_lambda <- (as.numeric(rownames(xx)) < max_lambda) & 
-                        (as.numeric(rownames(xx)) > min_lambda)
-      xx <- xx[allowed_lambda, ]
-      col_name <- paste("alpha =", chosen_alpha)
-      chosen_lambda <- rownames(xx)[[which.min(xx[[col_name]])]] %>%
-        as.numeric()
-      
-      cluster_bool <- cluster_assignments %>%
-        dplyr::mutate(cluster_bool = case_when(k.5 == chosen_cluster ~ cluster_lab,
-                                          TRUE ~ paste("Not", cluster_lab))) %>%
-        pull(cluster_bool) %>%
-        as.factor()
-      
-      names(cluster_bool) <- cluster_assignments$Barcode.ID
-      cluster_bool <- cluster_bool[colnames(data_mat)]
-      model <- glmnet(x = t(data_mat),
-                      y = cluster_bool,
-                      family = 'binomial',
-                      alpha = chosen_alpha,
-                      lambda = chosen_lambda)
-      
-      coefs <- coef(model, s = model$lambda) %>% as.matrix()
-      sigs <- rownames(coefs)[coefs != 0]
-      signatures <- rbind(signatures, data.frame(Cluster = chosen_cluster, Gene = sigs, 
-                                                 alpha = chosen_alpha, diff_marker = diff_markers))
-    }
-  }
+  
+  result_name <- paste("Cluster", chosen_cluster, chosen_type)
+  cluster_lab <- paste("Cluster", chosen_cluster)
+  xx <- all_results[[result_name]]
+  
+  min_bounds <- all_bounds[[paste0("min_bounds_", chosen_type)]]
+  max_bounds <- all_bounds[[paste0("max_bounds_", chosen_type)]]
+  min_lambda <- min_bounds[as.character(chosen_alpha), chosen_cluster]
+  max_lambda <- max_bounds[as.character(chosen_alpha), chosen_cluster]
+  allowed_lambda <- (as.numeric(rownames(xx)) < max_lambda) & 
+                    (as.numeric(rownames(xx)) > min_lambda)
+  
+  xx <- xx[allowed_lambda, ]
+  col_name <- paste("alpha =", chosen_alpha)
+  chosen_lambda <- rownames(xx)[[which.min(xx[[col_name]])]] %>%
+    as.numeric()
+  
+  cluster_bool <- enet_meta %>%
+    dplyr::mutate(cluster_bool = case_when(k.5 == chosen_cluster ~ cluster_lab,
+                                      TRUE ~ paste("Not", cluster_lab))) %>%
+    pull(cluster_bool) %>%
+    as.factor()
+  
+  names(cluster_bool) <- enet_meta$Barcode.ID
+  cluster_bool <- cluster_bool[colnames(data_mat)]
+  model <- glmnet(x = t(data_mat),
+                  y = cluster_bool,
+                  family = 'binomial',
+                  alpha = chosen_alpha,
+                  lambda = chosen_lambda)
+  
+  coefs <- coef(model, s = model$lambda) %>% as.matrix()
+  sigs <- rownames(coefs)[coefs != 0]
+  signatures <- data.frame(Cluster = chosen_cluster, Gene = sigs, 
+                           alpha = chosen_alpha, chosen_type = chosen_type,
+                           lambda = chosen_lambda) %>%
+    filter(Gene != "(Intercept)")
+  return(signatures)
 }
 
-signatures <- signatures %>%
-  filter(Gene != "(Intercept)")
+signatures <- lapply(c("Global", "Phospho", "RNA"), function(chosen_type){
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
+    test <- lapply(c("1", "2", "3", "4", "5"), get_signature, chosen_alpha, chosen_type) %>%
+      do.call("rbind", .)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .)
 
-write.table(signatures, "elastic_net_binomial_models/enet_binomial_all_signatures.txt", sep = "\t", quote = F)
+write.table(signatures, "elastic_net_binomial_models/enet_binomial_all_signatures.txt", 
+            sep = "\t", quote = F)
 
 ```
 
@@ -186,16 +238,25 @@ Signature heatmap
 
 ```{r}
 chosen.colors <- subtype_colors[1:5]
-
 chosen_alpha <- 0.1
+data_type <- "RNA"
+
+if (data_type == "Global"){
+    data_mat <- global_mat_train
+  } else if (data_type == "Phospho"){
+    data_mat <- phospho_mat_train
+  } else {
+    data_mat <- RNA_mat_train
+  }
+
 signatures <- signatures %>%
-  group_by(diff_marker, alpha, Gene) %>%
+  group_by(chosen_type, alpha, Gene) %>%
   dplyr::mutate(total = n()) %>%
   ungroup()
 
 row_df <- signatures %>%
   dplyr::filter(alpha == chosen_alpha) %>%
-  dplyr::filter(diff_marker == FALSE) %>%
+  dplyr::filter(chosen_type == data_type) %>%
   dplyr::select(Gene, Cluster) %>%
   group_by(Gene) %>%
   dplyr::mutate(total = n()) %>%
@@ -225,16 +286,17 @@ ann_colors <- list("Cluster" = c("1" = chosen.colors[[1]],
 
 heatmap_breaks <- seq(-3, 3, by = 0.2)
 heatmap_colors <- colorRampPalette(rev(brewer.pal(n = 10, name = "RdYlBu")))(length(heatmap_breaks))
-cluster_row = pheatmap:::cluster_mat(data_mat_train_all[rownames(row_df), ], distance = "euclidean", 
+cluster_row = pheatmap:::cluster_mat(data_mat[rownames(row_df), ], distance = "euclidean", 
                                      method = "ward.D")
 row_df <- row_df[cluster_row$order, ] %>%
   mutate(order = 1:n()) %>%
   arrange(Cluster) %>%
   select(Cluster)
 sigs <- rownames(row_df)
-file_path <- paste0("./elastic_net_binomial_models/enet_binomial_signature_heatmap_mult_", bound_mult)
+file_path <- paste0("./elastic_net_binomial_models/enet_binomial_signature_heatmap_mult_", bound_mult,
+                    "_", data_type)
 
-make.pheatmap(data_mat_train_all[sigs, ], filename = file_path, format = "pdf",
+make.pheatmap(data_mat[sigs, ], filename = file_path, format = "pdf",
               scale = "row", cluster_rows = FALSE, clustering_method = "ward.D", 
               annotation_col = col_df, annotation_row = row_df, annotation_colors = ann_colors,
               breaks = heatmap_breaks, color = heatmap_colors, show_rownames = F, show_colnames = F,

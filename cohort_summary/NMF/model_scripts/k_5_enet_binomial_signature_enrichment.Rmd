@@ -30,10 +30,6 @@ source("../../../util/mutational_analysis_helper.R")
 
 load("../../../Misc/load.combined.data 3-09-2022.RData")
 # load.combined.data()
-global_data <- global.data
-RNA_data <- RNA.data %>%
-  dplyr::rename(LogRatio = `RNA counts`)
-
 
 ```
 
@@ -42,8 +38,6 @@ RNA_data <- RNA.data %>%
 ```{r}
 
 cluster_assignments <- read.table("../Data/sample_to_cluster_assignments.txt", sep = "\t")
-diff_markers_k5 <- read.table("../../../Misc/Extra NMF/whoknows/differential_markers_k5.txt", sep = "\t")
-
 summary.syn <- "syn26642974"
 summary.table <- read.table("../Data/PNNL_clinical_summary_12_08_2021_updated_OS_4patients_02_28_2022.txt") %>%
   as.data.frame()
@@ -52,47 +46,128 @@ rownames(summary.table) <- summary.table$labId
 summary.table <- summary.table[rownames(meta), ]
 meta$vitalStatus <- summary.table$vitalStatus
 meta <- meta %>%
-  dplyr::mutate(vitalStatus = case_when(vitalStatus == "Dead" ~ 2,
+  mutate(vitalStatus = case_when(vitalStatus == "Dead" ~ 2,
                                  TRUE ~ 1))
-
 cluster_samples <- cluster_assignments$Barcode.ID
-global_data <- global.data %>%
-  dplyr::filter(Barcode.ID %in% cluster_samples)
-global_data_test <- global.data %>%
-  dplyr::filter(!(Barcode.ID %in% cluster_samples))
 
+## filtering for complete features
+global_features <- global.data %>%
+  group_by(Gene) %>%
+  summarize(total = n()) %>%
+  filter(total == 210) %>%
+  pull(Gene)
 
-mat_df <- pivot_wider(global_data, names_from = Barcode.ID, 
-                   values_from = LogRatio) %>%
-  as.data.frame() 
-rownames(mat_df) <- mat_df$Gene
+phospho_features <- phospho.data %>%
+  group_by(SiteID) %>%
+  summarize(total = n()) %>%
+  filter(total == 210) %>%
+  pull(SiteID)
 
-data_mat_train_all <- mat_df[, -1] %>% as.matrix()
-mat_test_df <- pivot_wider(global_data_test, names_from = Barcode.ID, 
-                           values_from = LogRatio) %>%
-  as.data.frame() 
-rownames(mat_test_df) <- mat_df$Gene
-data_mat_test_all <- mat_test_df[, -1] %>% as.matrix()
+RNA_features <- RNA.data %>%
+  group_by(Gene) %>%
+  summarize(total = n()) %>%
+  filter(total == 159) %>%
+  pull(Gene)
 
-complete_cases <- complete.cases(data_mat_train_all) & complete.cases(data_mat_test_all)
-data_mat_train_all <- data_mat_train_all[complete_cases, ]
-data_mat_test_all <- data_mat_test_all[complete_cases, ]
+## Splitting data into train and test.
+## Global
+global_mat_train <- global.data %>%
+  filter(Barcode.ID %in% cluster_samples) %>%
+  dplyr::rename(feature = Gene) %>%
+  filter(feature %in% global_features) %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(global_mat_train) <- global_mat_train$feature
+global_mat_train <- global_mat_train[, -1] %>% as.matrix()
 
-signatures <- read.table("./elastic_net_binomial_models/enet_binomial_all_signatures.txt", sep = "\t")
-prot_universe <- rownames(data_mat_train_all)
+global_mat_test <- global.data %>%
+  filter(!(Barcode.ID %in% cluster_samples)) %>%
+  dplyr::rename(feature = Gene) %>%
+  filter(feature %in% global_features) %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(global_mat_test) <- global_mat_test$feature
+global_mat_test <- global_mat_test[, -1] %>% as.matrix()
+
+## Phospho
+phospho_mat_train <- phospho.data %>%
+  filter(Barcode.ID %in% cluster_samples) %>%
+  select(Barcode.ID, SiteID, LogRatio) %>%
+  dplyr::rename(feature = SiteID) %>%
+  filter(feature %in% phospho_features) %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(phospho_mat_train) <- phospho_mat_train$feature
+phospho_mat_train <- phospho_mat_train[, -1] %>% as.matrix()
+
+phospho_mat_test <- phospho.data %>%
+  filter(!(Barcode.ID %in% cluster_samples)) %>%
+  select(Barcode.ID, SiteID, LogRatio) %>%
+  dplyr::rename(feature = SiteID) %>%
+  filter(feature %in% phospho_features) %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(phospho_mat_test) <- phospho_mat_test$feature
+phospho_mat_test <- phospho_mat_test[, -1] %>% as.matrix()
+
+## RNA
+RNA_mat_train <- RNA.data %>%
+  filter(Barcode.ID %in% cluster_samples) %>%
+  dplyr::rename(feature = Gene,
+                LogRatio = `RNA counts`) %>%
+  filter(feature %in% RNA_features)  %>%
+  pivot_wider(names_from = Barcode.ID, 
+              values_from = LogRatio) %>% 
+  as.data.frame()
+rownames(RNA_mat_train) <- RNA_mat_train$feature
+RNA_mat_train <- RNA_mat_train[, -1] %>% as.matrix()
+
+## Standardizing
+global_mat_train <- sweep(global_mat_train, 1, apply(global_mat_train, 1, mean), FUN = '-')
+global_mat_train <- sweep(global_mat_train, 1, apply(global_mat_train, 1, sd), FUN = '/')
+global_mat_test <- sweep(global_mat_test, 1, apply(global_mat_test, 1, mean), FUN = '-')
+global_mat_test <- sweep(global_mat_test, 1, apply(global_mat_test, 1, sd), FUN = '/')
+
+phospho_mat_train <- sweep(phospho_mat_train, 1, apply(phospho_mat_train, 1, mean), FUN = '-')
+phospho_mat_train <- sweep(phospho_mat_train, 1, apply(phospho_mat_train, 1, sd), FUN = '/')
+phospho_mat_test <- sweep(phospho_mat_test, 1, apply(phospho_mat_test, 1, mean), FUN = '-')
+phospho_mat_test <- sweep(phospho_mat_test, 1, apply(phospho_mat_test, 1, sd), FUN = '/')
+
+RNA_mat_train <- sweep(RNA_mat_train, 1, apply(RNA_mat_train, 1, mean), FUN = '-')
+RNA_mat_train <- sweep(RNA_mat_train, 1, apply(RNA_mat_train, 1, sd), FUN = '/')
+
+## Setting up metadata for training models
+enet_meta <- left_join(meta, cluster_assignments, by = "Barcode.ID") %>%
+  filter(!is.na(k.5)) %>%
+  mutate(overallSurvival = as.numeric(overallSurvival),
+         k.5 = as.character(k.5)) %>%
+  select(Barcode.ID, overallSurvival, vitalStatus, k.5)
+rownames(enet_meta) <- enet_meta$Barcode.ID
 
 ```
 
+Loading signatures
+
+```{r}
+signatures <- read.table("./elastic_net_binomial_models/enet_binomial_all_signatures.txt", sep = "\t")
+
+## Only working on protein signature enrichment (Global)
+prot_universe <- rownames(global_mat_train)
+
+```
 
 
 Setting up helper function for finding signature enrichment.
 
 
 ```{r}
-
-get_signature_helper <- function(chosen_cluster, chosen_alpha, diff_markers, t2g){
+get_signature_helper <- function(chosen_cluster, chosen_alpha, data_type, t2g){
   sigs <- signatures %>% 
-    dplyr::filter(diff_marker == diff_markers) %>%
+    dplyr::filter(chosen_type == data_type) %>%
     dplyr::filter(alpha == chosen_alpha) %>%
     dplyr::filter(Cluster == chosen_cluster) %>%
     pull(Gene)
@@ -107,7 +182,7 @@ get_signature_helper <- function(chosen_cluster, chosen_alpha, diff_markers, t2g
     dplyr::rename(core_enrichment = geneID) %>%
     compress_enrichment(colname = "p.adjust") %>%
     dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust) %>%
-    dplyr::mutate(alpha = chosen_alpha, cluster = chosen_cluster, diff_markers = diff_markers)
+    dplyr::mutate(alpha = chosen_alpha, cluster = chosen_cluster, data_type = data_type)
   
   return(enrichment)
 }
@@ -129,12 +204,9 @@ t2g <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "BP") %>
 all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
     print(paste(chosen_alpha, chosen_cluster))
-    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
-                                        diff_markers = TRUE, t2g = t2g)
     sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
-                                    diff_markers = FALSE, t2g = t2g)
-    
-    out <- rbind(sig_markers, sig_all)
+                                    data_type = "Global", t2g = t2g)
+    out <- sig_all
     return(out)
   }) %>% do.call("rbind", .)
 }) %>% do.call("rbind", .) %>%
@@ -163,12 +235,9 @@ all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_c
   print(paste("cluster =", chosen_cluster))
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
     print(paste("alpha =", chosen_alpha))
-    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
-                                        diff_markers = TRUE, t2g = t2g)
     sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
-                                    diff_markers = FALSE, t2g = t2g)
-    
-    out <- rbind(sig_markers, sig_all)
+                                    data_type = "Global", t2g = t2g)
+    out <- sig_all
     return(out)
   }) %>% do.call("rbind", .)
 }) %>% do.call("rbind", .) %>%
@@ -196,12 +265,9 @@ all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_c
   print(paste("cluster =", chosen_cluster))
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
     print(paste("alpha =", chosen_alpha))
-    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
-                                        diff_markers = TRUE, t2g = t2g)
     sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
-                                    diff_markers = FALSE, t2g = t2g)
-    
-    out <- rbind(sig_markers, sig_all)
+                                    data_type = "Global", t2g = t2g)
+    out <- sig_all
     return(out)
   }) %>% do.call("rbind", .)
 }) %>% do.call("rbind", .) %>%
@@ -229,12 +295,9 @@ all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_c
   print(paste("cluster =", chosen_cluster))
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
     print(paste("alpha =", chosen_alpha))
-    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
-                                        diff_markers = TRUE, t2g = t2g)
     sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
-                                    diff_markers = FALSE, t2g = t2g)
-    
-    out <- rbind(sig_markers, sig_all)
+                                    data_type = "Global", t2g = t2g)
+    out <- sig_all
     return(out)
   }) %>% do.call("rbind", .)
 }) %>% do.call("rbind", .) %>%
@@ -261,12 +324,9 @@ t2g <- msigdbr(species = "Homo sapiens", category = "H") %>%
 all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
     print(paste(chosen_alpha, chosen_cluster))
-    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
-                                        diff_markers = TRUE, t2g = t2g)
     sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
-                                    diff_markers = FALSE, t2g = t2g)
-    
-    out <- rbind(sig_markers, sig_all)
+                                    data_type = "Global", t2g = t2g)
+    out <- sig_all
     return(out)
   }) %>% do.call("rbind", .)
 }) %>% do.call("rbind", .) %>%
@@ -289,12 +349,9 @@ t2g <- msigdbr(species = "Homo sapiens", category = "C6") %>%
 all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
     print(paste(chosen_alpha, chosen_cluster))
-    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
-                                        diff_markers = TRUE, t2g = t2g)
     sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
-                                    diff_markers = FALSE, t2g = t2g)
-    
-    out <- rbind(sig_markers, sig_all)
+                                    data_type = "Global", t2g = t2g)
+    out <- sig_all
     return(out)
   }) %>% do.call("rbind", .)
 }) %>% do.call("rbind", .) %>%
@@ -319,12 +376,9 @@ t2g <- msigdbr(species = "Homo sapiens", category = "C2") %>%
 all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
     print(paste(chosen_alpha, chosen_cluster))
-    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
-                                        diff_markers = TRUE, t2g = t2g)
     sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
-                                    diff_markers = FALSE, t2g = t2g)
-    
-    out <- rbind(sig_markers, sig_all)
+                                    data_type = "Global", t2g = t2g)
+    out <- sig_all
     return(out)
   }) %>% do.call("rbind", .)
 }) %>% do.call("rbind", .) %>%
@@ -350,12 +404,9 @@ t2g <- msigdbr(species = "Homo sapiens", category = "C2") %>%
 all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
     print(paste(chosen_alpha, chosen_cluster))
-    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
-                                        diff_markers = TRUE, t2g = t2g)
     sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
-                                    diff_markers = FALSE, t2g = t2g)
-    
-    out <- rbind(sig_markers, sig_all)
+                                    data_type = "Global", t2g = t2g)
+    out <- sig_all
     return(out)
   }) %>% do.call("rbind", .)
 }) %>% do.call("rbind", .) %>%
@@ -380,12 +431,9 @@ t2g <- msigdbr(species = "Homo sapiens", category = "C3") %>%
 all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
     print(paste(chosen_alpha, chosen_cluster))
-    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
-                                        diff_markers = TRUE, t2g = t2g)
     sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
-                                    diff_markers = FALSE, t2g = t2g)
-    
-    out <- rbind(sig_markers, sig_all)
+                                    data_type = "Global", t2g = t2g)
+    out <- sig_all
     return(out)
   }) %>% do.call("rbind", .)
 }) %>% do.call("rbind", .) %>%
@@ -412,12 +460,9 @@ t2g <- msigdbr(species = "Homo sapiens", category = "C4") %>%
 all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
     print(paste(chosen_alpha, chosen_cluster))
-    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
-                                        diff_markers = TRUE, t2g = t2g)
     sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
-                                    diff_markers = FALSE, t2g = t2g)
-    
-    out <- rbind(sig_markers, sig_all)
+                                    data_type = "Global", t2g = t2g)
+    out <- sig_all
     return(out)
   }) %>% do.call("rbind", .)
 }) %>% do.call("rbind", .) %>%
@@ -444,12 +489,9 @@ t2g <- msigdbr(species = "Homo sapiens", category = "C4") %>%
 all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
     print(paste(chosen_alpha, chosen_cluster))
-    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
-                                        diff_markers = TRUE, t2g = t2g)
     sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
-                                    diff_markers = FALSE, t2g = t2g)
-    
-    out <- rbind(sig_markers, sig_all)
+                                    data_type = "Global", t2g = t2g)
+    out <- sig_all
     return(out)
   }) %>% do.call("rbind", .)
 }) %>% do.call("rbind", .) %>%
@@ -474,12 +516,9 @@ t2g <- msigdbr(species = "Homo sapiens", category = "C7") %>%
 all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
     print(paste(chosen_alpha, chosen_cluster))
-    sig_markers <- get_signature_helper(chosen_cluster, chosen_alpha, 
-                                        diff_markers = TRUE, t2g = t2g)
     sig_all <- get_signature_helper(chosen_cluster, chosen_alpha,
-                                    diff_markers = FALSE, t2g = t2g)
-    
-    out <- rbind(sig_markers, sig_all)
+                                    data_type = "Global", t2g = t2g)
+    out <- sig_all
     return(out)
   }) %>% do.call("rbind", .)
 }) %>% do.call("rbind", .) %>%
@@ -533,19 +572,18 @@ all_enrichment <- list("gobp" = sig_gobp,
 Plotting the number of significant pathways for every alpha + cluster combination.
 
 ```{r include=FALSE}
-
+picked_type <- "Global"
 lapply(names(all_enrichment), function(result_name){
   print(result_name)
   result <- all_enrichment[[result_name]]
   plot_title <- paste0("Total significant, database = ",
-                       result_name, " diff markers FALSE")
+                       result_name, " ", picked_type)
   plot_path <- paste0("./elastic_net_binomial_models/total_significant_database_", 
-                      result_name,
-                      ".png")
+                      result_name, " ", picked_type, ".png")
   
   counts <- result %>%
     dplyr::filter(p.adjust < 0.05) %>%
-    dplyr::filter(diff_markers == FALSE) %>%
+    dplyr::filter(data_type == picked_type) %>%
     dplyr::group_by(cluster, alpha) %>%
     summarize(total_significant = n()) %>%
     dplyr::ungroup(cluster, alpha)
@@ -560,37 +598,6 @@ lapply(names(all_enrichment), function(result_name){
     pheatmap(counts_mat, cluster_rows = F, cluster_cols = F, main = plot_title, display_numbers = TRUE)
     dev.off()
   }
-  
-})
-
-
-lapply(names(all_enrichment), function(result_name){
-  print(result_name)
-  result <- all_enrichment[[result_name]]
-  plot_title <- paste0("Total significant, database = ",
-                       result_name, " diff markers TRUE")
-  plot_path <- paste0("./elastic_net_binomial_models/total_significant_database_", 
-                      result_name, "_diff_markers",
-                      ".png")
-  
-  counts <- result %>%
-    dplyr::filter(p.adjust < 0.05) %>%
-    dplyr::filter(diff_markers == TRUE) %>%
-    dplyr::group_by(cluster, alpha) %>%
-    summarize(total_significant = n()) %>%
-    dplyr::ungroup(cluster, alpha)
-  
-  if(length(counts$cluster %>% unique()) > 1 & length(counts$alpha %>% unique()) > 1){
-    counts <- pivot_wider(counts, names_from = alpha, values_from = total_significant, values_fill = 0)
-    counts_mat <- counts[, -1] %>% as.matrix()
-    rownames(counts_mat) <- paste("Cluser", counts$cluster)
-    counts_mat <- counts_mat[, sort(colnames(counts_mat))]
-    
-    png(plot_path, width = 800, height = 800)
-    pheatmap(counts_mat, cluster_rows = F, cluster_cols = F, main = plot_title, display_numbers = TRUE)
-    dev.off()
-  }
-
 })
 
 
@@ -614,7 +621,7 @@ names(plot_results) <- c("Gene Ontology - Biological Process",
 lapply(names(plot_results), function(result_name){
   
   plot_df <- plot_results[[result_name]] %>%
-    dplyr::filter(diff_markers == FALSE) %>%
+    dplyr::filter(data_type == "Global") %>%
     dplyr::filter(p.adjust < 0.05) %>%
     dplyr::filter(alpha == 0.1) %>%
     dplyr::select(Description, cluster) %>%
@@ -631,7 +638,7 @@ lapply(names(plot_results), function(result_name){
   
   plot_title <- result_name
   result_name <- gsub(" ", "_", result_name)
-  plot_path <- paste0("./elastic_net_binomial_models/protein_signatures_", result_name, ".png")
+  plot_path <- paste0("./elastic_net_binomial_models/protein_signatures_", result_name, "_global.png")
   
   png(plot_path, width = 2000, height = 2300, res = 200)
   pheatmap(plot_mat, cluster_cols = F, cluster_rows = F, 
