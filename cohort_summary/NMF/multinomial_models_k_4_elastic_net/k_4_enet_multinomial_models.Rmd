@@ -1,0 +1,431 @@
+---
+title: "K = 4 multinoamial models"
+author: "Camilo Posso"
+date: "04/26/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+library(glmnet)
+library(groupdata2)
+
+source("../cluster_model_helper.R")
+
+```
+
+
+
+Finding the appropriate lambda range.
+
+
+
+```{r eval=FALSE, include=FALSE}
+bound_mult <- 1.0
+bounds <- lapply(list(global_mat_train, phospho_mat_train, RNA_mat_train), function(data_mat){
+  print(nrow(data_mat))
+  lambda_min <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
+    cluster_lab <- enet_meta %>%
+      mutate(cluster_lab = paste("Cluster", k.4)) %>%
+      pull(cluster_lab) %>%
+      as.factor()
+    names(cluster_lab) <- enet_meta$Barcode.ID
+    cluster_lab <- cluster_lab[colnames(data_mat)]
+    
+    model <- glmnet(x = t(data_mat),
+                    y = cluster_lab,
+                    family = 'multinomial',
+                    type.measure = "class",
+                    type.multinomial = "ungrouped",
+                    alpha = chosen_alpha)
+    min(model$lambda)
+  }) %>% unlist()
+  min_bounds <- as.matrix(lambda_min)*bound_mult 
+  
+  lambda_max <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
+    cluster_lab <- enet_meta %>%
+      mutate(cluster_lab = paste("Cluster", k.4)) %>%
+      pull(cluster_lab) %>%
+      as.factor()
+    names(cluster_lab) <- enet_meta$Barcode.ID
+    cluster_lab <- cluster_lab[colnames(data_mat)]
+    
+    model <- glmnet(x = t(data_mat),
+                    y = cluster_lab,
+                    family = 'multinomial',
+                    type.measure = "class",
+                    type.multinomial = "ungrouped",
+                    alpha = chosen_alpha)
+    max(model$lambda)
+  }) %>% unlist()
+  max_bounds <- as.matrix(lambda_max)*bound_mult
+  
+  rownames(max_bounds) <- as.character(1:10/10)
+  rownames(min_bounds) <- as.character(1:10/10)
+  
+  list("min_bounds" = min_bounds,
+       "max_bounds" = max_bounds)
+})
+
+all_bounds <- list("min_bounds_Global" = bounds[[1]]$min_bounds,
+                   "max_bounds_Global" = bounds[[1]]$max_bounds,
+                   "min_bounds_Phospho" = bounds[[2]]$min_bounds,
+                   "max_bounds_Phospho" = bounds[[2]]$max_bounds,
+                   "min_bounds_RNA" = bounds[[3]]$min_bounds,
+                   "max_bounds_RNA" = bounds[[3]]$max_bounds,
+                   "bound_mult" = bound_mult)
+saveRDS(all_bounds, "./enet_multinomial_data/all_bounds.RDS")
+
+```
+
+
+
+
+Setting up helper function for finding a statistically sound combination of $\alpha$
+and $\lambda$ to build the model for cluster prediction on. 
+
+
+
+```{r}
+train_model <- function(data_mat, chosen_alpha, random_state){
+  cluster_lab <- enet_meta %>%
+    mutate(cluster_lab = paste("Cluster", k.4)) %>%
+    pull(cluster_lab) %>%
+    as.factor()
+  names(cluster_lab) <- enet_meta$Barcode.ID
+  cluster_lab <- cluster_lab[colnames(data_mat)]
+  
+  meta_c_train <- enet_meta %>%
+    mutate(Cluster = paste("Cluster", k.4)) %>%
+    as.data.frame()
+  rownames(meta_c_train) <- meta_c_train$Barcode.ID
+  
+  lambda_max <- 3.3
+  ## Using an fixed lambda path. This is so that we can compare
+  ## alpha values more appropriately. Makes a single lambda_path
+  ## with containing an appropriate range for any alpha between 0 and 1. 
+  lambda_path <- round(exp(seq(log(lambda_max), log(lambda_max*0.0001), 
+                               length.out = 250)), digits = 10)
+  # hist(log(lambda_path))
+  
+  set.seed(random_state)
+  
+  folds <- groupdata2::fold(meta_c_train, k = 5, cat_col = "Cluster") %>%
+    select(Barcode.ID, Cluster, .folds) %>%
+    as.data.frame()
+  rownames(folds) <- folds$Barcode.ID
+  folds <- folds[colnames(data_mat), ]
+  
+  fold_ids <- folds$.folds %>% as.numeric()
+  
+  model <- cv.glmnet(x = t(data_mat),
+                     y = cluster_lab,
+                     family = 'multinomial',
+                     type.measure = "class",
+                     alpha = chosen_alpha,
+                     foldid = fold_ids,
+                     lambda = lambda_path,
+                     type.multinomial = "ungrouped")
+  
+  cross_validation_error <- data.frame(error = model$cvm, row.names = model$lambda)
+  colnames(cross_validation_error) <- paste("alpha =", as.character(chosen_alpha))
+  
+  return(cross_validation_error)
+}
+
+```
+
+
+Reproducible method to tune alpha and lambda. We use cross validation to find
+the best performing alpha and lambda parameter. The folds used are balanced
+for the class we are predicting, determined by the 'chosen_cluster' parameter.
+
+
+```{r}
+run_cv_grid <- function(data_mat,
+                        n_trials = 20,
+                        master_random_state = 117,
+                        alpha_values = c(0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1)){
+    
+  set.seed(master_random_state)
+  random_states <- sample(1:1000000, size = n_trials)
+  
+  all_cvm <- lapply(random_states, function(random_state){
+    print(random_state)
+    ## Running cv over the grid using the folds determined by random_state
+    grid_results <- lapply(alpha_values, function(chosen_alpha){
+      cvm_results <- train_model(data_mat, chosen_alpha, random_state)
+    }) %>% do.call("cbind", .)
+  })
+  
+  cvm_avg <- Reduce('+', all_cvm)/length(random_states)
+  return(cvm_avg)
+}
+
+```
+
+
+
+## Running over all clusters in K = 4.
+
+Now we can run the above tool over all the clusters in $k = 4$, the question of
+interest being how well can protein data recapture the clusters, which are
+derived from a combined dataset which includes phospho data as well as RNA counts.
+
+
+```{r eval=FALSE, include=FALSE}
+results_global <- run_cv_grid(global_mat_train)
+results_phospho <- run_cv_grid(phospho_mat_train)
+results_RNA <- run_cv_grid(RNA_mat_train)
+
+all_results <- list("Global" = results_global,
+                    "Phospho" = results_phospho,
+                    "RNA" = results_RNA)
+
+saveRDS(all_results, "./enet_multinomial_data/elastic_net_multinomial_results_k_4.RDS")
+
+```
+
+
+
+```{r}
+all_results <- readRDS("enet_multinomial_data/elastic_net_multinomial_results_k_4.RDS")
+all_bounds <- readRDS("enet_multinomial_data/all_bounds.RDS")
+bound_mult <- all_bounds$bound_mult
+
+```
+
+
+
+```{r}
+get_model_metrics <- function(chosen_alpha, chosen_type){
+  print(paste("alpha =", chosen_alpha, "type =", chosen_type))
+  master_random_state <- 117
+  set.seed(master_random_state)
+  random_states <- sample(1:1000000, size = 20)
+  
+  if (chosen_type == "Global"){
+      data_mat <- global_mat_train
+    } else if (chosen_type == "Phospho"){
+      data_mat <- phospho_mat_train
+    } else if (chosen_type == "RNA"){
+      data_mat <- RNA_mat_train
+    }
+    
+  cluster_lab <- enet_meta %>%
+    mutate(cluster_lab = paste("Cluster", k.4)) %>%
+    pull(cluster_lab) %>%
+    as.factor()
+  names(cluster_lab) <- enet_meta$Barcode.ID
+  cluster_lab <- cluster_lab[colnames(data_mat)]
+  
+  ## Getting best performing lambda from model results
+  xx <- all_results[[chosen_type]]
+  min_bounds <- all_bounds[[paste0("min_bounds_", chosen_type)]]
+  max_bounds <- all_bounds[[paste0("max_bounds_", chosen_type)]]
+  min_lambda <- min_bounds[as.character(chosen_alpha), ] %>% as.numeric()
+  max_lambda <- max_bounds[as.character(chosen_alpha), ] %>% as.numeric()
+  allowed_lambda <- (as.numeric(rownames(xx)) < max_lambda) & 
+                    (as.numeric(rownames(xx)) > min_lambda)
+  xx <- xx[allowed_lambda, ]
+  col_name <- paste("alpha =", chosen_alpha)
+  chosen_lambda <- rownames(xx)[[which.min(xx[[col_name]])]] %>%
+    as.numeric()
+  
+  standardize_helper <- function(xx){
+    xx <- sweep(xx, 1, apply(xx, 1, mean), FUN = '-')
+    xx <- sweep(xx, 1, apply(xx, 1, sd), FUN = '/')
+    return(xx)
+  }
+  
+  class_error_helper <- function(prediction_df){
+    prediction_df <- prediction_df %>%
+      mutate(pred = sub("Predicted Cluster ", "", Cluster_pred),
+             actual = sub("Actual Cluster ", "", Cluster))
+    sapply(c("1", "2", "3", "4"), function(chosen_cluster){
+      prediction_df %>%
+        mutate(pred = case_when(pred == chosen_cluster ~ pred,
+                                TRUE ~ "0"),
+               actual = case_when(actual == chosen_cluster ~ actual,
+                                  TRUE ~ "0"),
+               error = !(pred == actual)) %>%
+        pull(error) %>%
+        sum()/nrow(prediction_df)
+    })
+  }
+  
+  prediction_metrics <- lapply(random_states, function(random_state){
+    set.seed(random_state)
+    folds <- enet_meta %>%
+      mutate(Cluster = paste("Cluster", k.4)) %>% 
+      as.data.frame() %>%
+      groupdata2::fold(k = 5, cat_col = "Cluster") %>%
+      select(Barcode.ID, Cluster, .folds) %>%
+      as.data.frame()
+    rownames(folds) <- folds$Barcode.ID
+    folds <- folds[colnames(data_mat), ]
+    
+    cluster_metrics <- lapply(c("1", "2", "3", "4", "5"), function(chosen_fold){
+      samples_foldtrain <- folds %>%
+        filter(.folds != chosen_fold) %>%
+        pull(Barcode.ID)
+      samples_foldtest <- folds %>%
+        filter(.folds == chosen_fold) %>%
+        pull(Barcode.ID)
+      
+      model <- glmnet(x = t(standardize_helper(data_mat[, samples_foldtrain])),
+                      y = cluster_lab[samples_foldtrain],
+                      alpha = chosen_alpha,
+                      lambda = chosen_lambda,
+                      family = "multinomial",
+                      type.multinomial = "ungrouped")
+      
+      cluster_predictions <- predict(model, s = chosen_lambda, 
+                                     newx = t(standardize_helper(data_mat[, samples_foldtest])), 
+                                     type = "response") %>%
+        matrix(ncol = 4) %>%
+        as.data.frame()
+      cluster_predictions$max <- apply(cluster_predictions, 1, max)
+      cluster_predictions$Barcode.ID <- samples_foldtest
+      cluster_predictions$Cluster_pred <- predict(model, s = chosen_lambda, 
+                                          newx = t(standardize_helper(data_mat[, samples_foldtest])), 
+                                          type = "class") %>%
+        paste("Predicted", .) %>%
+        factor(levels = paste("Predicted Cluster", 1:4))
+      cluster_predictions$Cluster <- paste("Cluster", enet_meta[samples_foldtest, "k.4"]) %>%
+        paste("Actual", .)
+      
+      dat <- table(cluster_predictions$Cluster_pred,cluster_predictions$Cluster)
+      diagonal <- sapply(1:4, function(i){dat[i,i]})
+      recall <- diagonal/apply(dat, 2, sum)
+      precision <- diagonal/apply(dat, 1, sum)
+      missclass_error <- class_error_helper(cluster_predictions)
+      
+      data.frame(Cluster = paste("Cluster", 1:4), recall = recall, 
+                 precision = precision, missclass_error = missclass_error, 
+                 fold = chosen_fold)
+    }) %>% do.call("rbind", .) %>%
+      ## If precision is 0/0 we get NaN, so we turn to 0 here.
+      mutate(precision = case_when(!is.na(precision) ~ precision,
+                                   TRUE ~ 0)) %>%
+      group_by(Cluster) %>%
+      summarize(recall = mean(recall),
+                precision = mean(precision),
+                missclass_error = mean(missclass_error)) %>%
+      mutate(random_state = random_state)
+    
+  }) %>% do.call("rbind", .) %>%
+    group_by(Cluster) %>%
+    summarize(Recall = mean(recall), 
+              Precision = mean(precision),
+              missclass_error = mean(missclass_error))  %>% 
+    mutate(chosen_alpha = chosen_alpha,
+           data_type = chosen_type)
+  
+  return(prediction_metrics)
+}
+
+```
+
+
+Putting all metrics into a table.
+
+
+```{r eval=FALSE, include=FALSE}
+model_metrics <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
+  metrics <- get_model_metrics(chosen_alpha, "Global") %>%
+    rbind(get_model_metrics(chosen_alpha, "Phospho")) %>%
+    rbind(get_model_metrics(chosen_alpha, "RNA"))
+  return(metrics)
+}) %>% do.call("rbind", .)
+
+write.table(model_metrics, "enet_multinomial_data/all_model_metrics.txt", 
+            sep = "\t", quote = F)
+
+```
+
+
+Plotting errors by cluster
+
+
+
+```{r}
+model_metrics <- read.table("enet_multinomial_data/all_model_metrics.txt", sep = "\t") %>%
+  dplyr::rename(alpha = chosen_alpha)
+
+plot_metrics <- function(chosen_alpha){
+  global_model_metrics <- model_metrics %>%
+    filter(data_type == "Global") %>%
+    filter(alpha == chosen_alpha)
+  phospho_model_metrics <- model_metrics %>%
+    filter(data_type == "Phospho") %>%
+    filter(alpha == chosen_alpha)
+  rna_model_metrics <- model_metrics %>%
+    filter(data_type == "RNA") %>%
+    filter(alpha == chosen_alpha)
+  
+  summary <- data.frame(Cluster = c("1", "2", "3", "4"), 
+                        Recall = global_model_metrics$Recall,
+                        Precision = global_model_metrics$Precision,
+                        `Classification error` = global_model_metrics$missclass_error,
+                        data_type = "Global") %>%
+    rbind(data.frame(Cluster = c("1", "2", "3", "4"), 
+                     Recall = phospho_model_metrics$Recall,
+                     Precision = phospho_model_metrics$Precision,
+                     `Classification error` = phospho_model_metrics$missclass_error,
+                     data_type = "Phospho")) %>%
+    rbind(data.frame(Cluster = c("1", "2", "3", "4"), 
+                     Recall = rna_model_metrics$Recall,
+                     Precision = rna_model_metrics$Precision,
+                     `Classification error` = rna_model_metrics$missclass_error,
+                     data_type = "RNA"))
+  
+  ggplot(summary, aes(x = Cluster, y = Recall, fill = data_type)) + 
+    geom_bar(stat = 'identity', width = 0.33, position = position_dodge()) + 
+    scale_fill_manual(values = data_type_colors) +
+    ggtitle(paste0("Recall by cluster - 5 fold cross validation, ",
+                   "alpha = ", chosen_alpha)) +
+    xlab("Cluster") + ylim(0, 1) +
+    theme_minimal()
+  ggsave(paste0("enet_multinomial_data/model_recall_enet_multinomial_", chosen_alpha, ".pdf"))
+  
+  ggplot(summary, aes(x = Cluster, y = Precision, fill = data_type)) + 
+    geom_bar(stat = 'identity', width = 0.33, position = position_dodge()) + 
+    scale_fill_manual(values = data_type_colors) +
+    ggtitle(paste0("Precision by cluster - 5 fold cross validation, ",
+                   "alpha = ", chosen_alpha)) +
+    xlab("Cluster") + ylim(0, 1) +
+    theme_minimal()
+  ggsave(paste0("enet_multinomial_data/model_precision_enet_multinomial_", chosen_alpha, ".pdf"))
+  
+  ggplot(summary, aes(x = Cluster, y = Classification.error, fill = data_type)) + 
+    geom_bar(stat = 'identity', width = 0.33, position = position_dodge()) + 
+    scale_fill_manual(values = data_type_colors) +
+    ggtitle(paste0("Classification error by cluster - 5 fold cross validation, ",
+                   "alpha = ", chosen_alpha)) +
+    xlab("Cluster") + ylim(0, 0.2) +
+    theme_minimal()
+  ggsave(paste0("enet_multinomial_data/model_classerror_enet_multinomial_", chosen_alpha, ".pdf"))
+}
+  
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), plot_metrics)
+
+```
+

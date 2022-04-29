@@ -1,0 +1,226 @@
+---
+title: "K = 4 multinomial predictions"
+author: "Camilo Posso"
+date: "04/27/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+library(glmnet)
+library(survminer)
+library(survival)
+library(gridExtra)
+library(grid)
+
+source("../NMF_helper.R")
+source("../cluster_model_helper.R")
+
+```
+
+
+Loading model results.
+
+
+```{r}
+all_results <- readRDS("enet_multinomial_data/elastic_net_multinomial_results_k_4.RDS")
+all_bounds <- readRDS("enet_multinomial_data/all_bounds.RDS")
+bound_mult <- all_bounds$bound_mult
+
+```
+
+
+
+Here we train a prediction model using the full dataset and the best performing hyperparameters
+to extend cluster 4 (good prognosis) to the 51 unclustered samples.
+
+
+```{r}
+
+make_prediction <- function(chosen_alpha, data_type, robust){
+  if (data_type == "Global"){
+    data_mat <- global_mat_train
+    data_mat_test <- global_mat_test
+    data_mat_full <- global.data %>%
+      dplyr::rename(feature = Gene) %>%
+      filter(feature %in% global_features) %>%
+      pivot_wider(names_from = Barcode.ID, 
+                  values_from = LogRatio) %>% 
+      as.data.frame()
+    rownames(data_mat_full) <- data_mat_full$feature
+    data_mat_full <- data_mat_full[, -1] %>% as.matrix()
+  } else if (data_type == "Phospho"){
+    data_mat <- phospho_mat_train
+    data_mat_test <- phospho_mat_test
+    data_mat_full <- phospho.data %>%
+      select(Barcode.ID, SiteID, LogRatio) %>%
+      dplyr::rename(feature = SiteID) %>%
+      filter(feature %in% phospho_features) %>%
+      pivot_wider(names_from = Barcode.ID, 
+                  values_from = LogRatio) %>% 
+      as.data.frame()
+    rownames(data_mat_full) <- data_mat_full$feature
+    data_mat_full <- data_mat_full[, -1] %>% as.matrix()
+  }
+  
+  xx <- all_results[[data_type]]
+  data_mat_full <- sweep(data_mat_full, 1, apply(data_mat_full, 1, mean), FUN = '-')
+  data_mat_full <- sweep(data_mat_full, 1, apply(data_mat_full, 1, sd), FUN = '/')
+  
+  ## Key line
+  if (robust){
+    data_mat_test <- data_mat_full[, colnames(data_mat_test)]
+  }
+  
+  min_bounds <- all_bounds[[paste0("min_bounds_", data_type)]]
+  max_bounds <- all_bounds[[paste0("max_bounds_", data_type)]]
+  min_lambda <- min_bounds[as.character(chosen_alpha), ]
+  max_lambda <- max_bounds[as.character(chosen_alpha), ]
+  allowed_lambda <- (as.numeric(rownames(xx)) < max_lambda) & 
+                    (as.numeric(rownames(xx)) > min_lambda)
+  
+  xx <- xx[allowed_lambda, ]
+  col_name <- paste("alpha =", chosen_alpha)
+  chosen_lambda <- rownames(xx)[[which.min(xx[[col_name]])]] %>%
+    as.numeric()
+  print(chosen_lambda)
+  
+  cluster_lab <- enet_meta %>%
+    mutate(cluster_lab = paste("Cluster", k.4)) %>%
+    pull(cluster_lab) %>%
+    as.factor()
+  names(cluster_lab) <- enet_meta$Barcode.ID
+  cluster_lab <- cluster_lab[colnames(data_mat)]
+
+  model <- glmnet(x = t(data_mat),
+                  y = cluster_lab,
+                  family = 'multinomial',
+                  alpha = chosen_alpha,
+                  lambda = chosen_lambda)
+  
+  cluster_predictions <- predict(model, s = chosen_lambda, 
+                                 newx = t(data_mat_test), 
+                                 type = "response")[, , 1] %>% as.data.frame()
+  colnames(cluster_predictions) <- paste("New", colnames(cluster_predictions))
+  cluster_predictions$max_new <- apply(cluster_predictions, 1, max) %>% unname()
+  cluster_predictions$pred_cluster <- predict(model, s = chosen_lambda, 
+                                              newx = t(data_mat_test), 
+                                              type = "class")
+  cluster_predictions$Barcode.ID <- rownames(cluster_predictions)
+  
+  cluster_predictions_full <- predict(model, s = chosen_lambda, 
+                                      newx = t(data_mat_full), 
+                                      type = "response")[, , 1] %>% as.data.frame()
+  colnames(cluster_predictions_full) <- paste("Full", colnames(cluster_predictions_full))
+  cluster_predictions_full$max_full <- apply(cluster_predictions_full, 1, max) %>% unname()
+  cluster_predictions_full$pred_cluster_v2 <- predict(model, s = chosen_lambda, 
+                                                      newx = t(data_mat_full), 
+                                                      type = "class")
+  cluster_predictions_full$Barcode.ID <- rownames(cluster_predictions_full)
+  
+  out <- full_join(cluster_predictions, cluster_predictions_full, by = "Barcode.ID")
+  return(out)
+}
+
+
+make_prediction_plot <- function(chosen_alpha, data_type, confidence_cutoff = 0.40, robust = TRUE){
+  cluster_predictions <- make_prediction(chosen_alpha, data_type, robust) %>%
+    mutate(pred_cluster = sub("Cluster ", "", pred_cluster),
+           pred_cluster_v2 = sub("Cluster ", "", pred_cluster_v2))
+  if (robust){
+    path_ending <- "_robust_normalization.pdf"
+  } else {
+    path_ending <- ".pdf"
+  }
+  
+  meta_c <- left_join(meta, cluster_assignments, by = "Barcode.ID") %>%
+    mutate(overallSurvival = as.numeric(overallSurvival),
+           k.4 = as.character(k.4)) %>%
+    left_join(cluster_predictions, by = "Barcode.ID")
+  rownames(meta_c) <- meta_c$Barcode.ID
+  
+  meta_c_new <- meta_c %>%
+      filter(is.na(k.4)) %>%
+    mutate(conf = case_when(max_new <= confidence_cutoff ~ "Low confidence",
+                            TRUE ~ "OK")) %>%
+    dplyr::rename(Cluster = pred_cluster)
+  meta_c_plot <- meta_c_new %>%
+    filter(conf == "OK")
+  meta_c_train <- meta_c %>%
+    filter(!is.na(k.4)) %>%
+    dplyr::rename(Cluster = k.4)
+  
+  plot_title <- paste0("Predicting on 51 new samples, conf > ", 
+                       confidence_cutoff, "(", nrow(meta_c_plot), " samples)")
+  color_palette <- c("1" = subtype_colors[[1]],
+                     "2" = subtype_colors[[2]],
+                     "3" = subtype_colors[[3]],
+                     "4" = subtype_colors[[4]])
+  
+  sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = meta_c_train)
+  p1 <- ggsurvplot(sfit, color = "Cluster", data = meta_c_train,
+                   palette = color_palette)$plot +
+          theme(legend.text = element_text(size = 12, color = "black"),
+                legend.title = element_text(size = 12, color = "black")) + 
+          ggtitle("159 Clustered samples")
+  
+  meta_c$Cluster <- meta_c$pred_cluster_v2
+  sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = meta_c)
+  p2 <- ggsurvplot(sfit, color = "Cluster", data = meta_c,
+                   palette = color_palette)$plot +
+          theme(legend.text = element_text(size = 12, color = "black"),
+                legend.title = element_text(size = 12, color = "black")) + 
+          ggtitle("Predicting on all 210 samples")
+  
+  sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = meta_c_plot)
+  p3 <- ggsurvplot(sfit, color = "Cluster", data = meta_c_plot,
+                   palette = color_palette)$plot +
+          theme(legend.text = element_text(size = 12, color = "black"),
+                legend.title = element_text(size = 12, color = "black")) +
+          ggtitle(plot_title)
+  
+  sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = meta_c_new)
+  p4 <- ggsurvplot(sfit, color = "Cluster", data = meta_c_new,
+                   palette = color_palette)$plot +
+          theme(legend.text = element_text(size = 12, color = "black"),
+                legend.title = element_text(size = 12, color = "black")) + 
+          ggtitle("Predicting on 51 new samples")
+  
+  p_all <- arrangeGrob(p1, p2, p3, p4, ncol = 2, nrow = 2,
+                       top = textGrob(paste0("Survival plots, ", data_type, ", alpha = ", chosen_alpha), 
+                                      gp = gpar(fontsize = 20)))
+  ggsave(paste0("enet_multinomial_data/predicted_survival_", 
+                data_type, "_", chosen_alpha, path_ending), 
+         width = 16, height = 12, p_all)
+}
+
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
+  make_prediction_plot(chosen_alpha, "Global", robust = TRUE)
+  make_prediction_plot(chosen_alpha, "Phospho", robust = TRUE)
+  make_prediction_plot(chosen_alpha, "Global", robust = FALSE)
+  make_prediction_plot(chosen_alpha, "Phospho", robust = FALSE)
+})
+
+```
+
+
+
+
+
