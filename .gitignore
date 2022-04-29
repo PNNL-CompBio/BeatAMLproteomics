@@ -59,7 +59,10 @@ cohort_summary/cytogenetics_and_clusters.Rmd
 cohort_summary/data_sample_summary_circos.png
 
 # NMF prediction signature analysis
-cohort_summary/NMF/model_scripts/elastic_net_binomial_models
+cohort_summary/NMF/individual_models_elastic_net/enet_binomial_data
+cohort_summary/NMF/multinomial_models_elastic_net/enet_multinomial_data
+cohort_summary/NMF/multinomial_models_k_4_elastic_net/enet_multinomial_data
+
 
 # mutational analysis
 mutational_analysis/raw_tables
@@ -71,3 +74,5 @@ mutational_analysis/network_analysis/networks
 mutational_analysis/PeCorA/pecora_presentation
 mutational_analysis/PeCorA/pecora_scripts/pecora_example.R
 cohort_summary/data_sample_summary_circos.pdf
+cohort_summary/NMF/multinomial_models_elastic_net/k_5_alpha_notes.txt
+cohort_summary/NMF/multinomial_models_k_4_elastic_net/k_4_alpha_notes.txt

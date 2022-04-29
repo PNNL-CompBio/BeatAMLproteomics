@@ -261,10 +261,11 @@ ann.labels <- ann.labels %>%
   column_to_rownames("Barcode.ID") %>%
   as.data.frame() %>%
   select(PostChemotherapy, NPM1, NPM1_clinical, RAS, vitalStatus, FLT3.ITD, FLT3_MAF, FLT3_AR, FAB) %>%
-  dplyr::rename(`FLT3_MAF (percentage)` = FLT3_MAF)
+  dplyr::rename(`FLT3_MAF (percentage)` = FLT3_MAF,
+                `RAS vaf` = RAS)
 
 ## Slimming down annotations
-ann.labels <- ann.labels[, c("RAS", "FLT3.ITD", "NPM1_clinical", "FAB",  "vitalStatus")]
+ann.labels <- ann.labels[, c("RAS vaf", "FLT3.ITD", "NPM1_clinical", "FAB",  "vitalStatus")]
 
 ## White to dark purple (like the snow storms on weather maps)
 colors.wp <- scales::seq_gradient_pal("#FFFFFF", "#4A0078", "Lab")(seq(0,1,length.out = p.celing*10 + 1))
@@ -348,18 +349,21 @@ plots <- lapply(1:7, function(i){
   
   xx.colors[["Cluster"]] = chosen.colors[1:length(unique(p.labels$Cluster))]
   names(xx.colors[["Cluster"]]) <- as.character(1:n.levels)
+  custom_ann <- cbind(ann.labels, p.labels[rownames(ann.labels),])
   
   make.pheatmap(heatmap_mat, filename = paths[[i]], parentId = NULL,
                 annotation_col = ann.labels, annotation_colors = xx.colors,
                 show_rownames = FALSE, show_colnames = FALSE, main = titles[[i]],
                 annotation_row = p.labels, height = 18, width = 16, format = "png",
-                cluster_rows = hc_cluster, cluster_cols = hc_cluster)
+                cluster_rows = hc_cluster, cluster_cols = hc_cluster, treeheight_row = 40,
+                treeheight_col = 40, fontsize = 15)
 
   make.pheatmap(heatmap_mat, filename = paths[[i]], parentId = parentID,
                 annotation_col = ann.labels, annotation_colors = xx.colors,
                 show_rownames = FALSE, show_colnames = FALSE, main = titles[[i]],
                 annotation_row = p.labels, height = 18, width = 16, format = "pdf",
-                cluster_rows = hc_cluster, cluster_cols = hc_cluster)
+                cluster_rows = hc_cluster, cluster_cols = hc_cluster, treeheight_row = 40,
+                treeheight_col = 40, fontsize = 15)
   
   return("Done")
 })
@@ -435,11 +439,15 @@ knitr::include_graphics("Data/consensus_map_k_8.png")
 
 
 ```{r}
-
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k2, data = kaplan.df.full)
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k2)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
 
 name <- "Data/survival_plots_by_cluster_k_2.pdf"
-ggsurvplot(sfit, palette = chosen.colors[1:2])
+ggsurvplot(sfit, palette = chosen.colors[1:2])$plot + 
+  ggtitle("Survival by cluster, k = 2") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
 ggsave(file = name, height = 7, width = 7)
 
 
@@ -447,68 +455,91 @@ ggsave(file = name, height = 7, width = 7)
 
 ```{r}
 
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k3, data = kaplan.df.full)
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k3)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
 
 name <- "Data/survival_plots_by_cluster_k_3.pdf"
-ggsurvplot(sfit, palette = chosen.colors[1:3])
+ggsurvplot(sfit, palette = chosen.colors[1:3])$plot + 
+  ggtitle("Survival by cluster, k = 3") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
 ggsave(file = name, height = 7, width = 7)
-
 
 ```
 
 ```{r}
 
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k4, data = kaplan.df.full)
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k4)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
 
 name <- "Data/survival_plots_by_cluster_k_4.pdf"
-ggsurvplot(sfit, palette = chosen.colors[1:4])
+ggsurvplot(sfit, palette = chosen.colors[1:4])$plot + 
+  ggtitle("Survival by cluster, k = 4") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
 ggsave(file = name, height = 7, width = 7)
+
 
 
 ```
 
 ```{r}
-
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k5, data = kaplan.df.full)
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k5)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
 
 name <- "Data/survival_plots_by_cluster_k_5.pdf"
-ggsurvplot(sfit, palette = chosen.colors[1:5])
+ggsurvplot(sfit, palette = chosen.colors[1:5])$plot + 
+  ggtitle("Survival by cluster, k = 5") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
 ggsave(file = name, height = 7, width = 7)
-
 
 ```
 
 ```{r}
-
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k6, data = kaplan.df.full)
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k6)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
 
 name <- "Data/survival_plots_by_cluster_k_6.pdf"
-ggsurvplot(sfit, palette = chosen.colors[1:6])
+ggsurvplot(sfit, palette = chosen.colors[1:6])$plot + 
+  ggtitle("Survival by cluster, k = 6") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
 ggsave(file = name, height = 7, width = 7)
-
 
 ```
 
 
 ```{r}
-
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k7, data = kaplan.df.full)
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k7)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
 
 name <- "Data/survival_plots_by_cluster_k_7.pdf"
-ggsurvplot(sfit, palette = chosen.colors[1:7])
+ggsurvplot(sfit, palette = chosen.colors[1:7])$plot + 
+  ggtitle("Survival by cluster, k = 7") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
 ggsave(file = name, height = 7, width = 7)
 
 
 ```
 
 ```{r}
-
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ k8, data = kaplan.df.full)
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k8)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
 
 name <- "Data/survival_plots_by_cluster_k_8.pdf"
-ggsurvplot(sfit, palette = chosen.colors[1:8])
+ggsurvplot(sfit, palette = chosen.colors[1:8])$plot + 
+  ggtitle("Survival by cluster, k = 8") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
 ggsave(file = name, height = 7, width = 7)
-
 
 ```
 

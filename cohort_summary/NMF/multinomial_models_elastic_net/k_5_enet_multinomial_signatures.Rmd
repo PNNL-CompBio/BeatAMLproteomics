@@ -1,0 +1,200 @@
+---
+title: "Cluster 5 binomial signatures"
+author: "Camilo Posso"
+date: "04/04/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+library(msigdbr)
+library(RColorBrewer)
+
+source("../cluster_model_helper.R")
+
+```
+
+
+Loading model results.
+
+
+```{r}
+
+all_results <- readRDS("enet_multinomial_data/elastic_net_multinomial_results_k_5.RDS")
+all_bounds <- readRDS("enet_multinomial_data/all_bounds.RDS")
+bound_mult <- all_bounds$bound_mult
+
+```
+
+
+
+Getting cluster signatures.
+
+
+
+```{r eval=FALSE, include=FALSE}
+get_signature <- function(chosen_alpha, chosen_type){
+  if (chosen_type == "Global"){
+    data_mat <- global_mat_train
+  } else if (chosen_type == "Phospho"){
+    data_mat <- phospho_mat_train
+  } else {
+    data_mat <- RNA_mat_train
+  }
+
+  xx <- all_results[[chosen_type]]
+  
+  min_bounds <- all_bounds[[paste0("min_bounds_", chosen_type)]]
+  max_bounds <- all_bounds[[paste0("max_bounds_", chosen_type)]]
+  min_lambda <- min_bounds[as.character(chosen_alpha), ] %>% as.numeric()
+  max_lambda <- max_bounds[as.character(chosen_alpha), ] %>% as.numeric()
+  allowed_lambda <- (as.numeric(rownames(xx)) < max_lambda) & 
+                    (as.numeric(rownames(xx)) > min_lambda)
+  
+  xx <- xx[allowed_lambda, ]
+  col_name <- paste("alpha =", chosen_alpha)
+  chosen_lambda <- rownames(xx)[[which.min(xx[[col_name]])]] %>%
+    as.numeric()
+  
+  cluster_lab <- enet_meta %>%
+    mutate(cluster_lab = paste("Cluster", k.5)) %>%
+    pull(cluster_lab) %>%
+    as.factor()
+  names(cluster_lab) <- enet_meta$Barcode.ID
+  cluster_lab <- cluster_lab[colnames(data_mat)]
+  
+  model <- glmnet(x = t(data_mat),
+                  y = cluster_lab,
+                  family = 'multinomial',
+                  alpha = chosen_alpha,
+                  lambda = chosen_lambda,
+                  type.multinomial = "ungrouped")
+  
+  coefs <- coef(model, s = chosen_lambda)
+  names(coefs) <- as.character(1:5)
+  coefs <- lapply(names(coefs), function(xx_name){
+    xx <- coefs[[xx_name]]
+    data.frame(Cluster = xx_name, Gene = rownames(xx)[which(xx != 0)]) %>%
+      filter(Gene != "(Intercept)")
+  }) %>% do.call("rbind", .)
+  
+  signatures <- coefs %>%
+    mutate(alpha = chosen_alpha, chosen_type = chosen_type, lambda = chosen_lambda)
+  return(signatures)
+}
+
+signatures <- lapply(c("Global", "Phospho", "RNA"), function(chosen_type){
+  lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
+    test <- get_signature(chosen_alpha, chosen_type)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .)
+
+write.table(signatures, "enet_multinomial_data/enet_multinomial_all_signatures.txt", 
+            sep = "\t", quote = F)
+
+```
+
+
+```{r}
+signatures <- read.table("enet_multinomial_data/enet_multinomial_all_signatures.txt", sep = "\t")
+
+```
+
+Signature heatmap
+
+
+```{r}
+chosen.colors <- subtype_colors
+
+signature_heatmap <- function(chosen_alpha, data_type){
+  if (data_type == "Global"){
+      data_mat <- global_mat_train
+    } else if (data_type == "Phospho"){
+      data_mat <- phospho_mat_train
+    } else {
+      data_mat <- RNA_mat_train
+    }
+  
+  signatures <- signatures %>%
+    group_by(chosen_type, alpha, Gene) %>%
+    dplyr::mutate(total = n()) %>%
+    ungroup()
+  
+  row_df <- signatures %>%
+    dplyr::filter(alpha == chosen_alpha) %>%
+    dplyr::filter(chosen_type == data_type) %>%
+    dplyr::select(Gene, Cluster) %>%
+    group_by(Gene) %>%
+    dplyr::mutate(total = n()) %>%
+    dplyr::mutate(Cluster = case_when(total == 1 ~ as.character(Cluster),
+                                      TRUE ~ "Mixed"),
+                  Cluster = factor(Cluster, levels = c("1", "2", "3", "4", "5", "Mixed"))) %>%
+    unique() %>%
+    as.data.frame()
+  rownames(row_df) <- row_df$Gene
+  
+  col_df <- meta %>%
+    dplyr::select(Barcode.ID) %>%
+    merge(cluster_assignments, by = "Barcode.ID") %>%
+    dplyr::select(k.5, Barcode.ID) %>%
+    dplyr::rename(Cluster = k.5) %>%
+    dplyr::mutate(Cluster = as.factor(Cluster)) 
+  rownames(col_df) <- col_df$Barcode.ID
+  col_df <- col_df %>%
+    select(Cluster)
+  
+  ann_colors <- list("Cluster" = c("1" = chosen.colors[[1]], 
+                                   "2" = chosen.colors[[2]],
+                                   "3" = chosen.colors[[3]],
+                                   "4" = chosen.colors[[4]],
+                                   "5" = chosen.colors[[5]],
+                                   "Mixed" = "grey"))
+  
+  heatmap_breaks <- seq(-3, 3, by = 0.2)
+  heatmap_colors <- colorRampPalette(rev(brewer.pal(n = 10, name = "RdBu")))(length(heatmap_breaks))
+  cluster_row = pheatmap:::cluster_mat(data_mat[rownames(row_df), ], distance = "euclidean", 
+                                       method = "ward.D")
+  row_df <- row_df[cluster_row$order, ] %>%
+    mutate(order = 1:n()) %>%
+    arrange(Cluster) %>%
+    select(Cluster)
+  sigs <- rownames(row_df)
+  file_path <- paste0("./enet_multinomial_data/enet_multinomial_signature_heatmap_mult_", bound_mult,
+                      "_", data_type, "_alpha_", chosen_alpha)
+  
+  
+  make.pheatmap(data_mat[sigs, ], filename = file_path, format = "pdf",
+                scale = "none", cluster_rows = FALSE, clustering_method = "ward.D", 
+                annotation_col = col_df, annotation_row = row_df, annotation_colors = ann_colors,
+                breaks = heatmap_breaks, color = heatmap_colors, show_rownames = F, show_colnames = F,
+                main = paste0(length(sigs), " total features, alpha = ", chosen_alpha, " ", data_type), height = 7, width = 7)
+}
+
+```
+
+
+
+```{r}
+lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
+  signature_heatmap(chosen_alpha, "Global")
+  signature_heatmap(chosen_alpha, "Phospho")
+  signature_heatmap(chosen_alpha, "RNA")
+})
+
+
+
+```
+
+

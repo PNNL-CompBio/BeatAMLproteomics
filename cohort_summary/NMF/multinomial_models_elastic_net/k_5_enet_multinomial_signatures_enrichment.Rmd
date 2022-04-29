@@ -1,0 +1,295 @@
+---
+title: "Cluster 5 multinomial signature enrichment"
+author: "Camilo Posso"
+date: "04/04/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+library(clusterProfiler)
+library(msigdbr)
+library(RColorBrewer)
+library(gridExtra)
+library(grid)
+
+source("../cluster_model_helper.R")
+
+```
+
+
+Loading signatures
+
+
+```{r}
+signatures <- read.table("./enet_multinomial_data/enet_multinomial_all_signatures.txt", sep = "\t")
+
+universes <- list()
+universes[["Global"]] <- rownames(global_mat_train)
+universes[["RNA"]] <- rownames(RNA_mat_train)
+
+```
+
+
+Setting up helper function for finding signature enrichment.
+
+
+```{r}
+get_enrichment_helper <- function(chosen_cluster, chosen_alpha, t2g, data_type){
+  sigs <- signatures %>% 
+    dplyr::filter(chosen_type == data_type) %>%
+    dplyr::filter(alpha == chosen_alpha) %>%
+    dplyr::filter(Cluster == chosen_cluster) %>%
+    pull(Gene)
+    
+  enrich_universe <- universes[[data_type]]
+  set.seed(117)
+  
+  enrichment <- try(enricher(sigs, 
+                             TERM2GENE = t2g, 
+                             universe = enrich_universe,
+                             pvalueCutoff = 1,
+                             minGSSize = 10)@result %>%
+                      dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust, geneID) %>%
+                      dplyr::rename(core_enrichment = geneID) %>%
+                      compress_enrichment(colname = "p.adjust", threshold = 0.8) %>%
+                      dplyr::select(Description, GeneRatio, BgRatio, pvalue, p.adjust) %>%
+                      dplyr::mutate(alpha = chosen_alpha, cluster = chosen_cluster, data_type = data_type))
+  if (inherits(enrichment, "try-error")){
+    enrichment <- data.frame(Description = NA, GeneRatio = NA, BgRatio = NA, 
+                             pvalue = NA, p.adjust = NA, alpha = chosen_alpha, 
+                             cluster = chosen_cluster, data_type = data_type)
+  }
+  
+  return(enrichment)
+}
+
+get_enrichment <- function(t2g_name, data_type){
+  print(t2g_name)
+  t2g <- t2g_all[[t2g_name]]
+  all_signature_enrichment <- lapply(c("1", "2", "3", "4", "5"), function(chosen_cluster){
+    lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+      print(paste(chosen_alpha, chosen_cluster))
+      enrichment_all <- get_enrichment_helper(chosen_cluster, chosen_alpha,
+                                              t2g, data_type)
+      return(enrichment_all)
+    }) %>% do.call("rbind", .)
+  }) %>% do.call("rbind", .) %>%
+    dplyr::mutate(DB = t2g_name)
+}
+
+```
+
+
+Setting up all the databases to use.
+
+
+```{r eval=FALSE, include=FALSE}
+t2g_all <- list()
+
+t2g_all[["GO BP"]] <- msigdbr(species = "Homo sapiens", category = "C5") %>%
+  dplyr::filter(gs_subcat == "GO:BP") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  mutate(gs_name = gsub("_", " ", gs_name))
+
+t2g_all[["GO CC"]] <- msigdbr(species = "Homo sapiens", category = "C5") %>%
+  dplyr::filter(gs_subcat == "GO:CC") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  mutate(gs_name = gsub("_", " ", gs_name))
+
+t2g_all[["GO MF"]] <- msigdbr(species = "Homo sapiens", category = "C5") %>%
+  dplyr::filter(gs_subcat == "GO:MF") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  mutate(gs_name = gsub("_", " ", gs_name))
+
+t2g_all[["GO HP"]] <- msigdbr(species = "Homo sapiens", category = "C5") %>%
+  dplyr::filter(gs_subcat == "HPO") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  mutate(gs_name = gsub("_", " ", gs_name))
+
+t2g_all[["Hallmarks"]] <- msigdbr(species = "Homo sapiens", category = "H") %>% 
+  dplyr::select(gs_name, gene_symbol)
+
+t2g_all[["Oncogenic"]] <- msigdbr(species = "Homo sapiens", category = "C6") %>% 
+  dplyr::select(gs_name, gene_symbol)
+
+t2g_all[["Curated CGP"]] <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CGP") %>%
+  dplyr::select(gs_name, gene_symbol) 
+
+t2g_all[["Curated REACTOME"]] <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CP:REACTOME") %>%
+  dplyr::select(gs_name, gene_symbol) 
+
+t2g_all[["Regulatory"]] <- msigdbr(species = "Homo sapiens", category = "C3") %>% 
+  dplyr::select(gs_name, gene_symbol) 
+
+t2g_all[["Computational CGN"]] <- msigdbr(species = "Homo sapiens", category = "C4") %>% 
+  dplyr::filter(gs_subcat == "CGN") %>%
+  dplyr::select(gs_description, gene_symbol, gs_name) %>%
+  dplyr::mutate(gs_name = paste0(gs_name, "_", gs_description)) %>%
+  dplyr::select(gs_name, gene_symbol)
+
+t2g_all[["Computational CM"]] <- msigdbr(species = "Homo sapiens", category = "C4") %>% 
+  dplyr::filter(gs_subcat == "CM") %>%
+  dplyr::select(gs_description, gene_symbol, gs_name) %>%
+  dplyr::mutate(gs_name = paste0(gs_name, "_", gs_description)) %>%
+  dplyr::select(gs_name, gene_symbol)
+
+t2g_all[["Immunologic"]] <- msigdbr(species = "Homo sapiens", category = "C7") %>% 
+  dplyr::select(gs_name, gene_symbol) 
+
+t2g_all[["Curated BIOCARTA"]] <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CP:BIOCARTA") %>%
+  dplyr::select(gs_name, gene_symbol) 
+
+t2g_all[["Curated KEGG"]] <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CP:KEGG") %>%
+  dplyr::select(gs_name, gene_symbol) 
+
+t2g_all[["Curated WIKIPATHWAYS"]] <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CP:WIKIPATHWAYS") %>%
+  dplyr::select(gs_name, gene_symbol)
+
+t2g_all[["Curated PID"]] <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CP:PID") %>%
+  dplyr::select(gs_name, gene_symbol) 
+
+```
+
+
+Getting all signature enrichment (Global and RNA)
+
+
+```{r eval=FALSE, include=FALSE}
+protein_signature_enrichment <- lapply(names(t2g_all), get_enrichment, "Global") %>% do.call("rbind", .)
+RNA_signature_enrichment <- lapply(names(t2g_all), get_enrichment, "RNA") %>% do.call("rbind", .)
+
+
+write.table(file = "enet_multinomial_data/multinomial_signature_enrichment_global.txt",
+            x = protein_signature_enrichment, sep = "\t", quote = F)
+write.table(file = "enet_multinomial_data/multinomial_signature_enrichment_RNA.txt",
+            x = RNA_signature_enrichment, sep = "\t", quote = F)
+
+```
+
+
+Plotting enrichment for each alpha.
+
+
+```{r}
+enrichment_protein <- read.table("enet_multinomial_data/multinomial_signature_enrichment_global.txt", sep = "\t")
+enrichment_RNA <- read.table("enet_multinomial_data/multinomial_signature_enrichment_RNA.txt", sep = "\t")
+
+skipped_dbs <- c("Immunologic", "Computational CGN")
+
+all_enrichment <- rbind(enrichment_protein, enrichment_RNA) %>%
+  dplyr::filter(!(DB %in% skipped_dbs)) %>%
+  dplyr::filter(p.adjust < 0.05) %>%
+  dplyr::arrange(p.adjust) %>%
+  dplyr::group_by(cluster, alpha, data_type) %>%
+  dplyr::mutate(count = 1:n()) %>%
+  dplyr::ungroup(cluster, alpha, data_type) %>%
+  dplyr::mutate(Description = gsub("_", " ", Description)) %>%
+  dplyr::mutate(Description = str_wrap(Description, width = 45))
+
+```
+
+
+
+```{r}
+plot_enrichment <- function(chosen_alpha, n_per_cluster = 7){
+  enrichment_df_global <- all_enrichment %>%
+    dplyr::filter(!(DB %in% skipped_dbs)) %>%
+    dplyr::filter(alpha == chosen_alpha) %>%
+    dplyr::filter(data_type == "Global") %>%
+    dplyr::filter(count <= n_per_cluster)
+  enrichment_df_RNA <- all_enrichment %>%
+    dplyr::filter(!(DB %in% skipped_dbs)) %>%
+    dplyr::filter(alpha == chosen_alpha) %>%
+    dplyr::filter(data_type == "RNA") %>%
+    dplyr::filter(count <= n_per_cluster)
+  
+  enrich_mat_global <- enrichment_df_global %>%
+    dplyr::arrange(cluster) %>%
+    dplyr::select(cluster, Description, p.adjust, DB) %>%
+    pivot_wider(names_from = "cluster", values_from = "p.adjust") %>%
+    as.matrix()
+  row_df_global <- data.frame(DB = enrich_mat_global[, 2], 
+                              row.names = enrich_mat_global[, 1])
+  enrich_mat_global <- enrich_mat_global[, -c(1, 2)]
+  
+  enrich_mat_RNA <- enrichment_df_RNA %>%
+    dplyr::arrange(cluster) %>%
+    dplyr::select(cluster, Description, p.adjust, DB) %>%
+    pivot_wider(names_from = "cluster", values_from = "p.adjust") %>%
+    as.matrix()
+  RNA_rownames <- enrich_mat_RNA[, 1] %>% unlist()
+  row_df_RNA <- data.frame(DB = enrich_mat_RNA[, 2],
+                           row.names = enrich_mat_RNA[, 1])
+  enrich_mat_RNA <- enrich_mat_RNA[, -c(1, 2)]
+  
+  enrich_mat_global[is.na(enrich_mat_global)] <- "1"
+  enrich_mat_RNA[is.na(enrich_mat_RNA)] <- "1"
+  
+  ## Asterisk labels for p-value
+  lab_helper <- function(pval_str){
+    n_asterisk <- max(floor(-log10(as.numeric(pval_str))), 0)
+    if (n_asterisk > 0){
+      out <- paste(rep("*", n_asterisk), collapse = "")
+    } else {
+      out <- ""
+    }
+    return(out)
+  }
+  lab_helper_v <- Vectorize(lab_helper)
+  
+  global_labels <- apply(enrich_mat_global, 2, lab_helper_v)
+  RNA_labels <- apply(enrich_mat_RNA, 2, lab_helper_v)
+  enrich_mat_global <- apply(enrich_mat_global, 2, as.numeric)
+  enrich_mat_RNA <- apply(enrich_mat_RNA, 2, as.numeric)
+  rownames(enrich_mat_global) <- rownames(row_df_global)
+  rownames(enrich_mat_RNA) <- rownames(row_df_RNA)
+  
+  enrich_mat_global[enrich_mat_global != 1] <- 0
+  enrich_mat_RNA[enrich_mat_RNA != 1] <- 0
+  
+  p_global <- pheatmap(enrich_mat_global, cluster_rows = F, cluster_cols = F, 
+                       display_numbers = global_labels, fontsize_number = 10, number_color = "black",
+                       annotation_row = row_df_global, color = c("grey", "white"),
+                       legend = FALSE, main = "Global signature")
+  
+  p_RNA <- pheatmap(enrich_mat_RNA, cluster_rows = F, cluster_cols = F, 
+                    display_numbers = RNA_labels, fontsize_number = 10, number_color = "black",
+                    annotation_row = row_df_RNA, color = c("grey", "white"), border_color = "grey",
+                    legend = FALSE, main = "RNA signature")
+  
+  p_all <- arrangeGrob(p_RNA[[4]], p_global[[4]], ncol = 2, 
+                       top = textGrob(paste0("Signature enrichment, alpha = ", chosen_alpha), 
+                                        gp = gpar(fontsize = 20)))
+  
+  ggsave(paste0("enet_multinomial_data/signature_enrichment_alpha_", chosen_alpha, ".pdf"), p_all, 
+         width = 30, height = 12)
+}
+
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), plot_enrichment)
+
+```
+
