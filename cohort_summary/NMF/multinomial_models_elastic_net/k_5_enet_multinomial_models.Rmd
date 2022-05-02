@@ -21,6 +21,8 @@ library(ggplot2)
 library(kableExtra)
 library(glmnet)
 library(groupdata2)
+library(gridExtra)
+library(grid)
 
 source("../cluster_model_helper.R")
 
@@ -394,32 +396,36 @@ plot_metrics <- function(chosen_alpha){
                      `Classification error` = rna_model_metrics$missclass_error,
                      data_type = "RNA"))
   
-  ggplot(summary, aes(x = Cluster, y = Recall, fill = data_type)) + 
+  p_recall <- ggplot(summary, aes(x = Cluster, y = Recall, fill = data_type)) + 
     geom_bar(stat = 'identity', width = 0.33, position = position_dodge()) + 
     scale_fill_manual(values = data_type_colors) +
-    ggtitle(paste0("Recall by cluster - 5 fold cross validation, ",
+    ggtitle(paste0("Recall by cluster, ",
                    "alpha = ", chosen_alpha)) +
     xlab("Cluster") + ylim(0, 1) +
     theme_minimal()
-  ggsave(paste0("enet_multinomial_data/model_recall_enet_multinomial_", chosen_alpha, ".pdf"))
   
-  ggplot(summary, aes(x = Cluster, y = Precision, fill = data_type)) + 
+  p_precision <- ggplot(summary, aes(x = Cluster, y = Precision, fill = data_type)) + 
     geom_bar(stat = 'identity', width = 0.33, position = position_dodge()) + 
     scale_fill_manual(values = data_type_colors) +
-    ggtitle(paste0("Precision by cluster - 5 fold cross validation, ",
+    ggtitle(paste0("Precision by cluster, ",
                    "alpha = ", chosen_alpha)) +
     xlab("Cluster") + ylim(0, 1) +
     theme_minimal()
-  ggsave(paste0("enet_multinomial_data/model_precision_enet_multinomial_", chosen_alpha, ".pdf"))
   
-  ggplot(summary, aes(x = Cluster, y = Classification.error, fill = data_type)) + 
+  p_classerror <- ggplot(summary, aes(x = Cluster, y = Classification.error, fill = data_type)) + 
     geom_bar(stat = 'identity', width = 0.33, position = position_dodge()) + 
     scale_fill_manual(values = data_type_colors) +
-    ggtitle(paste0("Classification error by cluster - 5 fold cross validation, ",
+    ggtitle(paste0("Classification error by cluster, ",
                    "alpha = ", chosen_alpha)) +
     xlab("Cluster") + ylim(0, 0.2) +
     theme_minimal()
-  ggsave(paste0("enet_multinomial_data/model_classerror_enet_multinomial_", chosen_alpha, ".pdf"))
+  
+  top_grob <- textGrob(paste0("Model metrics alpha = ", chosen_alpha), 
+                       gp = gpar(fontsize = 15))
+  p_all <- arrangeGrob(p_recall, p_precision, p_classerror, 
+                       ncol = 3, top = top_grob)
+  ggsave(paste0("enet_multinomial_data/model_metrics_alpha_", chosen_alpha, ".pdf"), p_all, 
+         width = 15, height = 6)
 }
 
 ```

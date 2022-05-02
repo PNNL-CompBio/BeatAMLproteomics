@@ -198,7 +198,7 @@ make_prediction_plot <- function(chosen_alpha, data_type, confidence_cutoff = 0.
                 legend.title = element_text(size = 12, color = "black")) + 
           ggtitle("Predicting on 51 new samples")
   
-  p_all <- arrangeGrob(p1, p2, p3, p4, ncol = 2, nrow = 2,
+  p_all <- arrangeGrob(p1, p2, p4, ncol = 2, nrow = 2,
                        top = textGrob(paste0("Survival plots, ", data_type, ", alpha = ", chosen_alpha), 
                                       gp = gpar(fontsize = 20)))
   ggsave(paste0("enet_multinomial_data/predicted_survival_", 
@@ -217,6 +217,197 @@ lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alph
   make_prediction_plot(chosen_alpha, "Global", robust = FALSE)
   make_prediction_plot(chosen_alpha, "Phospho", robust = FALSE)
 })
+
+```
+
+
+
+```{r}
+all_mutation_data <- load_mutational_sample_data()
+mutation_data <- all_mutation_data %>%
+  mutate(value = TRUE) %>%
+  pivot_wider(names_from = Gene, values_from = value, values_fn = any)
+mutation_data <- mutation_data[, c("Barcode.ID", "KRAS+NRAS", "NPM1_clinical")] %>%
+  full_join(meta[, c("Barcode.ID", "FLT3.ITD")], by = "Barcode.ID") %>%
+  mutate(RAS = case_when(!is.na(`KRAS+NRAS`) ~ `KRAS+NRAS`,
+                          TRUE ~ FALSE),
+         NPM1_clinical = case_when(!is.na(NPM1_clinical) ~ NPM1_clinical,
+                                   TRUE ~ FALSE),
+         FLT3 = case_when(FLT3.ITD == "TRUE" ~ TRUE,
+                          TRUE ~ FALSE)) %>%
+  select(Barcode.ID, FLT3, NPM1_clinical, RAS)
+```
+
+
+
+```{r}
+mut_enrichment <- function(sample_categories, assignments, log.scale = FALSE) {
+  k = length(unique(assignments$Cluster))
+  
+  sample_categories <- sample_categories %>%
+    filter(rownames(.) %in% rownames(assignments)) %>%
+    left_join(assignments, by = "Barcode.ID") %>%
+    column_to_rownames("Barcode.ID") %>% 
+    as.data.frame()
+  
+  categories <- sample_categories %>%
+    select(-Cluster) %>%
+    colnames()
+  
+  out <- lapply(categories, function(category){
+    
+    p.values <- lapply(1:k, function(i){
+      cluster.df <- sample_categories %>%
+        mutate(Cluster = case_when(Cluster == i ~ TRUE,
+                                   TRUE ~ FALSE)) %>%
+        mutate(Cluster = as.factor(Cluster))
+      dat <- table(cluster.df[[category]], cluster.df$Cluster)
+      background_dist <- apply(dat, 1, sum)
+      background_prop <- background_dist[[2]]/(background_dist[[2]] + background_dist[[1]])
+      cluster_prop <- dat[2, 2]/(dat[1, 2] + dat[2, 2])
+      p_value <- fisher.test(dat, workspace = 2e8, alternative = "greater")$p.value
+      if (log.scale) {
+        p_value <- -log10(p_value)
+      } else {
+        p_value <- p_value
+      }
+      xx <- data.frame(background_prop, cluster_prop, p_value)
+      colnames(xx) <- c(paste("Background", category, "positive fraction"),
+                        paste(category, "positive fraction"),
+                        paste("Enrichment", category, "p-value"))
+      rownames(xx) <- paste("Cluster", i)
+      return(xx)
+    }) %>% do.call("rbind", .)
+    
+  }) %>% do.call(cbind, .) %>% 
+    as.data.frame()
+  return(out)
+}
+
+
+mut_enrichment_plot <- function(chosen_alpha, data_type, robust = TRUE){
+  if (robust){
+    path_ending <- "_robust_normalization.pdf"
+  } else {
+    path_ending <- ".pdf"
+  }
+  
+  meta_pred <- make_prediction(chosen_alpha, data_type, robust) %>%
+    select(Barcode.ID, pred_cluster, pred_cluster_v2) %>%
+    full_join(mutation_data, by = "Barcode.ID") %>%
+    mutate(pred_cluster = sub("Cluster ", "", pred_cluster),
+           pred_cluster_v2 = sub("Cluster ", "", pred_cluster_v2))
+  rownames(meta_pred) <- meta_pred$Barcode.ID
+  
+  sample_assn <- meta_pred[, c("Barcode.ID", "pred_cluster")] %>%
+    dplyr::rename(Cluster = pred_cluster) %>%
+    filter(!is.na(Cluster))
+  sample_cats <- meta_pred[rownames(sample_assn), c("Barcode.ID", "FLT3", "RAS", "NPM1_clinical")]
+  mutation_enrichment <- mut_enrichment(sample_cats, sample_assn) %>%
+    mutate(Cluster = 1:4) %>%
+    mutate(pred_type = "51 Samples")
+  
+  sample_assn <- meta_pred[, c("Barcode.ID", "pred_cluster_v2")] %>%
+    dplyr::rename(Cluster = pred_cluster_v2) %>%
+    filter(!is.na(Cluster))
+  sample_cats <- meta_pred[rownames(sample_assn), c("Barcode.ID", "FLT3", "RAS", "NPM1_clinical")]
+  mutation_enrichment <- mut_enrichment(sample_cats, sample_assn) %>%
+    mutate(Cluster = 1:4) %>%
+    mutate(pred_type = "210 Samples") %>%
+    rbind(mutation_enrichment)
+  
+  sample_assn <- enet_meta[, c("Barcode.ID", "k.4")] %>%
+    dplyr::rename(Cluster = k.4) %>%
+    filter(!is.na(Cluster)) 
+  sample_cats <- meta_pred[rownames(sample_assn), c("Barcode.ID", "FLT3", "RAS", "NPM1_clinical")]
+  mutation_enrichment <- mut_enrichment(sample_cats, sample_assn) %>%
+    mutate(Cluster = 1:4) %>%
+    mutate(pred_type = "159 Samples") %>%
+    rbind(mutation_enrichment) %>%
+    mutate(pred_type = factor(pred_type, levels = c("159 Samples", 
+                                                    "210 Samples",
+                                                    "51 Samples")))
+  
+  plot_df1 <- mutation_enrichment %>%
+    select(Cluster, `FLT3 positive fraction`,
+           `Enrichment FLT3 p-value`, pred_type) %>%
+    dplyr::rename(`P-value` = `Enrichment FLT3 p-value`,
+                  `Fraction mutated` = `FLT3 positive fraction`,
+                  `Type` = pred_type) %>%
+    mutate(`Significant enrichment` = case_when(`P-value` < 0.05 ~ 1,
+                                   TRUE ~ 0))
+  p1 <- ggplot(plot_df1, aes(x = Cluster, y = `Fraction mutated`, 
+                             group = `Type`, 
+                             fill = `Type`)) + 
+    geom_bar(stat = "identity", pos = position_dodge(), width = 0.77, alpha = 0.7) + 
+    scale_fill_manual(values = prediction_colors) +
+    geom_col_pattern(aes(x = Cluster, y = `Fraction mutated`,
+                         pattern_alpha = `Significant enrichment`),
+                     width = 0.77,  pos = position_dodge(),
+                     pattern = 'stripe',
+                     color = 'black') +
+    scale_pattern_alpha(guide = "none") + 
+    ggtitle("FLT3 Status") + ylim(0, 1)
+  
+  plot_df2 <- mutation_enrichment %>%
+    select(Cluster, `RAS positive fraction`,
+           `Enrichment RAS p-value`, pred_type) %>%
+    dplyr::rename(`P-value` = `Enrichment RAS p-value`,
+                  `Fraction mutated` = `RAS positive fraction`,
+                  `Type` = pred_type) %>%
+    mutate(`Significant enrichment` = case_when(`P-value` < 0.05 ~ 1,
+                                   TRUE ~ 0))
+  p2 <- ggplot(plot_df2, aes(x = Cluster, y = `Fraction mutated`, 
+                             group = `Type`, 
+                             fill = `Type`)) + 
+    geom_bar(stat = "identity", pos = position_dodge(), width = 0.77, alpha = 0.7) + 
+    scale_fill_manual(values = prediction_colors) +
+    geom_col_pattern(aes(x = Cluster, y = `Fraction mutated`,
+                         pattern_alpha = `Significant enrichment`),
+                     width = 0.77,  pos = position_dodge(),
+                     pattern = 'stripe',
+                     color = 'black') +
+    scale_pattern_alpha(guide = "none") + 
+    ggtitle("RAS Status") + ylim(0, 1)
+  
+  plot_df3 <- mutation_enrichment %>%
+    select(Cluster, `NPM1_clinical positive fraction`,
+           `Enrichment NPM1_clinical p-value`, pred_type) %>%
+    dplyr::rename(`P-value` = `Enrichment NPM1_clinical p-value`,
+                  `Fraction mutated` = `NPM1_clinical positive fraction`,
+                  `Type` = pred_type) %>%
+    mutate(`Significant enrichment` = case_when(`P-value` < 0.05 ~ 1,
+                                   TRUE ~ 0))
+  p3 <- ggplot(plot_df3, aes(x = Cluster, y = `Fraction mutated`, 
+                             group = `Type`, 
+                             fill = `Type`)) + 
+    geom_bar(stat = "identity", pos = position_dodge(), width = 0.77, alpha = 0.7) + 
+    scale_fill_manual(values = prediction_colors) +
+    geom_col_pattern(aes(x = Cluster, y = `Fraction mutated`,
+                         pattern_alpha = `Significant enrichment`),
+                     width = 0.77,  pos = position_dodge(),
+                     pattern = 'stripe',
+                     color = 'black') +
+    scale_pattern_alpha(guide = "none") + 
+    ggtitle("NPM1_clinical Status") + ylim(0, 1)
+  
+  p_all <- arrangeGrob(p1, p2, p3, ncol = 3,
+                       top = textGrob(paste0("Mutation Status - ", data_type, " predicions - alpha = ", chosen_alpha), 
+                                      gp = gpar(fontsize = 20)))
+  
+  ggsave(paste0("enet_multinomial_data/predicted_mutation_status_", 
+                  data_type, "_", chosen_alpha, path_ending), 
+           width = 15, height = 5, p_all)
+  
+  return(mutation_enrichment)
+}
+
+```
+
+
+
+```{r}
+sanity_check <- mut_enrichment_plot(0.7, "Global", TRUE)
 
 ```
 
