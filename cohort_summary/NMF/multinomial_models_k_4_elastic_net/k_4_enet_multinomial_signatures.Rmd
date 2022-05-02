@@ -21,6 +21,8 @@ library(ggplot2)
 library(glmnet)
 library(msigdbr)
 library(RColorBrewer)
+library(gridExtra)
+library(grid)
 
 source("../cluster_model_helper.R")
 
@@ -118,7 +120,7 @@ Signature heatmap
 ```{r}
 chosen.colors <- subtype_colors
 
-signature_heatmap <- function(chosen_alpha, data_type){
+signature_heatmap <- function(chosen_alpha, data_type, save_plot = TRUE){
   if (data_type == "Global"){
       data_mat <- global_mat_train
     } else if (data_type == "Phospho"){
@@ -170,15 +172,35 @@ signature_heatmap <- function(chosen_alpha, data_type){
     arrange(Cluster) %>%
     select(Cluster)
   sigs <- rownames(row_df)
-  file_path <- paste0("./enet_multinomial_data/enet_multinomial_signature_heatmap_mult_", bound_mult,
-                      "_", data_type, "_alpha_", chosen_alpha)
+  file_path <- paste0("./enet_multinomial_data/signature_heatmap_", 
+                      data_type, "_alpha_", chosen_alpha)
   
-  
-  make.pheatmap(data_mat[sigs, ], filename = file_path, format = "pdf",
-                scale = "none", cluster_rows = FALSE, clustering_method = "ward.D", 
+  if (save_plot){
+    make.pheatmap(data_mat[sigs, ], filename = file_path, format = "pdf",
+                  scale = "none", cluster_rows = FALSE, clustering_method = "ward.D", 
+                  annotation_col = col_df, annotation_row = row_df, annotation_colors = ann_colors,
+                  breaks = heatmap_breaks, color = heatmap_colors, show_rownames = F, show_colnames = F,
+                  main = paste0(length(sigs), " total features, alpha = ", chosen_alpha, " ", data_type), 
+                  height = 7, width = 7)
+  }
+    
+  return(pheatmap(data_mat[sigs, ], scale = "none", cluster_rows = FALSE, clustering_method = "ward.D", 
                 annotation_col = col_df, annotation_row = row_df, annotation_colors = ann_colors,
                 breaks = heatmap_breaks, color = heatmap_colors, show_rownames = F, show_colnames = F,
-                main = paste0(length(sigs), " total features, alpha = ", chosen_alpha, " ", data_type), height = 7, width = 7)
+                main = paste0(length(sigs), " total features, alpha = ", chosen_alpha, " ", data_type)))
+}
+
+signature_heatmap_v2 <- function(chosen_alpha){
+  p_global <- signature_heatmap(chosen_alpha, "Global", save_plot = FALSE)
+  p_phospho <- signature_heatmap(chosen_alpha, "Phospho", save_plot = FALSE)
+  p_RNA <- signature_heatmap(chosen_alpha, "RNA", save_plot = FALSE)
+  
+  top_grob <- textGrob(paste0("Signatures alpha = ", chosen_alpha), 
+                       gp = gpar(fontsize = 20))
+  p_all <- arrangeGrob(p_global[[4]], p_RNA[[4]], p_phospho[[4]], 
+                       ncol = 3, top = top_grob)
+  ggsave(paste0("enet_multinomial_data/signature_heatmaps_alpha_", chosen_alpha, ".pdf"), p_all, 
+         width = 30, height = 12)
 }
 
 ```
@@ -187,10 +209,12 @@ signature_heatmap <- function(chosen_alpha, data_type){
 
 ```{r}
 lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
-  signature_heatmap(chosen_alpha, "Global")
-  signature_heatmap(chosen_alpha, "Phospho")
-  signature_heatmap(chosen_alpha, "RNA")
+  signature_heatmap_v2(chosen_alpha)
 })
+
+signature_heatmap(0.7, "Global")
+signature_heatmap(0.7, "RNA")
+signature_heatmap(0.7, "Phospho")
 
 ```
 
