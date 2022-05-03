@@ -426,6 +426,8 @@ plot_metrics <- function(chosen_alpha){
                        ncol = 3, top = top_grob)
   ggsave(paste0("enet_multinomial_data/model_metrics_alpha_", chosen_alpha, ".pdf"), p_all, 
          width = 15, height = 6)
+  
+  return(list(p_recall, p_precision, p_classerror))
 }
 
 ```
