@@ -409,7 +409,7 @@ mut_enrichment_plot <- function(chosen_alpha, data_type, robust = TRUE){
 
 
 ```{r}
-sanity_check <- mut_enrichment_plot(0.8, "Global", TRUE)
+sanity_check <- mut_enrichment_plot(0.6, "Global", TRUE)
 
 ```
 
