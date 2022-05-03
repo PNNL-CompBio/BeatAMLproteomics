@@ -24,6 +24,7 @@ library(survminer)
 library(survival)
 library(gridExtra)
 library(grid)
+library(ggpattern)
 
 source("../NMF_helper.R")
 source("../cluster_model_helper.R")
