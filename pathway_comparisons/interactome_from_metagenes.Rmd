@@ -35,6 +35,15 @@ k8_weights <- read.table(syn$get('syn26969686')$path,sep='\t',header=T)%>%
   mutate(fromCluster=Cluster==gsub('Cluster.','',clusterWeight,fixed=T))%>%
   subset(fromCluster)
 
+k4_weights <- read.table(syn$get('syn26969681')$path,sep='\t',header=T)%>%
+  tidyr::pivot_longer(starts_with('Cluster.'),names_to='clusterWeight',values_to = 'weight')%>%
+  mutate(fromCluster=Cluster==gsub('Cluster.','',clusterWeight,fixed=T))%>%
+  subset(fromCluster)
+
+
+cols=nationalparkcolors::park_palette("Badlands")
+clus.cols=RColorBrewer::brewer.pal(8,'Dark2')[c(2,3,5,6)]
+
 
 ```
 
@@ -45,14 +54,35 @@ library(ggplot2)
 
 
 ##summary of features
-ggplot(k5_weights)+geom_bar(aes(x=Cluster,fill=data_type),position='dodge')
+ggplot(k4_weights)+
+    geom_bar(aes(x=Cluster,fill=data_type),position='dodge')+
+    scale_fill_manual(values=cols)
 
-ggplot(k8_weights)+geom_bar(aes(x=Cluster,fill=data_type),position='dodge')
+ggsave('k4_metagenes.pdf')
+
+ggplot(k5_weights)+
+    geom_bar(aes(x=Cluster,fill=data_type),position='dodge')+
+  scale_fill_manual(values=cols)
 
 
 ```
 
 There is clearly a disparity. However, that makes sense as the molecules correlate in various ways. 
+
+## Metagene plotting
+
+To plot the proteins and transcripts, we need to collect the original expression data.
+
+```{r plot metagenes}
+library(pheatmap)
+
+source("../util/loading_data.R")
+#combined <- load.combined.data()
+```
+
+
+
+## Metagene weights for gene enrichment.  
 
 Now we can evaluate how similar the weights are to the feature scores
 
@@ -60,17 +90,31 @@ Now we can evaluate how similar the weights are to the feature scores
 
 
 ggplot(k5_weights)+
-  geom_point(aes(x=feature_score,y=weight,alpha=0.5,shape=data_type,col=as.factor(Cluster)))
+  geom_point(aes(x=feature_score,y=weight,alpha=0.5,
+                 shape=data_type,col=as.factor(Cluster)))
 
 
 ggplot(k8_weights)+geom_point(aes(x=feature_score,y=weight,alpha=0.5,
                                   shape=data_type,col=as.factor(Cluster)))
 
 
+
+ggplot(k4_weights)+geom_point(aes(x=feature_score,
+                                  y=weight,alpha=0.5,                                                                  shape=data_type,
+                                  col=as.factor(Cluster)))+
+    scale_color_manual(values=clus.cols)
 ```
+They seem to correlate so we can use them for pathway enrichment
+
+## Pathway enrichment
+
+I believe camilo did GSEA enrichment of the metagene pathways. what is the result? How does it compare to GO enrichmnet?
+
+
+
 ## Create function to take proteins by type and map them to network
 
-We need to keep track of two things - one is the type of feature we are handling, and the other is the weight for the network.
+Then we can do network creation to build larger networks. This will enhance our ability to do functional enrichment. We need to keep track of two things - one is the type of feature we are handling, and the other is the weight for the network.
 
 ```{r network mapping,message=F,echo=T,warning=F}
 
@@ -113,16 +157,18 @@ build_run_network <- function(gene_name,
 
   rna_terms <- gene_score[rna_inds]
   names(rna_terms) <- gene_name[rna_inds]
-  if(length(gene_name)>200)
-    x=1
-  else
+  if(length(gene_name)<10)
     x=100
+  else if(length(gene_name)>400)
+    x=.01
+  else
+    x=1
   
   netlist = amlresistancenetworks::computePhosphoNetwork(phos.vals=kin_terms,
                                                      prot.vals=prot_terms,
                                                      gene.vals=wes_terms,
                                                      rna.vals=rna_terms,
-                                                     beta=x*.1,
+                                                     beta=x,
                                                      nrand=rands,
                                                      fname=netname)
   graph =netlist$graph
@@ -134,29 +180,49 @@ build_run_network <- function(gene_name,
   return(graph)
 }
 
+
+print("K4 Clusters")
+k4_weights%>%group_by(data_type,Cluster)%>%summarize(numFeatures=n())%>%arrange(Cluster)%>%
+  DT::datatable()
+
+
+
 print("K5 Clusters")
 k5_weights%>%group_by(data_type,Cluster)%>%summarize(numFeatures=n())%>%arrange(Cluster)%>%
   DT::datatable()
 
 
 print('K8 Clusters')
-k8_weights%>%group_by(data_type, Cluster)%>%summarize(numFeatures=n())%>%arrange(Cluster)%>%
+k8_weights%>%group_by(data_type, Cluster)%>%
+  summarize(numFeatures=n())%>%
+  arrange(Cluster)%>%
   DT::datatable()
 ```
 
 Now we can run the analysis
 
 
-```{r k5 cluster analysis}
-k5_nets <- k5_weights %>%
-    mutate(k=5,nrand=100)%>%
-    group_by(Cluster)%>%
-    dplyr::summarize(net=list(build_run_network(feature,
-                                             weight,
-                                             data_type,
-                                             Cluster,
-                                             k,
-                                             nrand,store=TRUE)))
+```{r k4 cluster analysis}
+library(dplyr)
+ k4_nets <- k4_weights %>%
+     mutate(k=4,nrand=100)%>%
+     group_by(Cluster)%>%
+     dplyr::summarize(net=list(build_run_network(feature,
+                                              weight,
+                                              data_type,
+                                              Cluster,
+                                              k,
+                                              nrand,store=TRUE)))
+
+# k5_nets <- k5_weights %>%
+#     mutate(k=5,nrand=100)%>%
+#     group_by(Cluster)%>%
+#     dplyr::summarize(net=list(build_run_network(feature,
+#                                              weight,
+#                                              data_type,
+#                                              Cluster,
+#                                              k,
+#                                              nrand,store=TRUE)))
 
 getNetStats <- function(net_list,orig_tab){
   require(igraph)
@@ -177,7 +243,7 @@ getNetStats <- function(net_list,orig_tab){
   return(rbind(graph_counts,orig_counts))  
 }
 
-DT::datatable(getNetStats(k5_nets,k5_weights))
+DT::datatable(getNetStats(k4_nets,k4_weights))
 
 ```
 
