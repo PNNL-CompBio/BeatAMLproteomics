@@ -21,6 +21,8 @@ differential expression for selected mutations.
 library(dplyr)
 library(ggplot2)
 library(kableExtra)
+library(gridExtra)
+library(grid)
 
 source("../util/synapseUtil.R")
 source("../util/loading_data.R")
@@ -131,12 +133,16 @@ names(differential_expression_results) = sapply(differential_expression_results,
 })
 
 saveRDS(differential_expression_results, "./raw_tables/all_mutations_diffexp_results.RDS")
+write.table(summary_table, "raw_tables/all_mutations_diffexp_summary.txt", sep = "\t")
 
 ```
 
 
 
 ```{r}
+differential_expression_results <- readRDS("./raw_tables/all_mutations_diffexp_results.RDS")
+summary_table <- read.table("raw_tables/all_mutations_diffexp_summary.txt", sep = "\t")
+colnames(summary_table)[3:5] <- gsub("\\.", " ", colnames(summary_table)[3:5])
 selected_mutations <- c("IDH1", "IDH2", "TP53", "NRAS", "KRAS", "FLT3.ITD", "NPM1_clinical", 
                         IDH1_IDH2, KRAS_NRAS)
 
@@ -169,21 +175,35 @@ plot_df <- summary_table %>%
                           name == "phospho" ~ "Phospho",
                           name == "RNA" ~ "RNA")) %>%
   mutate(individual_bar = paste(mutation, name)) %>%
+  dplyr::rename(`Data type` = name) %>%
   arrange(-value) %>%
   mutate(mutation = factor(mutation, levels = unique(mutation)))
 
-p <- ggplot(plot_df, aes(y = mutation, x = value, fill = name)) + 
-  geom_bar(stat = 'identity') + xlab("Features differentially expressed") +
-  scale_fill_manual(values = plot_colors)
+p1 <- ggplot(plot_df, aes(y = mutation, x = value, fill = `Data type`)) + 
+  geom_bar(stat = 'identity', pos = position_dodge(), width = 0.7) + xlab("Features differentially expressed") +
+  scale_fill_manual(values = plot_colors) + scale_x_continuous(trans = "log1p", breaks = c(0, 10, 100, 1000, 4000)) + 
+  theme(legend.position='left') + ylab("")
 
-ggsave(filename = "./plots/mutational_differential_expression_barplot_count.png", plot = p)
-# upload.plot("./plots/mutational_differential_expression_barplot_count.png", parentId = "syn26529351")
 
-ggsave(filename = "./plots/mutational_differential_expression_barplot_count.pdf", plot = p)
-upload.plot("./plots/mutational_differential_expression_barplot_count.pdf", parentId = "syn26529351")
+count_df <- summary_table %>%
+  select(mutation, Number.mutated) %>%
+  mutate(mutation = factor(mutation, levels = unique(plot_df$mutation)))
+p2 <- ggplot(count_df, aes(y = mutation, x = Number.mutated/210)) +
+  geom_bar(stat = 'identity', width = 0.4) + xlab("Fraction of mutated samples") + ylab("") +
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
-p
 
+lay <- rbind(c(1,1,1,1,1,1,1,2,2,2,2,2), 
+             c(1,1,1,1,1,1,1,2,2,2,2,2))
+top_grob <- textGrob("Differential expression by mutation", 
+                     gp = gpar(fontsize = 20))
+p_all <- arrangeGrob(p1, p2, top = top_grob, layout_matrix = lay)
+
+
+ggsave(filename = "./plots/mutational_differential_expression_barplot_count.pdf", 
+       plot = p_all, width = 15, height = 10)
+upload.plot("./plots/mutational_differential_expression_barplot_count.pdf", 
+            parentId = "syn26529351")
 ```
 
 
