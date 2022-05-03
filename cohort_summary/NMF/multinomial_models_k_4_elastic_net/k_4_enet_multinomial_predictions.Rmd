@@ -413,6 +413,16 @@ sanity_check <- mut_enrichment_plot(0.7, "Global", TRUE)
 ```
 
 
+```{r eval=FALSE, include=FALSE}
+predictions <- make_prediction(0.7, "Global", TRUE) %>%
+  select(Barcode.ID, pred_cluster_v2) %>%
+  dplyr::rename(Cluster = pred_cluster_v2) %>%
+  mutate(Cluster = as.character(Cluster))
+
+write.table(predictions, "enet_multinomial_data/full_210_prediction_cluster_assignments_k4.txt", sep = "\t")
+upload.plot("enet_multinomial_data/full_210_prediction_cluster_assignments_k4.txt", "syn29612385")
+
+```
 
 
 
