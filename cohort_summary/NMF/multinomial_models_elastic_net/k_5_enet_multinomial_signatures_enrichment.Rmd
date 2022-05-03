@@ -269,12 +269,14 @@ plot_enrichment <- function(chosen_alpha, n_per_cluster = 7){
   p_global <- pheatmap(enrich_mat_global, cluster_rows = F, cluster_cols = F, 
                        display_numbers = global_labels, fontsize_number = 10, number_color = "black",
                        annotation_row = row_df_global, color = c("grey", "white"),
-                       legend = FALSE, main = "Global signature")
+                       legend = FALSE, main = "Global signature",
+                    treeheight_row = 40, treeheight_col = 40, fontsize = 13)
   
   p_RNA <- pheatmap(enrich_mat_RNA, cluster_rows = F, cluster_cols = F, 
                     display_numbers = RNA_labels, fontsize_number = 10, number_color = "black",
                     annotation_row = row_df_RNA, color = c("grey", "white"), border_color = "grey",
-                    legend = FALSE, main = "RNA signature")
+                    legend = FALSE, main = "RNA signature",
+                    treeheight_row = 40, treeheight_col = 40, fontsize = 13)
   
   p_all <- arrangeGrob(p_RNA[[4]], p_global[[4]], ncol = 2, 
                        top = textGrob(paste0("Signature enrichment, alpha = ", chosen_alpha), 

@@ -424,6 +424,8 @@ plot_metrics <- function(chosen_alpha){
                        ncol = 3, top = top_grob)
   ggsave(paste0("enet_multinomial_data/model_metrics_alpha_", chosen_alpha, ".pdf"), p_all, 
          width = 15, height = 6)
+  
+  return(list(p_recall, p_precision, p_classerror))
 }
   
 
@@ -434,4 +436,16 @@ plot_metrics <- function(chosen_alpha){
 lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), plot_metrics)
 
 ```
+
+
+
+```{r}
+error_plots <- plot_metrics(0.7)
+
+ggsave("enet_multinomial_data/recall_alpha_0.7.pdf", error_plots[[1]], width = 7, height = 6)
+ggsave("enet_multinomial_data/classification_error_alpha_0.7.pdf", error_plots[[3]], width = 7, height = 6)
+
+```
+
+
 
