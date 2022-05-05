@@ -172,7 +172,7 @@ make_prediction_plot <- function(chosen_alpha, data_type, confidence_cutoff = 0.
   
   sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = meta_c_train)
   p1 <- ggsurvplot(sfit, color = "Cluster", data = meta_c_train,
-                   palette = color_palette)$plot +
+                   palette = color_palette, pval = TRUE)$plot +
           theme(legend.text = element_text(size = 12, color = "black"),
                 legend.title = element_text(size = 12, color = "black")) + 
           ggtitle("159 Clustered samples")
@@ -180,21 +180,21 @@ make_prediction_plot <- function(chosen_alpha, data_type, confidence_cutoff = 0.
   meta_c$Cluster <- meta_c$pred_cluster_v2
   sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = meta_c)
   p2 <- ggsurvplot(sfit, color = "Cluster", data = meta_c,
-                   palette = color_palette)$plot +
+                   palette = color_palette, pval = TRUE)$plot +
           theme(legend.text = element_text(size = 12, color = "black"),
                 legend.title = element_text(size = 12, color = "black")) + 
           ggtitle("Predicting on all 210 samples")
   
   sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = meta_c_plot)
   p3 <- ggsurvplot(sfit, color = "Cluster", data = meta_c_plot,
-                   palette = color_palette)$plot +
+                   palette = color_palette, pval = TRUE)$plot +
           theme(legend.text = element_text(size = 12, color = "black"),
                 legend.title = element_text(size = 12, color = "black")) +
           ggtitle(plot_title)
   
   sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = meta_c_new)
   p4 <- ggsurvplot(sfit, color = "Cluster", data = meta_c_new,
-                   palette = color_palette)$plot +
+                   palette = color_palette,  pval = TRUE)$plot +
           theme(legend.text = element_text(size = 12, color = "black"),
                 legend.title = element_text(size = 12, color = "black")) + 
           ggtitle("Predicting on 51 new samples")

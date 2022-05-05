@@ -1,0 +1,163 @@
+---
+title: "K = 4 multinoamial models"
+author: "Camilo Posso"
+date: "05/04/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+library(groupdata2)
+
+
+source("../util/synapseUtil.R")
+source("../util/loading_data.R")
+source("../util/make_plots_util.R")
+source("../util/mutational_analysis_helper.R")
+source("predicting_mutation_helper.R")
+
+
+```
+
+
+
+```{r}
+train_model <- function(data_type, chosen_alpha, chosen_mutation, 
+                        random_state, use_weights){
+  
+  if (data_type == "Global"){
+    data_mat <- global_mat
+  } else if (data_type == "Phospho"){
+    data_mat <- phospho_mat
+  } else {
+    data_mat <- RNA_mat
+  }
+  
+  model_meta <- mutation_mat[, c("Barcode.ID", chosen_mutation)] %>%
+    filter(Barcode.ID %in% colnames(data_mat)) %>%
+    dplyr::rename(mut_status = !! chosen_mutation)
+  n_samples <- ncol(data_mat)
+  rownames(model_meta) <- model_meta$Barcode.ID
+  
+  model_meta <- model_meta[colnames(data_mat), ]
+  model_meta <- model_meta %>%
+    group_by(mut_status) %>%
+    mutate(weight = 1 - n()/n_samples) %>%
+    ungroup(mut_status)
+  mutation_bool <- model_meta$mut_status %>% 
+    factor(levels = c("FALSE", "TRUE"))
+  names(mutation_bool) <- model_meta$Barcode.ID
+  
+  lambda_max <- 3.0
+  ## Using an fixed lambda path. Contains adequate lambda for all the alpha
+  ## from 0.1 to 1.
+  lambda_path <- round(exp(seq(log(lambda_max), log(lambda_max*0.0001), 
+                               length.out = 300)), digits = 10)
+  # hist(log(lambda_path))
+  
+  set.seed(random_state)
+  
+  folds <- groupdata2::fold(model_meta, k = 5, cat_col = "mut_status") %>%
+    select(Barcode.ID, mut_status, .folds) %>%
+    as.data.frame()
+  rownames(folds) <- folds$Barcode.ID
+  folds <- folds[colnames(data_mat), ]
+  fold_ids <- folds$.folds %>% as.numeric()
+  
+  if (use_weights){
+    model <- cv.glmnet(x = t(data_mat),
+                       y = mutation_bool,
+                       family = 'binomial',
+                       type.measure = "class",
+                       alpha = chosen_alpha,
+                       lambda = lambda_path,
+                       foldid = fold_ids,
+                       weights = model_meta$weight)
+  } else {
+    model <- cv.glmnet(x = t(data_mat),
+                       y = mutation_bool,
+                       family = 'binomial',
+                       type.measure = "class",
+                       alpha = chosen_alpha,
+                       lambda = lambda_path,
+                       foldid = fold_ids)
+  }
+  
+  out <- data.frame(lambda = model$lambda %>% as.character(), alpha = chosen_alpha, 
+                    random_state = random_state, miss_class_error = model$cvm)
+  return(out)
+}
+
+```
+
+
+```{r}
+run_cv_grid_helper <- function(data_type,
+                               chosen_mutation,
+                               use_weights,
+                               n_trials = 20,
+                               master_random_state = 117,
+                               alpha_values = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1)){
+          
+  set.seed(master_random_state)
+  random_states <- sample(1:1000000, size = n_trials)
+  
+  all_cvm <- lapply(random_states, function(random_state){
+    ## Running cv over the grid using the folds determined by random_state
+    grid_results <- lapply(alpha_values, function(chosen_alpha){
+      cvm_results <- train_model(data_type, chosen_alpha, chosen_mutation,
+                                 random_state, use_weights)
+    }) %>% do.call("rbind", .)
+  }) %>% do.call("rbind", .) %>%
+    group_by(alpha, lambda) %>%
+    summarize(avg_error = mean(miss_class_error)) %>%
+    ungroup() %>%
+    mutate(mutation = chosen_mutation, 
+           use_weights = use_weights, data_type = data_type)
+  
+  return(all_cvm)
+}
+
+run_cv_grid <- function(chosen_mutation){
+  lapply(c("Global", "Phospho", "RNA"), function(data_type){
+    print(paste(chosen_mutation, data_type))
+    cv_no_weights <- run_cv_grid_helper(data_type, chosen_mutation, 
+                                         use_weights = FALSE)
+    cv_weights <- run_cv_grid_helper(data_type, chosen_mutation, 
+                                     use_weights = TRUE)
+    
+    return(rbind(cv_weights, cv_no_weights))
+  }) %>% do.call("rbind", .)
+}
+
+chosen_mutations <- colnames(mutation_mat)[-1]
+
+
+```
+
+
+Running elastic net on all mutations.
+
+
+```{r}
+all_model_results <- lapply(chosen_mutations[1:2], run_cv_grid) %>%
+  do.call("rbind", .)
+
+```
+
+
+
+
+

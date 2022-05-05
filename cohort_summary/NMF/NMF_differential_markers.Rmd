@@ -77,11 +77,16 @@ find_markers <- function(m, var_interest, p_cutoff = 0.05, reduced = TRUE){
     mutate(signature = case_when(all(logFC > 0) ~ "Positive",
                                  all(logFC < 0) ~ "Negative",
                                  TRUE ~ "Mixed")) %>%
-    ungroup(Cluster, feature)
+    mutate(logFC = min(abs(logFC))) %>%
+    ungroup(Cluster, feature) %>%
+    filter(signature != "Mixed") %>%
+    mutate(logFC = case_when(signature == "Positive" ~ logFC,
+                             TRUE ~ -logFC))
+   
   
   if (reduced){
     markers <- markers %>%
-      select(feature, Cluster, significance, signature, total) %>%
+      select(feature, Cluster, significance, logFC, signature, total) %>%
       unique()
   }
   return(markers)
@@ -101,8 +106,10 @@ meta_c <- meta %>%
   filter(!is.na(k4))
 
 m_RNA <- make.msnset(RNA.data, "Gene", value = "RNA counts", metadata = meta_c)
-m_global <- make.msnset(global.data %>% filter(Barcode.ID %in% meta_c$Barcode.ID), "Gene", metadata = meta_c)
-m_phospho <- make.msnset(phospho.data %>% filter(Barcode.ID %in% meta_c$Barcode.ID), "SiteID", metadata = meta_c)
+m_global <- make.msnset(global.data %>% filter(Barcode.ID %in% meta_c$Barcode.ID), 
+                        "Gene", metadata = meta_c)
+m_phospho <- make.msnset(phospho.data %>% filter(Barcode.ID %in% meta_c$Barcode.ID), 
+                         "SiteID", metadata = meta_c)
 
 
 markers_RNA <- find_markers(m_RNA, "k5") %>%
@@ -114,7 +121,7 @@ markers_global <- find_markers(m_global, "k5") %>%
 
 markers_k5 <- rbind(markers_global, markers_RNA, markers_phospho) %>%
   filter(signature != "Mixed") %>%
-  select(feature, Cluster, signature, data_type)
+  select(feature, Cluster, signature, data_type, significance, logFC)
 write.table(markers_k5, "Data/NMF_differential_markers_k5.txt", sep = "\t")
 
 
@@ -129,6 +136,12 @@ markers_k4 <- rbind(markers_global, markers_RNA, markers_phospho) %>%
   filter(signature != "Mixed") %>%
   select(feature, Cluster, signature, data_type)
 write.table(markers_k4, "Data/NMF_differential_markers_k4.txt", sep = "\t")
+
+markers_k4 <- rbind(markers_global, markers_RNA, markers_phospho) %>%
+  filter(signature != "Mixed") %>%
+  select(feature, Cluster, signature, data_type, significance, logFC)
+write.table(markers_k4, "Data/NMF_differential_markers_k4.txt", sep = "\t")
+
 
 upload.plot("Data/NMF_differential_markers_k4.txt", "syn26529350")
 upload.plot("Data/NMF_differential_markers_k5.txt", "syn26529350")
