@@ -114,6 +114,19 @@ signatures <- read.table("enet_multinomial_data/enet_multinomial_all_signatures.
 
 ```
 
+
+```{r eval=FALSE, include=FALSE}
+signatures_synapse <- signatures %>%
+  select(Cluster, Gene, alpha, chosen_type) %>%
+  dplyr::rename(data_type = chosen_type) %>%
+  filter(alpha == 0.7)
+
+write.table(signatures_synapse, "enet_multinomial_data/enet_multinomial_signatures_k4.txt", sep = "\t")
+upload.plot("enet_multinomial_data/enet_multinomial_signatures_k4.txt", "syn29612385")
+
+```
+
+
 Signature heatmap
 
 

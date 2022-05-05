@@ -15,6 +15,7 @@ subtype_colors <<- c(subtype_colors[[2]], subtype_colors[[3]],
                      subtype_colors[[5]], subtype_colors[[6]], 
                      subtype_colors[[1]], subtype_colors[[4]],
                      subtype_colors[[7]], subtype_colors[[8]])
+prediction_colors <<- park_palette("CraterLake", 3) %>% as.character()
 
 
 

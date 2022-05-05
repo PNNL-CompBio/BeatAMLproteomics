@@ -1,0 +1,140 @@
+---
+title: "Cluster 5 multinomial signature enrichment"
+author: "Camilo Posso"
+date: "05/03/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(MSnSet.utils)
+library(limma)
+
+source("../../util/synapseUtil.R")
+source("../../util/loading_data.R")
+source("../../util/mutational_analysis_helper.R")
+source("../../util/make_plots_util.R")
+
+syn <- synapseLogin()
+
+# load.combined.data()
+load("../../Misc/load.combined.data 3-09-2022.RData")
+
+cluster.syn <- "syn26642544"
+cluster_assignments <- read.table(syn$get(cluster.syn)$path, sep = "\t")
+
+```
+
+
+
+
+```{r}
+find_markers_individual <- function(m, group1, group2, coef.str, model.str, 
+                                    maximal = TRUE, p_cutoff = 0.05) {
+  group1 <- paste0(coef.str, group1)
+  group2 <- paste0(coef.str, group2)
+  contrasts <- paste0(group1, "-", group2)
+  
+  out <- limma_contrasts(m, model.str = model.str,
+                         coef.str = coef.str,
+                         contrasts = contrasts) %>%
+    filter(adj.P.Val < p_cutoff) %>%
+    group_by(feature) %>%
+    mutate(total = n(),
+           significance = max(adj.P.Val)) %>%
+    ungroup(feature)
+  
+  return(out)
+}
+
+
+find_markers <- function(m, var_interest, p_cutoff = 0.05, reduced = TRUE){
+  cats <- unique(pData(m)[[var_interest]])
+  results <- lapply(cats, function(xx){
+    group2 <- setdiff(cats, xx)
+    model_str <- paste0("~ 0 + ", var_interest)
+    find_markers_individual(m, group1 = xx, 
+                            group2 = group2,
+                            coef.str = var_interest,
+                            model.str = model_str)
+  }) %>% do.call("rbind", .)
+  
+  markers <- results %>%
+    filter(total == length(cats) - 1) %>%
+    mutate(Cluster = sub("-[0-9]+$", "", contrast)) %>%
+    group_by(Cluster, feature) %>%
+    mutate(signature = case_when(all(logFC > 0) ~ "Positive",
+                                 all(logFC < 0) ~ "Negative",
+                                 TRUE ~ "Mixed")) %>%
+    ungroup(Cluster, feature)
+  
+  if (reduced){
+    markers <- markers %>%
+      select(feature, Cluster, significance, signature, total) %>%
+      unique()
+  }
+  return(markers)
+}
+
+
+
+```
+
+
+
+```{r}
+meta$k4 = cluster_assignments[rownames(meta), "k.4"] %>% as.factor()
+meta$k5 = cluster_assignments[rownames(meta), "k.5"] %>% as.factor()
+
+meta_c <- meta %>%
+  filter(!is.na(k4))
+
+m_RNA <- make.msnset(RNA.data, "Gene", value = "RNA counts", metadata = meta_c)
+m_global <- make.msnset(global.data %>% filter(Barcode.ID %in% meta_c$Barcode.ID), "Gene", metadata = meta_c)
+m_phospho <- make.msnset(phospho.data %>% filter(Barcode.ID %in% meta_c$Barcode.ID), "SiteID", metadata = meta_c)
+
+
+markers_RNA <- find_markers(m_RNA, "k5") %>%
+  dplyr::mutate(data_type = "RNA")
+markers_phospho <- find_markers(m_phospho, "k5") %>%
+  dplyr::mutate(data_type = "Phospho")
+markers_global <- find_markers(m_global, "k5") %>%
+  dplyr::mutate(data_type = "Global")
+
+markers_k5 <- rbind(markers_global, markers_RNA, markers_phospho) %>%
+  filter(signature != "Mixed") %>%
+  select(feature, Cluster, signature, data_type)
+write.table(markers_k5, "Data/NMF_differential_markers_k5.txt", sep = "\t")
+
+
+markers_RNA <- find_markers(m_RNA, "k4") %>%
+  dplyr::mutate(data_type = "RNA")
+markers_phospho <- find_markers(m_phospho, "k4") %>%
+  dplyr::mutate(data_type = "Phospho")
+markers_global <- find_markers(m_global, "k4") %>%
+  dplyr::mutate(data_type = "Global")
+
+markers_k4 <- rbind(markers_global, markers_RNA, markers_phospho) %>%
+  filter(signature != "Mixed") %>%
+  select(feature, Cluster, signature, data_type)
+write.table(markers_k4, "Data/NMF_differential_markers_k4.txt", sep = "\t")
+
+upload.plot("Data/NMF_differential_markers_k4.txt", "syn26529350")
+upload.plot("Data/NMF_differential_markers_k5.txt", "syn26529350")
+
+
+```
+
+
+

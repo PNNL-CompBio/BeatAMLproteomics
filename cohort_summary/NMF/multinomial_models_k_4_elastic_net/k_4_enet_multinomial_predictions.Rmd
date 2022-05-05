@@ -24,6 +24,7 @@ library(survminer)
 library(survival)
 library(gridExtra)
 library(grid)
+library(ggpattern)
 
 source("../NMF_helper.R")
 source("../cluster_model_helper.R")
@@ -204,6 +205,7 @@ make_prediction_plot <- function(chosen_alpha, data_type, confidence_cutoff = 0.
   ggsave(paste0("enet_multinomial_data/predicted_survival_", 
                 data_type, "_", chosen_alpha, path_ending), 
          width = 16, height = 12, p_all)
+  return(list(p1, p2, p4))
 }
 
 ```
@@ -217,6 +219,12 @@ lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alph
   make_prediction_plot(chosen_alpha, "Global", robust = FALSE)
   make_prediction_plot(chosen_alpha, "Phospho", robust = FALSE)
 })
+
+prediction_survival_plots <- make_prediction_plot(0.7, "Global", robust = TRUE)
+ggsave("enet_multinomial_data/prediction_survival_alpha_0.7_all_samples.pdf", 
+       width = 7, height = 7, plot = prediction_survival_plots[[2]])
+ggsave("enet_multinomial_data/prediction_survival_alpha_0.7_heldout_samples.pdf", 
+       width = 7, height = 7, plot = prediction_survival_plots[[3]])
 
 ```
 
@@ -412,6 +420,16 @@ sanity_check <- mut_enrichment_plot(0.7, "Global", TRUE)
 ```
 
 
+```{r eval=FALSE, include=FALSE}
+predictions <- make_prediction(0.7, "Global", TRUE) %>%
+  select(Barcode.ID, pred_cluster_v2) %>%
+  dplyr::rename(Cluster = pred_cluster_v2) %>%
+  mutate(Cluster = as.character(Cluster))
+
+write.table(predictions, "enet_multinomial_data/full_210_prediction_cluster_assignments_k4.txt", sep = "\t")
+upload.plot("enet_multinomial_data/full_210_prediction_cluster_assignments_k4.txt", "syn29612385")
+
+```
 
 
 
