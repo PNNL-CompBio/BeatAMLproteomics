@@ -1,5 +1,5 @@
 ---
-title: "K = 4 multinoamial models"
+title: "Mutation binoamial models"
 author: "Camilo Posso"
 date: "05/04/2022"
 output: 
@@ -20,6 +20,8 @@ library(dplyr)
 library(ggplot2)
 library(glmnet)
 library(groupdata2)
+library(gridExtra)
+library(grid)
 
 
 source("../util/synapseUtil.R")
@@ -64,7 +66,7 @@ train_model <- function(data_type, chosen_alpha, chosen_mutation,
   ## Using an fixed lambda path. Contains adequate lambda for all the alpha
   ## from 0.1 to 1.
   lambda_path <- round(exp(seq(log(lambda_max), log(lambda_max*0.0001), 
-                               length.out = 300)), digits = 10)
+                               length.out = 250)), digits = 10)
   # hist(log(lambda_path))
   
   set.seed(random_state)
@@ -107,7 +109,7 @@ train_model <- function(data_type, chosen_alpha, chosen_mutation,
 run_cv_grid_helper <- function(data_type,
                                chosen_mutation,
                                use_weights,
-                               n_trials = 20,
+                               n_trials = 10,
                                master_random_state = 117,
                                alpha_values = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1)){
           
@@ -125,7 +127,9 @@ run_cv_grid_helper <- function(data_type,
     summarize(avg_error = mean(miss_class_error)) %>%
     ungroup() %>%
     mutate(mutation = chosen_mutation, 
-           use_weights = use_weights, data_type = data_type)
+           use_weights = use_weights, data_type = data_type) %>%
+    select(mutation, data_type, alpha, lambda, use_weights, avg_error) %>%
+    as.data.frame()
   
   return(all_cvm)
 }
@@ -144,20 +148,523 @@ run_cv_grid <- function(chosen_mutation){
 
 chosen_mutations <- colnames(mutation_mat)[-1]
 
-
+chosen_mutations
 ```
 
 
 Running elastic net on all mutations.
 
 
-```{r}
-all_model_results <- lapply(chosen_mutations[1:2], run_cv_grid) %>%
-  do.call("rbind", .)
+```{r eval=FALSE, include=FALSE}
+all_model_results <- lapply(chosen_mutations, function(chosen_mutation){
+  out <- try(run_cv_grid(chosen_mutation))
+  if (inherits(out, "try-error")) {
+    print("Too few mutations likely")
+    out <- data.frame(Error = TRUE, error = NA)
+  } else {
+    print("model OK")
+  }
+  write.table(out, file = paste0("raw_tables/mutation_prediction/model_results_", 
+                                 chosen_mutation, ".txt"),
+              sep = "\t")
+  return("Done")
+})
 
 ```
 
 
+
+```{r eval=FALSE, include=FALSE}
+folder <- "raw_tables/mutation_prediction/"
+files <- list.files(folder, "^model_results_") %>%
+  paste0(folder, .)
+
+results <- lapply(files, read.table, sep= "\t") %>%
+  lapply(function(result_df){
+    if (nrow(result_df) == 1){
+      result_df <- data.frame(mutation = c(), data_type = c(), alpha = c(),
+                              lambda = c(), use_weights = c(), avg_error = c())
+    }
+    return(result_df)
+  }) %>% 
+  do.call("rbind", .)
+
+write.table(results, "raw_tables/mutation_prediction/full_results.txt", sep = "\t")
+
+
+```
+
+
+```{r}
+results <- read.table("raw_tables/mutation_prediction/full_results.txt", sep = "\t")
+mut_freq <- read.table("raw_tables/all_mutations_diffexp_summary.txt", sep = "\t")
+results <- left_join(results, mut_freq %>% select(mutation, Number.mutated), by = "mutation") %>%
+  mutate(Number.mutated = Number.mutated/210) %>%
+  dplyr::rename(freq = Number.mutated) %>%
+  mutate(ratio = freq/avg_error)
+
+chosen_mutations_v2 <- unique(results$mutation)
+```
+
+
+
+```{r}
+## Best model per mutation + alpha + data_type. Much slower to compute, 
+## but more complete.
+get_model_metrics <- function(chosen_mutation, chosen_type, chosen_alpha){
+  master_random_state <- 117
+  set.seed(master_random_state)
+  random_states <- sample(1:1000000, size = 10)
+  
+  if (chosen_type == "Global"){
+      data_mat <- global_mat
+    } else if (chosen_type == "Phospho"){
+      data_mat <- phospho_mat
+    } else if (chosen_type == "RNA"){
+      data_mat <- RNA_mat
+    }
+  
+  lambda_max <- 3.0
+  lambda_path <- round(exp(seq(log(lambda_max), log(lambda_max*0.0001), 
+                               length.out = 250)), digits = 10)
+    
+  model_meta <- mutation_mat[, c("Barcode.ID", chosen_mutation)] %>%
+    filter(Barcode.ID %in% colnames(data_mat)) %>%
+    dplyr::rename(mut_status = !! chosen_mutation)
+  n_samples <- ncol(data_mat)
+  rownames(model_meta) <- model_meta$Barcode.ID
+  
+  model_meta <- model_meta[colnames(data_mat), ]
+  model_meta <- model_meta %>%
+    group_by(mut_status) %>%
+    mutate(weight = 1 - n()/n_samples) %>%
+    ungroup(mut_status) %>%
+    as.data.frame()
+  mutation_bool <- model_meta$mut_status %>% 
+    factor(levels = c("FALSE", "TRUE"))
+  names(mutation_bool) <- model_meta$Barcode.ID
+  rownames(model_meta) <- model_meta$Barcode.ID
+  
+  ## Getting best performing lambda from model results
+  chosen_lambda <- results %>%
+    filter(mutation == chosen_mutation,
+           alpha == chosen_alpha,
+           data_type == chosen_type) %>%
+    group_by(use_weights) %>%
+    arrange(avg_error) %>%
+    slice(1) %>%
+    ungroup(use_weights)
+  
+  chosen_lambda_wT <- chosen_lambda %>%
+    filter(use_weights) %>%
+    pull(lambda)
+  chosen_lambda_wF <- chosen_lambda %>%
+    filter(!use_weights) %>%
+    pull(lambda)
+  
+  print(paste(chosen_mutation, "alpha =", chosen_alpha, "type =", chosen_type,
+              chosen_lambda_wT, chosen_lambda_wF))
+  
+  standardize_helper <- function(xx){
+    xx <- sweep(xx, 1, apply(xx, 1, mean), FUN = '-')
+    xx <- sweep(xx, 1, apply(xx, 1, sd), FUN = '/')
+    return(xx)
+  }
+  
+  class_error_helper <- function(prediction_df){
+    prediction_df <- prediction_df %>%
+      mutate(pred = sub("Predicted Cluster ", "", Cluster_pred),
+             actual = sub("Actual Cluster ", "", Cluster))
+    sapply(c("1", "2", "3", "4"), function(chosen_cluster){
+      prediction_df %>%
+        mutate(pred = case_when(pred == chosen_cluster ~ pred,
+                                TRUE ~ "0"),
+               actual = case_when(actual == chosen_cluster ~ actual,
+                                  TRUE ~ "0"),
+               error = !(pred == actual)) %>%
+        pull(error) %>%
+        sum()/nrow(prediction_df)
+    })
+  }
+  
+  prediction_metrics <- lapply(random_states, function(random_state){
+    set.seed(random_state)
+    folds <- groupdata2::fold(model_meta, k = 5, cat_col = "mut_status") %>%
+      select(Barcode.ID, mut_status, .folds) %>%
+      as.data.frame()
+    rownames(folds) <- folds$Barcode.ID
+    folds <- folds[colnames(data_mat), ]
+    fold_ids <- folds$.folds %>% as.numeric()
+    
+    cluster_metrics <- lapply(c("1", "2", "3", "4", "5"), function(chosen_fold){
+      samples_foldtrain <- folds %>%
+        filter(.folds != chosen_fold) %>%
+        pull(Barcode.ID)
+      samples_foldtest <- folds %>%
+        filter(.folds == chosen_fold) %>%
+        pull(Barcode.ID)
+      
+      model_wT <- glmnet(x = t(data_mat[, samples_foldtrain]),
+                         y = mutation_bool[samples_foldtrain],
+                         alpha = chosen_alpha,
+                         lambda = lambda_path,
+                         weights = model_meta[samples_foldtrain, "weight"],
+                         family = "binomial")
+      model_wF <- glmnet(x = t(data_mat[, samples_foldtrain]),
+                         y = mutation_bool[samples_foldtrain],
+                         alpha = chosen_alpha,
+                         lambda = lambda_path,
+                         family = "binomial")
+        
+      mut_predictions_wT <- data.frame(Barcode.ID = samples_foldtest, 
+                                       mut_wT = predict(model_wT, s = chosen_lambda_wT, 
+                                                        newx = t(data_mat[, samples_foldtest]), 
+                                                        type = "class") %>% 
+                                         factor(levels = c("FALSE", "TRUE")))
+      mut_predictions_wF <- data.frame(Barcode.ID = samples_foldtest, 
+                                       mut_wF = predict(model_wF, s = chosen_lambda_wF, 
+                                                        newx = t(data_mat[, samples_foldtest]), 
+                                                        type = "class") %>% 
+                                         factor(levels = c("FALSE", "TRUE")))
+      prediction_df <- merge(mut_predictions_wF, mut_predictions_wT, by = "Barcode.ID") %>%
+        left_join(model_meta, by = "Barcode.ID")
+      
+      dat <- table(prediction_df$mut_wT, prediction_df$mut_status)
+      diagonal <- sapply(1:2, function(i){dat[i,i]})
+      recall_wT <- (diagonal/apply(dat, 2, sum))[["TRUE"]]
+      precision_wT <- (diagonal/apply(dat, 1, sum))[["TRUE"]]
+      missclass_error_wT <- sum(prediction_df$mut_status != prediction_df$mut_wT)/nrow(prediction_df)
+      
+      dat <- table(prediction_df$mut_wF, prediction_df$mut_status)
+      diagonal <- sapply(1:2, function(i){dat[i,i]})
+      recall_wF <- (diagonal/apply(dat, 2, sum))[["TRUE"]]
+      precision_wF <- (diagonal/apply(dat, 1, sum))[["TRUE"]]
+      missclass_error_wF <- sum(prediction_df$mut_status != prediction_df$mut_wF)/nrow(prediction_df)
+      
+      out <- data.frame(use_weights = c(TRUE, FALSE),
+                        lambda = c(chosen_lambda_wT, chosen_lambda_wF),
+                        recall = c(recall_wT, recall_wF),
+                        precision = c(precision_wT, precision_wF),
+                        missclass_error = c(missclass_error_wT, missclass_error_wF))
+      return(out)
+    }) %>% do.call("rbind", .) %>%
+      ## If precision is 0/0 we get NaN, so we turn to 0 here.
+      mutate(precision = case_when(!is.na(precision) ~ precision,
+                                   TRUE ~ 0)) %>%
+      group_by(use_weights) %>%
+      mutate(recall = mean(recall),
+             precision = mean(precision),
+             missclass_error = mean(missclass_error)) %>%
+      mutate(random_state = random_state) %>%
+      select(lambda, use_weights, 
+             recall, precision, missclass_error) %>%
+      unique()
+    
+      
+    
+  }) %>% do.call("rbind", .) %>%
+    group_by(use_weights) %>%
+    mutate(Recall = mean(recall), 
+           Precision = mean(precision),
+           missclass_error = mean(missclass_error)) %>% 
+    select(lambda, use_weights, 
+           Recall, Precision, missclass_error) %>%
+    unique() %>%
+    mutate(mutation = chosen_mutation,
+           data_type = chosen_type,
+           alpha = chosen_alpha) %>%
+    select(mutation, data_type, alpha, lambda, use_weights, 
+           Recall, Precision, missclass_error)
+  
+  return(prediction_metrics)
+}
+
+
+## Best model per mutation + data_type.
+get_model_metrics_fast <- function(chosen_mutation, chosen_type){
+  master_random_state <- 117
+  set.seed(master_random_state)
+  random_states <- sample(1:1000000, size = 10)
+  
+  if (chosen_type == "Global"){
+    data_mat <- global_mat
+  } else if (chosen_type == "Phospho"){
+    data_mat <- phospho_mat
+  } else if (chosen_type == "RNA"){
+    data_mat <- RNA_mat
+  }
+  
+  lambda_max <- 3.0
+  lambda_path <- round(exp(seq(log(lambda_max), log(lambda_max*0.0001), 
+                               length.out = 250)), digits = 10)
+  
+  model_meta <- mutation_mat[, c("Barcode.ID", chosen_mutation)] %>%
+    filter(Barcode.ID %in% colnames(data_mat)) %>%
+    dplyr::rename(mut_status = !! chosen_mutation)
+  n_samples <- ncol(data_mat)
+  rownames(model_meta) <- model_meta$Barcode.ID
+  
+  model_meta <- model_meta[colnames(data_mat), ]
+  model_meta <- model_meta %>%
+    group_by(mut_status) %>%
+    mutate(weight = 1 - n()/n_samples) %>%
+    ungroup(mut_status) %>%
+    as.data.frame()
+  mutation_bool <- model_meta$mut_status %>% 
+    factor(levels = c("FALSE", "TRUE"))
+  names(mutation_bool) <- model_meta$Barcode.ID
+  rownames(model_meta) <- model_meta$Barcode.ID
+  
+  ## Getting best performing lambda from model results
+  chosen_lambda <- results %>%
+    filter(mutation == chosen_mutation,
+           data_type == chosen_type) %>%
+    group_by(use_weights) %>%
+    arrange(avg_error) %>%
+    slice(1) %>%
+    ungroup(use_weights)
+  
+  chosen_lambda_wT <- chosen_lambda %>%
+    filter(use_weights) %>%
+    pull(lambda)
+  chosen_lambda_wF <- chosen_lambda %>%
+    filter(!use_weights) %>%
+    pull(lambda)
+  chosen_alpha_wT <- chosen_lambda %>%
+    filter(use_weights) %>%
+    pull(alpha)
+  chosen_alpha_wF <- chosen_lambda %>%
+    filter(!use_weights) %>%
+    pull(alpha)
+  
+  print(paste(chosen_mutation, "alpha =", chosen_alpha_wT, chosen_alpha_wF,
+              "type =", chosen_type, chosen_lambda_wT, chosen_lambda_wF))
+  
+  standardize_helper <- function(xx){
+    xx <- sweep(xx, 1, apply(xx, 1, mean), FUN = '-')
+    xx <- sweep(xx, 1, apply(xx, 1, sd), FUN = '/')
+    return(xx)
+  }
+  
+  class_error_helper <- function(prediction_df){
+    prediction_df <- prediction_df %>%
+      mutate(pred = sub("Predicted Cluster ", "", Cluster_pred),
+             actual = sub("Actual Cluster ", "", Cluster))
+    sapply(c("1", "2", "3", "4"), function(chosen_cluster){
+      prediction_df %>%
+        mutate(pred = case_when(pred == chosen_cluster ~ pred,
+                                TRUE ~ "0"),
+               actual = case_when(actual == chosen_cluster ~ actual,
+                                  TRUE ~ "0"),
+               error = !(pred == actual)) %>%
+        pull(error) %>%
+        sum()/nrow(prediction_df)
+    })
+  }
+  
+  prediction_metrics <- lapply(random_states, function(random_state){
+    set.seed(random_state)
+    folds <- groupdata2::fold(model_meta, k = 5, cat_col = "mut_status") %>%
+      select(Barcode.ID, mut_status, .folds) %>%
+      as.data.frame()
+    rownames(folds) <- folds$Barcode.ID
+    folds <- folds[colnames(data_mat), ]
+    fold_ids <- folds$.folds %>% as.numeric()
+    
+    cluster_metrics <- lapply(c("1", "2", "3", "4", "5"), function(chosen_fold){
+      samples_foldtrain <- folds %>%
+        filter(.folds != chosen_fold) %>%
+        pull(Barcode.ID)
+      samples_foldtest <- folds %>%
+        filter(.folds == chosen_fold) %>%
+        pull(Barcode.ID)
+      
+      model_wT <- glmnet(x = t(data_mat[, samples_foldtrain]),
+                         y = mutation_bool[samples_foldtrain],
+                         alpha = chosen_alpha_wT,
+                         lambda = lambda_path,
+                         weights = model_meta[samples_foldtrain, "weight"],
+                         family = "binomial")
+      model_wF <- glmnet(x = t(data_mat[, samples_foldtrain]),
+                         y = mutation_bool[samples_foldtrain],
+                         alpha = chosen_alpha_wF,
+                         lambda = lambda_path,
+                         family = "binomial")
+      
+      mut_predictions_wT <- data.frame(Barcode.ID = samples_foldtest, 
+                                       mut_wT = predict(model_wT, s = chosen_lambda_wT, 
+                                                        newx = t(data_mat[, samples_foldtest]), 
+                                                        type = "class") %>% 
+                                         factor(levels = c("FALSE", "TRUE")))
+      mut_predictions_wF <- data.frame(Barcode.ID = samples_foldtest, 
+                                       mut_wF = predict(model_wF, s = chosen_lambda_wF, 
+                                                        newx = t(data_mat[, samples_foldtest]), 
+                                                        type = "class") %>% 
+                                         factor(levels = c("FALSE", "TRUE")))
+      prediction_df <- merge(mut_predictions_wF, mut_predictions_wT, by = "Barcode.ID") %>%
+        left_join(model_meta, by = "Barcode.ID")
+      
+      dat <- table(prediction_df$mut_wT, prediction_df$mut_status)
+      diagonal <- sapply(1:2, function(i){dat[i,i]})
+      recall_wT <- (diagonal/apply(dat, 2, sum))[["TRUE"]]
+      precision_wT <- (diagonal/apply(dat, 1, sum))[["TRUE"]]
+      missclass_error_wT <- sum(prediction_df$mut_status != prediction_df$mut_wT)/nrow(prediction_df)
+      
+      dat <- table(prediction_df$mut_wF, prediction_df$mut_status)
+      diagonal <- sapply(1:2, function(i){dat[i,i]})
+      recall_wF <- (diagonal/apply(dat, 2, sum))[["TRUE"]]
+      precision_wF <- (diagonal/apply(dat, 1, sum))[["TRUE"]]
+      missclass_error_wF <- sum(prediction_df$mut_status != prediction_df$mut_wF)/nrow(prediction_df)
+      
+      out <- data.frame(use_weights = c(TRUE, FALSE),
+                        alpha = c(chosen_alpha_wT, chosen_alpha_wF),
+                        lambda = c(chosen_lambda_wT, chosen_lambda_wF),
+                        recall = c(recall_wT, recall_wF),
+                        precision = c(precision_wT, precision_wF),
+                        missclass_error = c(missclass_error_wT, missclass_error_wF))
+      return(out)
+    }) %>% do.call("rbind", .) %>%
+      ## If precision is 0/0 we get NaN, so we turn to 0 here.
+      mutate(precision = case_when(!is.na(precision) ~ precision,
+                                   TRUE ~ 0)) %>%
+      group_by(use_weights) %>%
+      mutate(recall = mean(recall),
+             precision = mean(precision),
+             missclass_error = mean(missclass_error)) %>%
+      mutate(random_state = random_state) %>%
+      select(alpha, lambda, use_weights, 
+             recall, precision, missclass_error) %>%
+      unique()
+    
+  }) %>% do.call("rbind", .) %>%
+    group_by(use_weights) %>%
+    mutate(Recall = mean(recall), 
+           Precision = mean(precision),
+           missclass_error = mean(missclass_error)) %>% 
+    select(alpha, lambda, use_weights, 
+           Recall, Precision, missclass_error) %>%
+    unique() %>%
+    mutate(mutation = chosen_mutation,
+           data_type = chosen_type) %>%
+    select(mutation, data_type, alpha, lambda, use_weights, 
+           Recall, Precision, missclass_error)
+  
+  return(prediction_metrics)
+}
+
+
+```
+
+
+
+
+
+```{r eval=FALSE, include=FALSE}
+all_metrics_reduced <- lapply(chosen_mutations_v2, function(chosen_mutation){
+  metrics_global <- get_model_metrics_fast(chosen_mutation, "Global")
+  metrics_phospho <- get_model_metrics_fast(chosen_mutation, "Phospho")
+  metrics_RNA <- get_model_metrics_fast(chosen_mutation, "RNA")
+  mut_metrics <- rbind(metrics_global, metrics_phospho, metrics_RNA)
+  
+  return(mut_metrics)
+}) %>% do.call("rbind", .)
+
+write.table(all_metrics_reduced, "raw_tables/mutation_prediction/model_metrics_reduced.txt", sep = "\t")
+
+```
+
+
+
+
+
+```{r eval=FALSE, include=FALSE}
+all_metrics <- lapply(chosen_mutations_v2, function(chosen_mutation){
+  mut_metrics <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1), function(chosen_alpha){
+    metrics_global <- get_model_metrics(chosen_mutation, "Global", chosen_alpha)
+    metrics_phospho <- get_model_metrics(chosen_mutation, "Phospho", chosen_alpha)
+    metrics_RNA <- get_model_metrics(chosen_mutation, "RNA", chosen_alpha)
+    out <- rbind(metrics_global, metrics_phospho, metrics_RNA)
+    return(out)
+  }) %>% do.call("rbind", .)
+}) %>% do.call("rbind", .)
+
+write.table(all_metrics, "raw_tables/mutation_prediction/model_metrics.txt", sep = "\t")
+
+
+```
+
+
+
+
+
+```{r}
+model_metrics <- read.table("raw_tables/mutation_prediction/model_metrics_reduced.txt", sep = "\t") %>%
+  arrange(missclass_error) %>%
+  group_by(mutation, data_type) %>%
+  slice(1)
+
+summary_table <- read.table("raw_tables/all_mutations_diffexp_summary.txt", sep = "\t") %>%
+  filter(mutation %in% model_metrics$mutation)
+colnames(summary_table)[3:5] <- gsub("\\.", " ", colnames(summary_table)[3:5])
+
+plot_colors <- data.frame("Global" = data_type_colors[[1]],
+                 "Phospho" = data_type_colors[[2]],
+                 "RNA" = data_type_colors[[3]])
+plot_df <- summary_table %>%
+  select(-`Number.mutated`) %>%
+  pivot_longer(-mutation) %>%
+  mutate(name = sub("^.*in ", "", name)) %>%
+  mutate(name = case_when(name == "global" ~ "Global",
+                          name == "phospho" ~ "Phospho",
+                          name == "RNA" ~ "RNA")) %>%
+  mutate(individual_bar = paste(mutation, name)) %>%
+  dplyr::rename(`Data type` = name) %>%
+  arrange(-value) %>%
+  mutate(mutation = factor(mutation, levels = unique(mutation)))
+model_metrics <- model_metrics %>%
+  mutate(mutation = factor(mutation, levels = unique(plot_df$mutation)))
+
+p_diff <- ggplot(plot_df, aes(y = mutation, x = value, fill = `Data type`)) + 
+  geom_bar(stat = 'identity', pos = position_dodge(), width = 0.7) + xlab("Features differentially expressed") +
+  scale_fill_manual(values = plot_colors) + scale_x_continuous(trans = "log1p", breaks = c(0, 10, 100, 1000, 4000)) + 
+  theme(legend.position = 'right', 
+        axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(), 
+        text = element_text(size = 15)) + ylab("")
+
+
+count_df <- summary_table %>%
+  select(mutation, Number.mutated) %>%
+  mutate(mutation = factor(mutation, levels = unique(plot_df$mutation)))
+p_count <- ggplot(count_df, aes(y = mutation, x = Number.mutated/210)) +
+  geom_bar(stat = 'identity', width = 0.4) + xlab("Fraction of mutated samples") + ylab("") +
+  theme(text = element_text(size = 15)) + xlim(0, 0.4)
+
+
+p_model <- ggplot(model_metrics, aes(y = mutation, x = missclass_error, fill = data_type)) +
+  geom_bar(stat = 'identity', width = 0.7, pos = position_dodge()) +
+  scale_fill_manual(values = plot_colors) +
+  theme(legend.position = 'none',
+        axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(),
+        text = element_text(size = 15)) +
+  xlab("Classification Error") + ylab("") + xlim(0, 0.4)
+
+
+lay <- rbind(c(1,1,1,1,1,2,2,2,2,2,3,3,3,3,3,3), 
+             c(1,1,1,1,1,2,2,2,2,2,3,3,3,3,3,3))
+top_grob <- textGrob("Differential Expression + Modeling results", 
+                     gp = gpar(fontsize = 20))
+p_all <- arrangeGrob(p_count, p_model, p_diff, top = top_grob, layout_matrix = lay)
+
+
+ggsave(filename = "./plots/mutational_diffexp_modeling_summary.pdf", 
+       plot = p_all, width = 16, height = 10)
+# upload.plot("./plots/mutational_diffexp_modeling_summary.pdf", 
+#             parentId = "syn26529351")
+
+
+```
 
 
 
