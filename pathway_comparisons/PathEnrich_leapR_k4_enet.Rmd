@@ -1,0 +1,305 @@
+---
+title: "AML_Network_Pacentine"
+author: "Itallia V. Pacentine"
+date: 2022
+output: html_document
+---
+
+**Pathway enrichment with and without network analysis for k=4**
+
+```{r setup}
+source("../util/synapseUtil.R")
+syn<-synapseLogin()
+#browseVignettes(package="synapser")
+#install.packages("devtools")
+#devtools::install_github("biodataganache/leapR", build_vignette=FALSE, force = TRUE)
+library(leapR)
+library(tidyverse)
+library(igraph)
+```
+
+**Required functions:**
+```{r}
+## Function to download network files from synapse for Beat-AML project
+  # Input: 
+    # 1. "syn": synID of a .gml file in quotes (""). For example: "syn27042882"
+    # 2. "n": cluster number
+  # Output: dataframe with 3 columns labeled "feature", "Cluster", and "data_type"
+extract_graph <- function(syn, n){
+  entity <- synGet(syn)
+  filepath <- entity$path
+  df <- read.graph(filepath, format=c("gml"))
+  df <- data.frame(V(df)$name, 
+                          c(rep(n,length(V(df)$name))),
+                          V(df)$nodeType)
+  colnames(df) <- c("feature","Cluster","data_type")
+  return(df)
+}
+
+
+## Functions to do LeapR enrichment by sets.
+  #required input:
+    # 1. "df": dataframe with columns:
+        # "feature" - gene names
+        # "Cluster" - assigned cluster number.
+        # any number of other columns
+    # 2. "gset": name of database to extract pathway information. Example: krbpaths.
+          # for more information on pathways, check leapR documentation.
+    # 3. "alpha": set the BH-adjusted pvalue of significance.
+  #Output:
+    # A list of dataframes representing pathway enrichment by sets in each 
+    # cluster. Filters for pathways which are overrepresented in each cluster,
+    # does not include when a pathway is under-represented relative to other clusters.
+    # Each dataframe in the list will be named by cluster number.
+leapR_enrich_sets <- function(df, gset, alpha) {
+  modules <- as.numeric(df$Cluster)
+  names(modules) <- df$feature
+  clusters <- lapply(unique(modules),function(x) names(which(modules==x)))
+  list_of_dfs <- list()
+  for (c in 1:length(clusters)) {
+    df_current = leapR(geneset=gset, 
+                  enrichment_method="enrichment_in_sets",
+                  background=names(modules), 
+                  targets=names(modules[which(modules==c)]))
+    df_current <- df_current %>% filter(BH_pvalue<alpha) %>% filter(oddsratio>1)
+    list_of_dfs[[(length(list_of_dfs)+1)]] <- df_current
+  }
+  return(list_of_dfs)
+}
+
+
+## Function to count the number of rows per list in a list of lists. Used here
+  # to count how many enriched paths are in each cluster.
+get_dim <- function(Cluster) {
+  #Obtain dim
+  output <-as.data.frame(do.call(rbind,lapply(Cluster,function(x) dim(x)[1])))
+  #Format
+  output$Cluster <- rownames(output)
+  output <- output[,c(2,1)]
+  names(output)[2]<-'count'
+  rownames(output)<-NULL
+  return(output)
+}
+
+## Function to create a dataframe listing all the unique pathways per cluster
+  #Input: "list_of_dfs" : a list of lists, with the enriched pathways as row names
+  #Output: a dataframe with a column for each cluster, listing unique pathways
+    #ordered by BH-adjusted p-value
+unique_paths_info <- function(list_of_dfs) {
+  for (c in 1:length(list_of_dfs)) {
+    #extract pathway information from each cluster, save as a new dataframe
+      #with a "pathways" column
+    list_of_dfs[[c]]$pathways <- rownames(list_of_dfs[[c]])
+    #df <- list_of_dfs[[c]]
+    #df$pathways <- rownames(df)
+    #assign(paste("paths", c, sep = ""), df)
+    #print(list_of_dfs[[c]]$pathways) #WORKS
+  }
+  clust <- c(1:length(list_of_dfs))
+  for (c in 1:length(list_of_dfs)) {
+    #save the list of other clusters minus the current cluster
+    non_c <- clust[-c]
+    #print(non_c) #WORKS
+    for (other_c in non_c) {
+      #print(other_c) #WORKS
+      # find paths unique to the current cluster
+      if (other_c == non_c[1]) {
+        # First comparison is between current cluster and the first other cluster
+        unique_paths <- setdiff(list_of_dfs[[c]]$pathways, list_of_dfs[[other_c]]$pathways)
+        #Remaining comparisons sequentially compare to the updating list of
+          # paths unique to the current cluster
+      } else {
+        unique_paths <- setdiff(unique_paths, list_of_dfs[[other_c]]$pathways)
+      }
+    }
+    #for each cluster, save the unique path information
+    unique_paths_df <- data.frame("pathways" = unique_paths)
+    #merge the rest of the enrichment info from the original info
+      #save by overwriting old list of dfs for each cluster
+    list_of_dfs[[c]] <- merge(unique_paths_df, list_of_dfs[[c]], 
+                            by = "pathways", all.x = TRUE)
+  }
+  return(list_of_dfs)
+}
+
+
+#Function to get a multi-column list of unique pathways for multiple clusters
+  #Input: a list of dataframes, each dataframe corresponding to a cluster
+    # column 1 should be "pathways" (the unique pathways for that cluster)
+  #Output: a dataframe with a column for each cluster's unique pathways
+list_unique_paths <- function(list_of_dfs) {
+  #save the largest number of pathways of any cluster
+  largest <- max(sapply(list_of_dfs, nrow))
+  for (c_df in 1:length(list_of_dfs)) {
+    if(c_df == 1) {
+      paths <- data.frame(list_of_dfs[[c_df]][order(list_of_dfs[[c_df]][,"BH_pvalue"]),][1:largest,1])
+    } else {
+      paths <- cbind(paths, list_of_dfs[[c_df]][order(list_of_dfs[[c_df]][,"BH_pvalue"]),][1:largest,1])
+    }
+  }
+  colnames(paths) <- c(1:ncol(paths))
+  return(paths)
+}
+```
+
+**With Network: Download and process data from folder syn26997954 on Synapse**
+Data is already clustered by ElasticNet.
+##Still need to change to net by ElasticNet
+```{r data prep net}
+# With network created from protein, RNA, phosphosites.
+  # Networks made with Sara's code using package amlresistancenetworks.
+  # Note kinases are predicted from phosphosites, and transcription factors are
+  # predicted from transcriptomics. The network also includes proteins imputed
+  # based on the presence of others in the network, increasing the number of 
+  # features per cluster relative to the no-network feature list.
+
+
+# Download network files from synapse
+graph_k4_enet_c1 <- extract_graph("syn27042867", 1)
+graph_k4_enet_c2 <- extract_graph("syn27042881", 2)
+graph_k4_enet_c3 <- extract_graph("syn27042882", 3)
+graph_k4_enet_c4 <- extract_graph("syn27042883", 4)
+graph_k4_enet_c5 <- extract_graph("syn27042884", 5)
+
+#combine into single network
+net <- rbind(graph_k4_enet_c1[,], graph_k4_enet_c2[,], graph_k4_enet_c3[,], graph_k4_enet_c4[,], graph_k4_enet_c5[,])
+#remove phosphosite hits (the network naturally includes the protein as an
+  #imputed feature, so no need to add the protein back for phos features)
+k4_enet_net <- net[which(net$data_type != "phosphosite"),1:ncol(net)]
+```
+
+**Without network: Download and process data from folder syn29612385**
+```{r data prep net}
+## No network - only RNA, protein, and proteins in phospho data (without 
+  #phosphosite)
+raw_noNet <- read.table(synGet('syn30029402')$path,sep='\t',header=T) %>% 
+  dplyr::rename(feature = Gene) %>%
+  dplyr::select(feature, Cluster, alpha, data_type)
+
+  #separate phospho and non-phospho data
+no_net_nonphos <- raw_noNet[which(raw_noNet$data_type != "Phospho"),1:ncol(raw_noNet)]
+no_net_phos <- raw_noNet[which(raw_noNet$data_type == "Phospho"),1:ncol(raw_noNet)]
+  #remove phosphosite name from phospho data, just leaving protein
+no_net_phos$feature <- gsub("(.*)-.*", "\\1", no_net_phos$feature)
+  #recombine phos and non-phos data, remove duplicated proteins within clusters
+no_net <- rbind(no_net_phos, no_net_nonphos)
+k4_enet_noNet <- no_net[!duplicated(no_net[1:2]),]
+k4_enet_noNet$Cluster <- as.double(k4_enet_noNet$Cluster)
+
+glimpse(k4_enet_noNet)
+glimpse(k4_enet_net)
+
+cat("Without network:", nrow(k4_enet_noNet), "features. \nWith network: ", 
+     nrow(k4_enet_net), "features.")
+#ggplot(k4_enet_noNet, aes(x = Cluster, y = count(feature))) +
+  #geom_bar()
+
+#download necessary databases from LeapR
+data("krbpaths")
+```
+
+
+```{r}
+#Function copied directly from leapR
+cluster_enrichment <- function(geneset, clusters, background=NA, sigfilter=0.05) {
+  x = length(clusters)
+  
+  # The default background is all the genes that are in all the clusters
+  # the user can submit their own background list if they want to do something different
+  if (is.na(background))  background = sapply(1:x, function (n) unlist(clusters[[n]]))
+  
+  #this = sapply(1:x, function (i) list(enrichment_in_groups(geneset, clusters[[i]], background)))
+  this = sapply(1:x, function (i) list(leapR(geneset=geneset, enrichment_method="enrichment_in_sets", 
+                                             targets=clusters[[i]], background=background)))
+  
+  # if the sigfilter is set we'll only return those functions that have a p-value
+  #   lower than the threshold
+  if (is.na(sigfilter)) return(this)
+  
+  outlist = list()
+  for (i in 1:x) {
+    these = this[[i]]
+    these = these[which(these[,"BH_pvalue"]<sigfilter),]
+    outlist = c(outlist, list(these))
+  }
+  return(outlist)
+}
+```
+
+
+Do enrichment in sets using krbpaths
+```{r enrich in sets net}
+
+  #Without network
+modules <- as.numeric(k4_enet_noNet$Cluster)
+names(modules) <- k4_enet_noNet$feature
+clusters <- lapply(unique(modules),function(x) names(which(modules==x)))
+
+enrich_sets_k4_enet_noNet_krbpaths = cluster_enrichment(geneset=krbpaths, 
+                                                clusters=clusters, 
+                                                background=names(modules), 
+                                                sigfilter=0.05)
+  #with network
+modules <- k4_enet_net$Cluster
+names(modules) <- k4_enet_net$feature
+clusters <- lapply(unique(modules),function(x) names(which(modules==x)))
+
+enrich_sets_k4_enet_net_krbpaths = cluster_enrichment(geneset=krbpaths, 
+                                                clusters=clusters, 
+                                                background=names(modules),
+                                                sigfilter = 0.05)
+
+
+# Run clusters individually to make sure it's accurate.
+enrich_sets_k4_enet_net_krbpaths_byIndiv <- leapR_enrich_sets(k4_enet_net, krbpaths, 0.05)
+enrich_sets_k4_enet_noNet_krbpaths_byIndiv <- leapR_enrich_sets(k4_enet_noNet, krbpaths, 0.05)
+
+#count the number of enriched paths per dataset
+count_noNet <- get_dim(enrich_sets_k4_enet_noNet_krbpaths)
+count_net <- get_dim(enrich_sets_k4_enet_net_krbpaths)
+count_noNet_i <- get_dim(enrich_sets_k4_enet_noNet_krbpaths_byIndiv)
+count_net_i <- get_dim(enrich_sets_k4_enet_net_krbpaths_byIndiv)
+
+#put all data frames into list
+df_list <- list(count_noNet, count_net, count_noNet_i, count_net_i)
+
+#merge all data frames in list
+numPaths_k4_enet_krb <- df_list %>% reduce(full_join, by='Cluster')
+#change column names to suit
+colnames(numPaths_k4_enet_krb) <- c("Cluster", "noNet", "Net", 
+                            "noNet_byClust", "Net_byClust")
+
+numPaths_k4_enet_krb[,c(1,4,5)]
+
+```
+
+
+
+Identify pathways unique to each cluster within each dataset (net vs no net):
+```{r}
+  #get lists of enriched pathways per cluster, for net vs no net
+pathInfo_k4_enet_noNet <- unique_paths_info(enrich_sets_k4_enet_noNet_krbpaths_byIndiv)
+paths_k4_enet_noNet <- list_unique_paths(pathInfo_k4_enet_noNet)
+pathInfo_k4_enet_net <- unique_paths_info(enrich_sets_k4_enet_net_krbpaths_byIndiv)
+paths_k4_enet_net <- list_unique_paths(pathInfo_k4_enet_net)
+  #view
+paths_k4_enet_noNet
+paths_k4_enet_net
+
+```
+
+```{r}
+#Side-by-side comparison of pathways identified in cluster 1 (the largest cluster)
+  # with and without a network
+
+c1_shared <- intersect(paths_k4_enet_noNet[,1], paths_k4_enet_net[,1])
+c1_noNet_unique <- setdiff(paths_k4_enet_noNet[,1], paths_k4_enet_net[,1])
+c1_net_unique <- setdiff(paths_k4_enet_net[,1], paths_k4_enet_noNet[,1])
+c1_noNet <- data.frame("paths" = c(c1_shared, c1_noNet_unique, rep(NA, length(c1_net_unique) - length(c1_noNet_unique))))
+c1_net <- data.frame("paths" = c(c1_shared, c1_net_unique))
+c1_compare <- cbind(c1_noNet, c1_net)
+
+c1_compare
+
+```
+
