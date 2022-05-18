@@ -22,6 +22,9 @@ library(glmnet)
 library(groupdata2)
 library(gridExtra)
 library(grid)
+library(Metrics)
+library(tidymodels)
+library(caret)
 
 
 source("../util/synapseUtil.R")
@@ -30,8 +33,12 @@ source("../util/make_plots_util.R")
 source("../util/mutational_analysis_helper.R")
 source("predicting_mutation_helper.R")
 
+cluster_assignments <- read.table(syn$get("syn30030154")$path, sep = "\t")
 
 ```
+
+
+
 
 
 
@@ -102,10 +109,7 @@ train_model <- function(data_type, chosen_alpha, chosen_mutation,
   return(out)
 }
 
-```
 
-
-```{r}
 run_cv_grid_helper <- function(data_type,
                                chosen_mutation,
                                use_weights,
@@ -134,6 +138,10 @@ run_cv_grid_helper <- function(data_type,
   return(all_cvm)
 }
 
+```
+
+
+```{r}
 run_cv_grid <- function(chosen_mutation){
   lapply(c("Global", "Phospho", "RNA"), function(data_type){
     print(paste(chosen_mutation, data_type))
@@ -147,7 +155,6 @@ run_cv_grid <- function(chosen_mutation){
 }
 
 chosen_mutations <- colnames(mutation_mat)[-1]
-
 chosen_mutations
 ```
 
@@ -173,6 +180,8 @@ all_model_results <- lapply(chosen_mutations, function(chosen_mutation){
 ```
 
 
+Combining the tables into one.
+
 
 ```{r eval=FALSE, include=FALSE}
 folder <- "raw_tables/mutation_prediction/"
@@ -191,8 +200,8 @@ results <- lapply(files, read.table, sep= "\t") %>%
 
 write.table(results, "raw_tables/mutation_prediction/full_results.txt", sep = "\t")
 
-
 ```
+
 
 
 ```{r}
@@ -379,7 +388,6 @@ get_model_metrics <- function(chosen_mutation, chosen_type, chosen_alpha){
   return(prediction_metrics)
 }
 
-
 ## Best model per mutation + data_type.
 get_model_metrics_fast <- function(chosen_mutation, chosen_type){
   master_random_state <- 117
@@ -552,11 +560,7 @@ get_model_metrics_fast <- function(chosen_mutation, chosen_type){
   return(prediction_metrics)
 }
 
-
 ```
-
-
-
 
 
 ```{r eval=FALSE, include=FALSE}
@@ -572,8 +576,6 @@ all_metrics_reduced <- lapply(chosen_mutations_v2, function(chosen_mutation){
 write.table(all_metrics_reduced, "raw_tables/mutation_prediction/model_metrics_reduced.txt", sep = "\t")
 
 ```
-
-
 
 
 
@@ -594,7 +596,7 @@ write.table(all_metrics, "raw_tables/mutation_prediction/model_metrics.txt", sep
 ```
 
 
-
+## Mutation prediction + differential expression summary.
 
 
 ```{r}
@@ -633,12 +635,26 @@ p_diff <- ggplot(plot_df, aes(y = mutation, x = value, fill = `Data type`)) +
         text = element_text(size = 15)) + ylab("")
 
 
+count_df_cluster <- mutation_mat[, c("Barcode.ID", chosen_mutations_v2)] %>%
+  pivot_longer(-Barcode.ID, names_to = "mutation", values_to = "Status") %>%
+  mutate(Status = case_when(Status == "TRUE" ~ 1,
+                            TRUE ~ 0)) %>%
+  left_join(cluster_assignments, by = "Barcode.ID") %>%
+  group_by(mutation, Cluster) %>%
+  summarize(fraction = sum(Status)/210) %>%
+  mutate(mutation = factor(mutation, levels = unique(plot_df$mutation)),
+         Cluster = factor(Cluster, levels = paste("Cluster", 4:1)))
 count_df <- summary_table %>%
   select(mutation, Number.mutated) %>%
   mutate(mutation = factor(mutation, levels = unique(plot_df$mutation)))
+
 p_count <- ggplot(count_df, aes(y = mutation, x = Number.mutated/210)) +
-  geom_bar(stat = 'identity', width = 0.4) + xlab("Fraction of mutated samples") + ylab("") +
-  theme(text = element_text(size = 15)) + xlim(0, 0.4)
+  geom_bar(stat = 'identity', width = 0.4) + xlab("Fraction of samples mutated") + ylab("") +
+  theme(text = element_text(size = 15), legend.position = 'none') + xlim(0, 0.5)
+p_count_cluster <- ggplot(count_df_cluster, aes(y = mutation, x = fraction, fill = Cluster)) +
+  geom_bar(stat = 'identity', width = 0.5) + xlab("Fraction of samples mutated") + ylab("") +
+  scale_fill_manual(values = subtype_colors[4:1]) +
+  theme(text = element_text(size = 15), legend.position = 'left') + xlim(0, 0.5)
 
 
 p_model <- ggplot(model_metrics, aes(y = mutation, x = missclass_error, fill = data_type)) +
@@ -648,23 +664,164 @@ p_model <- ggplot(model_metrics, aes(y = mutation, x = missclass_error, fill = d
         axis.text.y = element_blank(), 
         axis.ticks.y = element_blank(),
         text = element_text(size = 15)) +
-  xlab("Classification Error") + ylab("") + xlim(0, 0.4)
+  xlab("Classification Error") + ylab("") + xlim(0, 0.5)
 
 
-lay <- rbind(c(1,1,1,1,1,2,2,2,2,2,3,3,3,3,3,3), 
-             c(1,1,1,1,1,2,2,2,2,2,3,3,3,3,3,3))
+p_recall <- ggplot(model_metrics, aes(y = mutation, x = Recall, fill = data_type)) +
+  geom_bar(stat = 'identity', width = 0.7, pos = position_dodge()) +
+  scale_fill_manual(values = plot_colors) +
+  theme(legend.position = 'none',
+        axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(),
+        text = element_text(size = 15)) +
+  xlab("Recall") + ylab("") + xlim(0, 1)
+
+p_precision <- ggplot(model_metrics, aes(y = mutation, x = Precision, fill = data_type)) +
+  geom_bar(stat = 'identity', width = 0.7, pos = position_dodge()) +
+  scale_fill_manual(values = plot_colors) +
+  theme(legend.position = 'none',
+        axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(),
+        text = element_text(size = 15)) +
+  xlab("Precision") + ylab("") + xlim(0, 1)
+
+
+lay <- rbind(c(1,1,1,1,1,1,1,2,2,2,2,2,3,3,3,3,3,3), 
+             c(1,1,1,1,1,1,1,2,2,2,2,2,3,3,3,3,3,3))
 top_grob <- textGrob("Differential Expression + Modeling results", 
                      gp = gpar(fontsize = 20))
-p_all <- arrangeGrob(p_count, p_model, p_diff, top = top_grob, layout_matrix = lay)
-
-
-ggsave(filename = "./plots/mutational_diffexp_modeling_summary.pdf", 
+p_all <- arrangeGrob(p_count_cluster, p_model, p_diff, top = top_grob, layout_matrix = lay)
+ggsave(filename = "./plots/mutational_diffexp_modeling_summary_error.pdf", 
        plot = p_all, width = 16, height = 10)
-# upload.plot("./plots/mutational_diffexp_modeling_summary.pdf", 
-#             parentId = "syn26529351")
+
+p_all2 <- arrangeGrob(p_count_cluster, p_recall, p_diff, top = top_grob, layout_matrix = lay)
+ggsave(filename = "./plots/mutational_diffexp_modeling_summary_recall.pdf", 
+       plot = p_all2, width = 16, height = 10)
+
+p_all3 <- arrangeGrob(p_count_cluster, p_precision, p_diff, top = top_grob, layout_matrix = lay)
+ggsave(filename = "./plots/mutational_diffexp_modeling_summary_precision.pdf", 
+       plot = p_all3, width = 16, height = 10)
 
 
 ```
+
+
+```{r}
+model_metrics <- read.table("raw_tables/mutation_prediction/model_metrics_reduced.txt", sep = "\t") %>%
+  filter(data_type != "RNA") %>%
+  arrange(missclass_error) %>%
+  group_by(mutation, data_type) %>%
+  slice(1)
+
+summary_table <- read.table("raw_tables/all_mutations_diffexp_summary.txt", sep = "\t") %>%
+  filter(mutation %in% model_metrics$mutation)
+colnames(summary_table)[3:5] <- gsub("\\.", " ", colnames(summary_table)[3:5])
+
+plot_colors <- data.frame("Global" = data_type_colors[[1]],
+                 "Phospho" = data_type_colors[[2]])
+plot_df <- summary_table[, -5] %>%
+  select(-`Number.mutated`) %>%
+  pivot_longer(-mutation) %>%
+  mutate(name = sub("^.*in ", "", name)) %>%
+  mutate(name = case_when(name == "global" ~ "Global",
+                          name == "phospho" ~ "Phospho")) %>%
+  mutate(individual_bar = paste(mutation, name)) %>%
+  dplyr::rename(`Data type` = name) %>%
+  arrange(-value) %>%
+  mutate(mutation = factor(mutation, levels = unique(mutation)))
+model_metrics <- model_metrics %>%
+  mutate(mutation = factor(mutation, levels = unique(plot_df$mutation)))
+
+p_diff <- ggplot(plot_df, aes(y = mutation, x = value, fill = `Data type`)) + 
+  geom_bar(stat = 'identity', pos = position_dodge(), width = 0.7) + xlab("Features differentially expressed") +
+  scale_fill_manual(values = plot_colors) + scale_x_continuous(trans = "log1p", breaks = c(0, 10, 100, 1000, 4000)) + 
+  theme(legend.position = 'right', 
+        axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(), 
+        text = element_text(size = 15)) + ylab("")
+
+
+count_df_cluster <- mutation_mat[, c("Barcode.ID", chosen_mutations_v2)] %>%
+  pivot_longer(-Barcode.ID, names_to = "mutation", values_to = "Status") %>%
+  mutate(Status = case_when(Status == "TRUE" ~ 1,
+                            TRUE ~ 0)) %>%
+  left_join(cluster_assignments, by = "Barcode.ID") %>%
+  group_by(mutation, Cluster) %>%
+  summarize(fraction = sum(Status)/210) %>%
+  mutate(mutation = factor(mutation, levels = unique(plot_df$mutation)),
+         Cluster = factor(Cluster, levels = paste("Cluster", 4:1)))
+count_df <- summary_table %>%
+  select(mutation, Number.mutated) %>%
+  mutate(mutation = factor(mutation, levels = unique(plot_df$mutation)))
+
+p_count <- ggplot(count_df, aes(y = mutation, x = Number.mutated/210)) +
+  geom_bar(stat = 'identity', width = 0.4) + xlab("Fraction of samples mutated") + ylab("") +
+  theme(text = element_text(size = 15), legend.position = 'none') + xlim(0, 0.5)
+p_count_cluster <- ggplot(count_df_cluster, aes(y = mutation, x = fraction, fill = Cluster)) +
+  geom_bar(stat = 'identity', width = 0.5) + xlab("Fraction of samples mutated") + ylab("") +
+  scale_fill_manual(values = subtype_colors[4:1]) +
+  theme(text = element_text(size = 15), legend.position = 'left') + xlim(0, 0.5)
+
+
+p_model <- ggplot(model_metrics, aes(y = mutation, x = missclass_error, fill = data_type)) +
+  geom_bar(stat = 'identity', width = 0.7, pos = position_dodge()) +
+  scale_fill_manual(values = plot_colors) +
+  theme(legend.position = 'none',
+        axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(),
+        text = element_text(size = 15)) +
+  xlab("Classification Error") + ylab("") + xlim(0, 0.5)
+
+
+p_recall <- ggplot(model_metrics, aes(y = mutation, x = Recall, fill = data_type)) +
+  geom_bar(stat = 'identity', width = 0.7, pos = position_dodge()) +
+  scale_fill_manual(values = plot_colors) +
+  theme(legend.position = 'none',
+        axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(),
+        text = element_text(size = 15)) +
+  xlab("Recall") + ylab("") + xlim(0, 1)
+
+p_precision <- ggplot(model_metrics, aes(y = mutation, x = Precision, fill = data_type)) +
+  geom_bar(stat = 'identity', width = 0.7, pos = position_dodge()) +
+  scale_fill_manual(values = plot_colors) +
+  theme(legend.position = 'none',
+        axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(),
+        text = element_text(size = 15)) +
+  xlab("Precision") + ylab("") + xlim(0, 1)
+
+
+lay <- rbind(c(1,1,1,1,1,1,1,2,2,2,2,2,3,3,3,3,3,3), 
+             c(1,1,1,1,1,1,1,2,2,2,2,2,3,3,3,3,3,3))
+top_grob <- textGrob("Differential Expression + Modeling results", 
+                     gp = gpar(fontsize = 20))
+
+
+p_all <- arrangeGrob(p_count_cluster, p_model, p_diff, top = top_grob, layout_matrix = lay)
+ggsave(filename = "./plots/mutational_diffexp_modeling_summary_error_noRNA.pdf", 
+       plot = p_all, width = 16, height = 10)
+
+p_all2 <- arrangeGrob(p_count_cluster, p_recall, p_diff, top = top_grob, layout_matrix = lay)
+ggsave(filename = "./plots/mutational_diffexp_modeling_summary_recall_noRNA.pdf", 
+       plot = p_all2, width = 16, height = 10)
+
+p_all3 <- arrangeGrob(p_count_cluster, p_precision, p_diff, top = top_grob, layout_matrix = lay)
+ggsave(filename = "./plots/mutational_diffexp_modeling_summary_precision_noRNA.pdf", 
+       plot = p_all3, width = 16, height = 10)
+
+```
+
+
+
+
+
+
+
+
+
+
+
 
 
 
