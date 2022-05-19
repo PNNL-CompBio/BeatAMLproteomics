@@ -36,7 +36,7 @@ Finding the appropriate lambda range.
 
 ```{r eval=FALSE, include=FALSE}
 bound_mult <- 1.0
-bounds <- lapply(list(global_mat_train, phospho_mat_train, RNA_mat_train), function(data_mat){
+bounds <- lapply(list(global_mat_train, phospho_mat_train, RNA_mat_train, phospho_mat_train_imp, combined_mat_train), function(data_mat){
   print(nrow(data_mat))
   lambda_min <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
     cluster_lab <- enet_meta %>%
@@ -87,6 +87,10 @@ all_bounds <- list("min_bounds_Global" = bounds[[1]]$min_bounds,
                    "max_bounds_Phospho" = bounds[[2]]$max_bounds,
                    "min_bounds_RNA" = bounds[[3]]$min_bounds,
                    "max_bounds_RNA" = bounds[[3]]$max_bounds,
+                   "min_bounds_Phospho_imp" = bounds[[4]]$min_bounds,
+                   "max_bounds_Phospho_imp" = bounds[[4]]$max_bounds,
+                   "min_bounds_Combined" = bounds[[5]]$min_bounds,
+                   "max_bounds_Combined" = bounds[[5]]$max_bounds,
                    "bound_mult" = bound_mult)
 saveRDS(all_bounds, "./enet_multinomial_data/all_bounds.RDS")
 
@@ -191,10 +195,14 @@ derived from a combined dataset which includes phospho data as well as RNA count
 results_global <- run_cv_grid(global_mat_train)
 results_phospho <- run_cv_grid(phospho_mat_train)
 results_RNA <- run_cv_grid(RNA_mat_train)
+results_phospho_imp <- run_cv_gric(phospho_mat_train_imp)
+results_combined <- run_cv_grid(combined_mat_train)
 
 all_results <- list("Global" = results_global,
                     "Phospho" = results_phospho,
-                    "RNA" = results_RNA)
+                    "RNA" = results_RNA,
+                    "Phospho_imp" = results_phospho_imp,
+                    "Global + Phospho_imp" = results_combined)
 
 saveRDS(all_results, "./enet_multinomial_data/elastic_net_multinomial_results_k_4.RDS")
 
