@@ -599,6 +599,7 @@ dummy_mat <- matrix(0, ncol = ncol(mat_HL60), nrow = length(dummy_rows))
 rownames(dummy_mat) <- dummy_rows
 colnames(dummy_mat) <- colnames(mat_HL60)
 mat_HL60 <- rbind(mat_HL60, dummy_mat)
+mat_HL60 <- mat_HL60[rownames(global_mat_train), ]
 
 mat_MOLM14 <- mat_MOLM14[rownames(mat_MOLM14) %in% rownames(global_mat_train), ]
 dummy_rows <- setdiff(rownames(global_mat_train), rownames(mat_MOLM14))
@@ -606,6 +607,7 @@ dummy_mat <- matrix(0, ncol = ncol(mat_MOLM14), nrow = length(dummy_rows))
 rownames(dummy_mat) <- dummy_rows
 colnames(dummy_mat) <- colnames(mat_MOLM14)
 mat_MOLM14 <- rbind(mat_MOLM14, dummy_mat)
+mat_MOLM14 <- mat_MOLM14[rownames(global_mat_train), ]
 
 
 ```
@@ -623,7 +625,6 @@ sig_heatmap(mat_HL60, cluster_HL60, "enet_multinomial_data/predicted_subtypes_HL
 
 
 ```
-
 
 
 
@@ -710,25 +711,19 @@ mat_pilot <- mat_pilot[rownames(global_mat_train), ]
 
 ```{r}
 pilot_subtypes <- subtype_prediction(mat_pilot, metadata_pilot) %>%
+  mutate(Time = "Dummy", Treatment = "Dummy") %>%
   dplyr::mutate(overallSurvival = as.numeric(overallSurvival),
                 vitalStatus = case_when(vitalStatus == "Dead" ~ 1,
                                         TRUE ~ 0))
 
 sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ pred_cluster, data = pilot_subtypes)
 p2 <- ggsurvplot(sfit, color = "pred_cluster", data = pilot_subtypes,
-                 palette = subtype_colors)$plot +
+                 palette = subtype_colors, pval = TRUE)$plot +
         theme(legend.text = element_text(size = 12, color = "black"),
               legend.title = element_text(size = 12, color = "black"))
 
 sig_heatmap(mat_pilot, pilot_subtypes, "enet_multinomial_data/pilot_subtypes", "Pilot")
 ```
-
-
-
-
-
-
-
 
 
 
