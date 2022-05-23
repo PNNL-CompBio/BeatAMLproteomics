@@ -116,9 +116,9 @@ pecora_plot <- function(m, pecora_results,
     pull(adj_pval) %>% 
     format(digits = 4)
   
-  chosen_feature <- pecora_results %>%
-    filter(Peptide == chosen_peptide) %>%
-    pull(feature)
+  # chosen_feature <- pecora_results %>%
+  #   filter(Peptide == chosen_peptide) %>%
+  #   pull(feature)
   
   if (length(p.value) == 0){
     message <- paste0(chosen_protein, " + ", chosen_peptide, " not found within the results.\n")
@@ -148,7 +148,7 @@ pecora_plot <- function(m, pecora_results,
     merge(features, by = "feature") %>%
     merge(metadata, by = "Sample") %>%
     dplyr::rename(Condition = sym(treatment_string)) %>%
-    mutate(peptide_group = case_when(Peptide == chosen_peptide ~ chosen_peptide,
+    mutate(peptide_group = case_when(feature == chosen_peptide ~ chosen_peptide,
                                      TRUE ~ "All other peptides")) %>%
     mutate(peptide_group = factor(peptide_group,
                                   levels = c("All other peptides", chosen_peptide)))
@@ -164,7 +164,7 @@ pecora_plot <- function(m, pecora_results,
       geom_boxplot(notch = TRUE, outlier.shape = NA) +
       ggtitle(chosen_peptide) + annotation_custom(grob) +
       xlab(treatment_string) + ylab("Log Intensity") +
-      geom_point(position = position_jitterdodge(), alpha = 0.5) +
+      geom_point(position = position_jitterdodge(), alpha = 0.0) +
       theme(plot.title = element_text(hjust = 0.5))
       
     

@@ -1,0 +1,111 @@
+---
+title: "PeCorA and mutations"
+author: "Camilo Posso"
+date: "05/22/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(pheatmap)
+
+source("../../../util/synapseUtil.R")
+source("../../../util/loading_data.R")
+source("../../../util/mutational_analysis_helper.R")
+source("../../../mutational_analysis/PeCorA/pecora_scripts/pecora_analysis.R")
+
+syn <- synapseLogin()
+
+clusters <- read.table(syn$get("syn30030154")$path, sep = "\t")
+rownames(clusters) <- clusters$Barcode.ID
+
+global_peptide_corrected <- load.global.data("Peptide")
+global_data <- load.global.data()
+metadata <- load.metadata()
+
+all_mutation_data <- load_mutational_sample_data()
+
+f_data <- data.frame(feature = rownames(global_peptide_corrected)) %>%
+  mutate(Gene = sub("\\@.*$", "", feature),
+         Peptide = sub("^.*\\@", "", feature),
+         Protein = Gene) %>%
+  group_by(Protein) %>%
+  mutate(n_peptides = n()) %>%
+  ungroup(Protein) %>%
+  as.data.frame()
+rownames(f_data) <- f_data$feature
+
+IDH1_IDH2 <- "IDH1+IDH2"
+KRAS_NRAS <- "KRAS+NRAS"
+
+```
+
+
+```{r}
+m <- MSnSet(exprs = as.matrix(global_peptide_corrected),
+            pData = metadata[colnames(global_peptide_corrected), ],
+            fData = f_data)
+pData(m)$Cluster <- clusters[rownames(pData(m)), "Cluster"]
+
+genes1 <- unique(global_data$Gene)
+genes2 <- unique(f_data$Gene)
+## Not all the genes in the gene level data show up in the peptide level data,
+## this is due to the filtering applied prior to correction of the peptide data.
+## The uncorrected data does contain all the genes found in the global gene level dataset.
+table(genes1 %in% genes2)
+
+```
+
+
+```{r}
+pecora_results <- pecora_analysis(m, "Cluster", f_data$Gene, median_mod = FALSE)
+pecora_results_median <- pecora_analysis(m, "Cluster", f_data$Gene, median_mod = TRUE)
+
+f_data2 <- f_data %>%
+  select(feature, n_peptides)
+
+pecora_results <- pecora_results %>%
+  dplyr::rename(feature = Peptide) %>%
+  mutate(Peptide = sub("^.*@", "", feature)) %>%
+  left_join(f_data2, by = "feature") %>%
+  select(mutation, feature, Protein, Peptide, adj_pval, n_peptides)
+  
+write.table(all_pecora_results_write, "pecora_all_results_backup.txt",
+            quote = FALSE, sep = "\t")
+
+```
+
+
+
+```{r}
+source("../../util/make_plots_util.R")
+
+upload.plot("pecora_all_results.txt", parentId = "syn27782451")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -114,6 +114,8 @@ phospho_imp <- DreamAI(phospho_imp, k=10, maxiter_MF = 10, ntree = 100,
                        gamma_ADMIN = 0, gamma = 50, CV = FALSE, fillmethod = "row_mean",
                        maxiter_RegImpute = 10,conv_nrmse = 1e-6, iter_SpectroFM = 40,
                        method = c("KNN"), out="Ensemble")$Ensemble
+# ## Writing to table for easier use.
+# write.table(phospho_imp, "phospho_imputed.txt", sep = "\t")
 
 phospho_mat_train_imp <- phospho_imp[, colnames(global_mat_train)]
 phospho_mat_test_imp <- phospho_imp[, colnames(global_mat_test)]
