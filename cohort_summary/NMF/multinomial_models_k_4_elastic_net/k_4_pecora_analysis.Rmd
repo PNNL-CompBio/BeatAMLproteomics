@@ -68,6 +68,14 @@ table(genes1 %in% genes2)
 pecora_results <- pecora_analysis(m, "Cluster", f_data$Gene, median_mod = FALSE)
 pecora_results_median <- pecora_analysis(m, "Cluster", f_data$Gene, median_mod = TRUE)
 
+pecora_results <- f_data %>%
+  select(Gene, n_peptides) %>%
+  unique() %>% right_join(pecora_results, by = c("Gene" = "Protein"))
+
+pecora_results_median <- f_data %>%
+  select(Gene, n_peptides) %>%
+  unique() %>% right_join(pecora_results_median, by = c("Gene" = "Protein"))
+
 f_data2 <- f_data %>%
   select(feature, n_peptides)
 

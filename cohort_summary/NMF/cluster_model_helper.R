@@ -101,21 +101,25 @@ phospho_mat_test <- phospho_mat_test[, -1] %>% as.matrix()
 
 set.seed(42)
 #### Imputing phospho data, lots of missing values.
-phospho_imp <- phospho.data %>%
-  select(Barcode.ID, SiteID, LogRatio) %>%
-  dplyr::rename(feature = SiteID) %>%
-  pivot_wider(names_from = Barcode.ID, 
-              values_from = LogRatio) %>% 
-  as.data.frame()
-rownames(phospho_imp) <- phospho_imp$feature
-phospho_imp <- phospho_imp[, -1] %>% as.matrix()
-phospho_imp <- DreamAI(phospho_imp, k=10, maxiter_MF = 10, ntree = 100,
-                       maxnodes = NULL, maxiter_ADMIN = 30, tol = 10^(-2),
-                       gamma_ADMIN = 0, gamma = 50, CV = FALSE, fillmethod = "row_mean",
-                       maxiter_RegImpute = 10,conv_nrmse = 1e-6, iter_SpectroFM = 40,
-                       method = c("KNN"), out="Ensemble")$Ensemble
+# phospho_imp <- phospho.data %>%
+#   select(Barcode.ID, SiteID, LogRatio) %>%
+#   dplyr::rename(feature = SiteID) %>%
+#   pivot_wider(names_from = Barcode.ID, 
+#               values_from = LogRatio) %>% 
+#   as.data.frame()
+# rownames(phospho_imp) <- phospho_imp$feature
+# phospho_imp <- phospho_imp[, -1] %>% as.matrix()
+# phospho_imp <- DreamAI(phospho_imp, k=10, maxiter_MF = 10, ntree = 100,
+#                        maxnodes = NULL, maxiter_ADMIN = 30, tol = 10^(-2),
+#                        gamma_ADMIN = 0, gamma = 50, CV = FALSE, fillmethod = "row_mean",
+#                        maxiter_RegImpute = 10,conv_nrmse = 1e-6, iter_SpectroFM = 40,
+#                        method = c("KNN"), out="Ensemble")$Ensemble
 # ## Writing to table for easier use.
 # write.table(phospho_imp, "phospho_imputed.txt", sep = "\t")
+# upload.plot(filename = "phospho_imputed.txt", parentId = "syn30875000")
+phospho_imp <- read.table(syn$get("syn30875015")$path, sep = "\t") %>% as.matrix()
+colnames(phospho_imp) <- sub("^X", "", colnames(phospho_imp)) %>%
+  sub("\\.", "-", .)
 
 phospho_mat_train_imp <- phospho_imp[, colnames(global_mat_train)]
 phospho_mat_test_imp <- phospho_imp[, colnames(global_mat_test)]
@@ -153,6 +157,9 @@ RNA_mat_train <- sweep(RNA_mat_train, 1, apply(RNA_mat_train, 1, sd), FUN = '/')
 
 combined_mat_train <- rbind(global_mat_train, phospho_mat_train_imp)
 combined_mat_test <- rbind(global_mat_test, phospho_mat_test_imp)
+
+combined_v2_mat_train <- rbind(global_mat_train, phospho_mat_train[, colnames(global_mat_train)])
+combined_v2_mat_test <- rbind(global_mat_test, phospho_mat_test[, colnames(global_mat_test)])
 
 ## Setting up metadata for training models
 enet_meta <- left_join(meta, cluster_assignments, by = "Barcode.ID") %>%
