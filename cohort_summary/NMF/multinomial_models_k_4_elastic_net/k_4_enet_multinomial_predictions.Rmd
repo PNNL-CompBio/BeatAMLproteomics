@@ -64,6 +64,7 @@ make_prediction <- function(chosen_alpha, data_type, robust){
       as.data.frame()
     rownames(data_mat_full) <- data_mat_full$feature
     data_mat_full <- data_mat_full[, -1] %>% as.matrix()
+    
   } else if (data_type == "Phospho"){
     data_mat <- phospho_mat_train
     data_mat_test <- phospho_mat_test
@@ -76,6 +77,24 @@ make_prediction <- function(chosen_alpha, data_type, robust){
       as.data.frame()
     rownames(data_mat_full) <- data_mat_full$feature
     data_mat_full <- data_mat_full[, -1] %>% as.matrix()
+    
+  } else if (data_type == "Combined"){
+    data_mat <- combined_mat_train
+    data_mat_test <- combined_mat_test
+    data_mat_full <- global.data %>%
+      dplyr::rename(feature = Gene) %>%
+      filter(feature %in% global_features) %>%
+      pivot_wider(names_from = Barcode.ID, 
+                  values_from = LogRatio) %>% 
+      as.data.frame()
+    rownames(data_mat_full) <- data_mat_full$feature
+    data_mat_full <- data_mat_full[, -1] %>% as.matrix()
+    
+    data_mat_full <- rbind(data_mat_full[, colnames(phospho_imp)], phospho_imp)
+  } else if (data_type == "Phospho_imp"){
+    data_mat <- phospho_mat_train_imp
+    data_mat_test <- phospho_mat_test_imp
+    data_mat_full <- phospho_imp
   }
   
   xx <- all_results[[data_type]]
@@ -177,7 +196,7 @@ make_prediction_plot <- function(chosen_alpha, data_type, confidence_cutoff = 0.
                    palette = color_palette, pval = TRUE)$plot +
           theme(legend.text = element_text(size = 12, color = "black"),
                 legend.title = element_text(size = 12, color = "black")) + 
-          ggtitle("159 Clustered samples")
+          ggtitle("159 Clustered samples", data_type)
   
   meta_c$Cluster <- meta_c$pred_cluster_v2
   sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = meta_c)
@@ -185,7 +204,7 @@ make_prediction_plot <- function(chosen_alpha, data_type, confidence_cutoff = 0.
                    palette = color_palette, pval = TRUE)$plot +
           theme(legend.text = element_text(size = 12, color = "black"),
                 legend.title = element_text(size = 12, color = "black")) + 
-          ggtitle("Predicting on all 210 samples")
+          ggtitle(paste("Predicting on all 210 samples", data_type))
   
   sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = meta_c_plot)
   p3 <- ggsurvplot(sfit, color = "Cluster", data = meta_c_plot,
@@ -199,7 +218,7 @@ make_prediction_plot <- function(chosen_alpha, data_type, confidence_cutoff = 0.
                    palette = color_palette,  pval = TRUE)$plot +
           theme(legend.text = element_text(size = 12, color = "black"),
                 legend.title = element_text(size = 12, color = "black")) + 
-          ggtitle("Predicting on 51 new samples")
+          ggtitle(paste("Predicting on 51 new samples", data_type))
   
   p_all <- arrangeGrob(p1, p2, p4, ncol = 2, nrow = 2,
                        top = textGrob(paste0("Survival plots, ", data_type, ", alpha = ", chosen_alpha), 
@@ -218,15 +237,29 @@ make_prediction_plot <- function(chosen_alpha, data_type, confidence_cutoff = 0.
 ## Making survival plots by predicted subtype
 lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
   make_prediction_plot(chosen_alpha, "Global", robust = TRUE)
-  make_prediction_plot(chosen_alpha, "Phospho", robust = TRUE)
+  make_prediction_plot(chosen_alpha, "Phospho_imp", robust = TRUE)
+  make_prediction_plot(chosen_alpha, "Combined", robust = TRUE)
   make_prediction_plot(chosen_alpha, "Global", robust = FALSE)
-  make_prediction_plot(chosen_alpha, "Phospho", robust = FALSE)
+  make_prediction_plot(chosen_alpha, "Phospho_imp", robust = FALSE)
+  make_prediction_plot(chosen_alpha, "Combined", robust = FALSE)
 })
 
 prediction_survival_plots <- make_prediction_plot(0.7, "Global", robust = TRUE)
-ggsave("enet_multinomial_data/prediction_survival_alpha_0.7_all_samples.pdf", 
+ggsave("enet_multinomial_data/global_prediction_survival_alpha_0.7_all_samples.pdf",
        width = 7, height = 7, plot = prediction_survival_plots[[2]])
-ggsave("enet_multinomial_data/prediction_survival_alpha_0.7_heldout_samples.pdf", 
+ggsave("enet_multinomial_data/global_prediction_survival_alpha_0.7_heldout_samples.pdf",
+       width = 7, height = 7, plot = prediction_survival_plots[[3]])
+
+prediction_survival_plots <- make_prediction_plot(0.7, "Combined", robust = TRUE)
+ggsave("enet_multinomial_data/combined_prediction_survival_alpha_0.7_all_samples.pdf",
+       width = 7, height = 7, plot = prediction_survival_plots[[2]])
+ggsave("enet_multinomial_data/combined_prediction_survival_alpha_0.7_heldout_samples.pdf",
+       width = 7, height = 7, plot = prediction_survival_plots[[3]])
+
+prediction_survival_plots <- make_prediction_plot(0.7, "Phospho_imp", robust = TRUE)
+ggsave("enet_multinomial_data/phosphoImp_prediction_survival_alpha_0.7_all_samples.pdf",
+       width = 7, height = 7, plot = prediction_survival_plots[[2]])
+ggsave("enet_multinomial_data/phosphoImp_prediction_survival_alpha_0.7_heldout_samples.pdf",
        width = 7, height = 7, plot = prediction_survival_plots[[3]])
 
 ```
