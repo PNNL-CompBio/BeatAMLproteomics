@@ -1,0 +1,204 @@
+---
+title: "Subtype drivers"
+author: "Camilo Posso"
+date: "06/13/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+
+The goal of this markdown is to find biological identifiers for the subtypes.
+
+
+```{r include=FALSE}
+library(clusterProfiler)
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+
+source("../../util/synapseUtil.R")
+source("../../util/loading_data.R")
+source("../../util/mutational_analysis_helper.R")
+source("../../util/make_plots_util.R")
+
+syn <- synapseLogin()
+
+load("../../Misc/load.combined.data 3-09-2022.RData")
+# load.combined.data()
+metadata <- load.metadata()
+clusters <- read.table(syn$get("syn30030154")$path, sep = "\t")
+rownames(clusters) <- clusters$Barcode.ID
+metadata$Cluster <- clusters[rownames(metadata), "Cluster"]
+
+global_mat <- pivot_wider(global.data, names_from = "Barcode.ID", 
+                          values_from = "LogRatio") %>%
+  column_to_rownames("Gene")
+m_global <- MSnSet(exprs = global_mat %>% as.matrix(), 
+                   pData = metadata[colnames(global_mat), ])
+
+rna_mat <- pivot_wider(RNA.data, names_from = "Barcode.ID", 
+                          values_from = "RNA counts") %>%
+  column_to_rownames("Gene")
+m_rna <- MSnSet(exprs = rna_mat %>% as.matrix(), 
+                pData = metadata[colnames(rna_mat), ])
+
+```
+
+
+
+```{r}
+library(clusterProfiler)
+library(msigdbr)
+
+t2g_hallmark <- msigdbr(species = "Homo sapiens", category = "H") %>% 
+  dplyr::select(gs_name, gene_symbol)
+## 50 unique terms
+# unique(t2g_hallmark$gs_name)
+
+t2g_gobp <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "BP") %>% 
+  dplyr::select(gs_name, gene_symbol) %>%
+  mutate(gs_name = gsub("_", " ", gs_name))
+
+t2g_reactome <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CP:REACTOME") %>%
+  dplyr::select(gs_name, gene_symbol) 
+
+t2g_biocarta <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CP:BIOCARTA") %>%
+  dplyr::select(gs_name, gene_symbol) 
+
+t2g_kegg <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CP:KEGG") %>%
+  dplyr::select(gs_name, gene_symbol) 
+
+t2g_wikipathways <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CP:WIKIPATHWAYS") %>%
+  dplyr::select(gs_name, gene_symbol)
+
+t2g_PathwayInteractionDB <- msigdbr(species = "Homo sapiens", category = "C2") %>% 
+  dplyr::filter(gs_subcat == "CP:PID") %>%
+  dplyr::select(gs_name, gene_symbol) 
+
+
+```
+
+
+
+
+
+```{r}
+rank_gsea <- function(m, var_name, t2g, top_n = 7, ending = ""){
+  levels <- unique(pData(m)[[var_name]]) %>% sort()
+  combined_gsea <- data.frame()
+  exprs(m) <- sweep(exprs(m), 1, apply(exprs(m), 1, mean, na.rm = T), FUN = '-')
+    
+  for (level in levels){
+    fold_change_ingroup <- apply(exprs(m)[, m[[var_name]] == level], 1, mean, na.rm = T)
+    # fold_change_outgroup <- apply(exprs(m)[, m[[var_name]] != level], 1, mean, na.rm = T)
+    fold_change <- fold_change_ingroup
+    fold_change <- sort(fold_change, decreasing = TRUE)
+    set.seed(69)
+    ## For some pathways, gsea is unable to assess a pvalue. These are removed by the function
+    ## Internally. This is why some pathways (like "GOBP NCRNA METABOLISM") are excluded from
+    ## the result.
+    combined_gsea <- GSEA(fold_change, eps = 1e-16, minGSSize = 10, 
+                          pvalueCutoff = 1, TERM2GENE = t2g)@result %>%
+      dplyr::select(Description, setSize, NES, pvalue, p.adjust, core_enrichment) %>%
+      dplyr::mutate(var_name = level) %>%
+      rbind(combined_gsea)
+  }
+  
+  combined_gsea$pathway_subtype_id <- paste(combined_gsea$Description, 
+                                            combined_gsea$var_name, sep = " -- ")
+  rownames(combined_gsea) <- combined_gsea$pathway_subtype_id
+  write.table(combined_gsea, paste0("Data/subtype_drivers/rank_gsea_", var_name, "_", ending, "_results.txt"), sep = "\t")
+  
+  chosen_pathways <- combined_gsea %>%
+    dplyr::group_by(var_name) %>%
+    dplyr::arrange(p.adjust) %>%
+    dplyr::slice(1:top_n) %>%
+    dplyr::pull(Description)
+  
+  combined_gsea_small <- combined_gsea %>%
+    dplyr::filter(Description %in% chosen_pathways) %>%
+    dplyr::mutate(Description = str_wrap(Description, width = 50))
+  
+  gsea_mat <- combined_gsea_small %>%
+    dplyr::select(Description, NES, var_name) %>%
+    pivot_wider(names_from = var_name, values_from = NES) %>%
+    column_to_rownames("Description")
+  
+  gsea_mat_p <- combined_gsea_small %>%
+    dplyr::select(Description, p.adjust, var_name) %>%
+    pivot_wider(names_from = var_name, values_from = p.adjust) %>%
+    column_to_rownames("Description")
+  
+  gsea_mat_p <- gsea_mat_p %>% as.matrix()
+  gsea_mat_p[is.na(gsea_mat_p)] <- 1
+  
+  gsea_mat_p <- gsea_mat_p[, levels]
+  gsea_mat <- gsea_mat[, levels]
+  
+  title <- paste("Rank GSEA", var_name, ending)
+  
+  if (nchar(ending) > 0){
+    ending <- tolower(ending)
+    var_name <- tolower(var_name)
+    plot_path <- paste0("Data/subtype_drivers/rank_gsea_", var_name, "_", ending, ".pdf") %>%
+      gsub(" ", "_", .)
+  } else {
+    plot_path <- paste0("Data/subtype_drivers/rank_gsea_", var_name, ".pdf")
+  }
+  
+  pheatmap(gsea_mat, display_numbers = gsea_mat_p, cluster_cols = F, 
+           fontsize = 8, width = 10, filename = plot_path, main = title,)
+  
+  return("Done")
+  
+}
+
+
+```
+
+
+```{r}
+rank_gsea(m_global, "Cluster", t2g = t2g_gobp, top_n = 7, ending = "Global - GO BP")
+rank_gsea(m_global, "Cluster", t2g = t2g_hallmark, top_n = 7, ending = "Global - Hallmarks")
+rank_gsea(m_global, "Cluster", t2g = t2g_biocarta, top_n = 7, ending = "Global - Biocarta")
+rank_gsea(m_global, "Cluster", t2g = t2g_kegg, top_n = 7, ending = "Global - KEGG")
+rank_gsea(m_global, "Cluster", t2g = t2g_PathwayInteractionDB, top_n = 7, ending = "Global - Pathway Interaction DB")
+rank_gsea(m_global, "Cluster", t2g = t2g_reactome, top_n = 7, ending = "Global - Reactome")
+rank_gsea(m_global, "Cluster", t2g = t2g_wikipathways, top_n = 7, ending = "Global - Wikipathways")
+
+
+
+```
+
+
+
+```{r}
+rank_gsea(m_rna, "Cluster", t2g = t2g_gobp, top_n = 7, ending = "RNA - GO BP")
+rank_gsea(m_rna, "Cluster", t2g = t2g_hallmark, top_n = 7, ending = "RNA - Hallmarks")
+rank_gsea(m_rna, "Cluster", t2g = t2g_biocarta, top_n = 7, ending = "RNA - Biocarta")
+rank_gsea(m_rna, "Cluster", t2g = t2g_kegg, top_n = 7, ending = "RNA - KEGG")
+rank_gsea(m_rna, "Cluster", t2g = t2g_PathwayInteractionDB, top_n = 7, ending = "RNA - Pathway Interaction DB")
+rank_gsea(m_rna, "Cluster", t2g = t2g_reactome, top_n = 7, ending = "RNA - Reactome")
+rank_gsea(m_rna, "Cluster", t2g = t2g_wikipathways, top_n = 7, ending = "RNA - Wikipathways")
+
+
+```
+
+
+
+
+
+
+
+
+

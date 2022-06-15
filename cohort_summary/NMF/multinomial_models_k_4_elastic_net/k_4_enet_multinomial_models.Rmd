@@ -441,8 +441,12 @@ plot_metrics <- function(chosen_alpha){
                      Precision = combined_v2_model_metrics$Precision,
                      `Classification error` = combined_v2_model_metrics$missclass_error,
                      data_type = "Combined_v2")) %>%
+    mutate(data_type = case_when(data_type == "Combined" ~ "Global + Phospho_imp",
+                                 data_type == "Combined_v2" ~ "Global + Phospho",
+                                 TRUE ~ data_type)) %>%
     mutate(data_type = factor(data_type, levels = c("Global", "Phospho", "RNA", 
-                                                    "Phospho_imp", "Combined", "Combined_v2")))
+                                                    "Phospho_imp", "Global + Phospho_imp", 
+                                                    "Global + Phospho")))
   
   p_recall <- ggplot(summary, aes(x = Cluster, y = Recall, fill = data_type)) + 
     geom_bar(stat = 'identity', width = 0.33, position = position_dodge()) + 
@@ -494,6 +498,10 @@ error_plots <- plot_metrics(0.7)
 
 ggsave("enet_multinomial_data/recall_alpha_0.7.pdf", error_plots[[1]], width = 7, height = 6)
 ggsave("enet_multinomial_data/classification_error_alpha_0.7.pdf", error_plots[[3]], width = 7, height = 6)
+
+error_plots <- plot_metrics(0.9)
+ggsave("enet_multinomial_data/classification_error_alpha_0.9.pdf", error_plots[[3]], width = 7, height = 6)
+ggsave("enet_multinomial_data/classification_error_alpha_0.9.png", plot = error_plots[[3]], width = 7, height = 6)
 
 ```
 

@@ -1,0 +1,495 @@
+---
+title: "K = 4 multinomial predictions"
+author: "Camilo Posso"
+date: "06/02/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+Predict subtypes on the 51 held out samples, as well as entirely new datasets. CHeck
+survival, mutation, etc.
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+library(gridExtra)
+library(grid)
+library(ggalluvial)
+
+source("../NMF_helper.R")
+source("../cluster_model_helper.R")
+
+```
+
+
+Loading model results.
+
+
+```{r}
+all_results <- readRDS("enet_multinomial_data/elastic_net_multinomial_results_k_4.RDS")
+all_bounds <- readRDS("enet_multinomial_data/all_bounds.RDS")
+bound_mult <- all_bounds$bound_mult
+
+signatures <- read.table("enet_multinomial_data/enet_multinomial_all_signatures.txt", sep = "\t")
+
+```
+
+Setting up models
+
+```{r}
+
+## Global model
+data_mat <- global_mat_train
+
+cluster_lab <- enet_meta %>%
+  mutate(cluster_lab = paste("Cluster", k.4)) %>%
+  pull(cluster_lab) %>%
+  as.factor()
+names(cluster_lab) <- enet_meta$Barcode.ID
+cluster_lab <- cluster_lab[colnames(data_mat)]
+
+model_global <- glmnet(x = t(data_mat),
+                       y = cluster_lab,
+                       family = 'multinomial',
+                       alpha = 0.7,
+                       lambda = 0.0114996)
+
+
+## Global + Phospho model
+data_mat <- combined_v2_mat_train
+
+cluster_lab <- enet_meta %>%
+  mutate(cluster_lab = paste("Cluster", k.4)) %>%
+  pull(cluster_lab) %>%
+  as.factor()
+names(cluster_lab) <- enet_meta$Barcode.ID
+cluster_lab <- cluster_lab[colnames(data_mat)]
+
+model_global_phospho <- glmnet(x = t(data_mat),
+                               y = cluster_lab,
+                               family = 'multinomial',
+                               alpha = 0.9,
+                               lambda = 0.007655539)
+
+
+## Global + Phospho imputed model
+data_mat <- combined_mat_train
+
+cluster_lab <- enet_meta %>%
+  mutate(cluster_lab = paste("Cluster", k.4)) %>%
+  pull(cluster_lab) %>%
+  as.factor()
+names(cluster_lab) <- enet_meta$Barcode.ID
+cluster_lab <- cluster_lab[colnames(data_mat)]
+
+model_global_phospho_imputed <- glmnet(x = t(data_mat),
+                                       y = cluster_lab,
+                                       family = 'multinomial',
+                                       alpha = 0.9,
+                                       lambda = 0.003933862)
+
+
+```
+
+
+
+```{r}
+
+# get_pca_df <- function (eset, z_score = TRUE, components = 1:2, standardize = TRUE, 
+#           num_features = 6L, show_NA = TRUE, ...) 
+# {
+#   if (length(components) != 2) {
+#     stop(sprintf("components must be a vector of length 2, not %d.", 
+#       length(components)))
+#   }
+#   if (!all(components %in% 1:ncol(eset))) {
+#     stop(sprintf("The values of components must be between 1 and %d.", 
+#       ncol(eset)))
+#   }
+#   complete_rows <- complete.cases(exprs(eset))
+#   if (sum(complete_rows) < 2) {
+#     stop("There are fewer than 2 rows with non-missing data.")
+#   }
+#   message(sprintf("Subsetting to %d complete rows for PCA.", 
+#     sum(complete_rows)))
+#   eset <- eset[complete_rows, ]
+#   if (z_score) {
+#     z <- t(scale(exprs(eset), center = TRUE, scale = TRUE))
+#   }
+#   else {
+#     z <- t(exprs(eset))
+#   }
+#   pca_res <- prcomp(z)
+#   u <- pca_res$x
+#   v <- pca_res$rotation
+#   if (standardize) {
+#     n <- nrow(u)
+#     lam <- pca_res$sdev * sqrt(n)
+#     u <- t(t(u)/lam)
+#     v <- t(t(v) * lam)
+#   }
+#   u_range <- apply(u[, components], 2, function(x) abs(range(x)))
+#   v_range <- apply(v[, components], 2, function(x) abs(range(x)))
+#   ratio <- max(v_range/u_range)
+#   v <- v/ratio
+#   df.u <- as.data.frame(u[, components])
+#   df.v <- as.data.frame(v[, components])
+#   d <- pca_res$sdev
+#   var_expl <- round(100 * d^2/sum(d^2), digits = 2)[components]
+#   axis_labs <- sprintf("PC%d (%g%%)", components, var_expl)
+#   # p <- ggplot(df.u, aes(x = df.u[, 1], y = df.u[, 2], color = colorBy)) + 
+#   #   geom_hline(yintercept = 0, lty = "longdash", color = "darkgrey") + 
+#   #   geom_vline(xintercept = 0, lty = "longdash", color = "darkgrey") + 
+#   #   labs(x = axis_labs[1], y = axis_labs[2]) + theme_bw() + 
+#   #   theme(aspect.ratio = 1)
+#   return(df.u)
+# }
+
+```
+
+
+# Predicting on new data.
+
+
+
+```{r}
+subtype_prediction_new_data <- function(new_data_long, meta_cols, model,
+                                        feature_str = "feature", sample_str = "sample", 
+                                        value_str = "LogRatio", zero_2_NA = FALSE,
+                                        plot_title = ""){
+  
+  model_features <- rownames(model$beta$`Cluster 1`)
+  sig_features <- sapply(model$beta, function(coefs){
+    rownames(coefs)[which(coefs != 0)]
+  }) %>% unlist() %>% unname() %>% unique()
+
+  metadata <- new_data_long %>%
+    select(sample = sym(sample_str), .dots = meta_cols) %>%
+    unique()
+  colnames(metadata)[2:ncol(metadata)] <- meta_cols
+  rownames(metadata) <- metadata$sample
+  
+  if (zero_2_NA){
+    n_zeros <- sum(new_data_long[[value_str]] == 0)
+    cat(paste0("Replacing NA in a total of ", n_zeros, " entries.\n"))
+    new_data_long <- new_data_long %>%
+      filter(!!as.symbol(value_str) != 0)
+  }
+  
+  mat_new <- new_data_long %>%
+    select(feature = sym(feature_str), sample = sym(sample_str), value = sym(value_str)) %>%
+    pivot_wider(names_from = "sample", values_from = "value", values_fn = mean) %>%
+    column_to_rownames("feature") %>% as.matrix()
+  mat_global <- new_data_long %>%
+    filter(data_type == "Global") %>%
+    select(feature = sym(feature_str), sample = sym(sample_str), value = sym(value_str)) %>%
+    pivot_wider(names_from = "sample", values_from = "value", values_fn = mean) %>%
+    column_to_rownames("feature") %>% as.matrix()
+  mat_phospho <- new_data_long %>%
+    filter(data_type == "Phospho") %>%
+    select(feature = sym(feature_str), sample = sym(sample_str), value = sym(value_str)) %>%
+    pivot_wider(names_from = "sample", values_from = "value", values_fn = mean) %>%
+    column_to_rownames("feature") %>% as.matrix()
+  
+  mat_new <- sweep(mat_new, 1, apply(mat_new, 1, mean, na.rm = T), FUN = '-')
+  mat_new <- sweep(mat_new, 1, apply(mat_new, 1, sd, na.rm = T), FUN = '/')
+  ## Impute with the mean.
+  mat_new[is.na(mat_new)] <- 0
+  
+  ## Including the necessary features for the model only. Missing features are imputed with 0.
+  mat_new <- mat_new[rownames(mat_new) %in% model_features, ]
+  dummy_rows <- setdiff(model_features, rownames(mat_new))
+  dummy_mat <- matrix(0, ncol = ncol(mat_new), nrow = length(dummy_rows))
+  rownames(dummy_mat) <- dummy_rows
+  colnames(dummy_mat) <- colnames(mat_new)
+  mat_new <- rbind(mat_new, dummy_mat)
+  mat_new <- mat_new[model_features, ]
+  
+  n_imputed <- length(intersect(sig_features, dummy_rows))
+  cat(paste0("Adding ", n_imputed, " constant features needed for subtype prediction.\n"))
+  
+  cluster_predictions <- predict(model, newx = t(mat_new), 
+                                 type = "response")[, , 1] %>% as.data.frame()
+  colnames(cluster_predictions) <- paste("New", colnames(cluster_predictions))
+  cluster_predictions$max_new <- apply(cluster_predictions, 1, max) %>% unname()
+  cluster_predictions$pred_cluster <- predict(model, newx = t(mat_new), 
+                                              type = "class") %>%
+    as.character()
+  cluster_predictions$sample <- colnames(mat_new)
+  metadata <- cluster_predictions %>%
+    select(sample, Subtype = pred_cluster) %>%
+    merge(metadata, by = "sample")
+  rownames(metadata) <- metadata$sample
+  
+  m_global <- MSnSet(exprs = mat_global, pData = metadata[colnames(mat_global), ])
+  m_phospho <- MSnSet(exprs = mat_phospho, pData = metadata[colnames(mat_phospho), ])
+  # plot_df_global <- get_pca_df(m_global) %>% 
+  #   mutate(sample = rownames(.)) %>%
+  #   merge(metadata, by = "sample")
+  # plot_df_phospho <- get_pca_df(m_phospho) %>% 
+  #   mutate(sample = rownames(.)) %>%
+  #   merge(metadata, by = "sample")
+  # if (length(meta_cols) == 1){
+  #   p1 <- ggplot(plot_df_global, aes(x = PC1, y = PC2, shape = Subtype)) + 
+  #     geom_point(aes_string(color = meta_cols[[1]])) + ggtitle("Global") +
+  #     theme(plot.title = element_text(hjust = 0.5))
+  #   p2 <- ggplot(plot_df_phospho, aes(x = PC1, y = PC2, shape = Subtype)) +
+  #     geom_point(aes_string(color = meta_cols[[1]])) + ggtitle("Phospho") +
+  #     theme(plot.title = element_text(hjust = 0.5))
+  # } else{
+  #   p1 <- ggplot(plot_df_global, aes(x = PC1, y = PC2, shape = Subtype)) + 
+  #     geom_point(aes_string(color = meta_cols[[1]],
+  #                           size = meta_cols[[2]])) + ggtitle("Global") +
+  #     theme(plot.title = element_text(hjust = 0.5))
+  #   p2 <- ggplot(plot_df_phospho, aes(x = PC1, y = PC2, shape = Subtype)) +
+  #     geom_point(aes_string(color = meta_cols[[1]],
+  #                           size = meta_cols[[2]])) + ggtitle("Phospho") +
+  #     theme(plot.title = element_text(hjust = 0.5))
+  # }
+  # 
+  # top_grob <- textGrob(plot_title, 
+  #                      gp = gpar(fontsize = 20))
+  # p_all <- arrangeGrob(p1, p2, ncol = 2, top = top_grob)
+  # plot_path <- paste0("enet_multinomial_data/cell_line_subtypes_", plot_title, ".pdf") %>%
+  #   gsub(" ", "_", .)
+  # ggsave(plot_path, p_all, width = 14, height = 6)
+  
+  return(list("Global msnset" = m_global, 
+              "Phospho msnset" = m_phospho, 
+              "Combined mat" = mat_new))
+}
+
+
+```
+
+
+
+
+
+```{r}
+
+## Cytokine-induced Drug Sensitivity Proteomics
+tramProtData <- querySynapseTable('syn22986326') %>%
+  subset(!is.nan(LogRatio)) %>%
+  subset(!is.na(LogRatio)) %>%
+  mutate(feature = unlist(Gene)) %>%
+  select(-Gene, -Protein) %>%
+  subset(Batch == 'Experiment 1') %>%
+  mutate(data_type = "Global")
+## Cytokine-induced Drug Sensitivity Phosphoproteomics Unnormalized
+tramPhosData <- querySynapseTable('syn24389738') %>%
+  subset(!is.nan(LogRatio)) %>%
+  subset(!is.na(LogRatio)) %>%
+  mutate(feature = unlist(site)) %>%
+  select(-Protein, -Peptide, -Gene, -site) %>%
+  subset(Batch == 'Experiment 1') %>%
+  mutate(data_type = "Phospho")
+
+tramData <- tramProtData %>%
+  rbind(tramPhosData)
+
+tram <- subtype_prediction_new_data(new_data_long = tramData, 
+                                    model = model_global_phospho,
+                                    meta_cols = c("CellType", "TimePoint"), 
+                                    sample_str = "sample", value_str = "LogRatio", 
+                                    plot_title = "Cytokine induced drug sensitivity", 
+                                    zero_2_NA = TRUE)
+
+
+
+
+
+## Quizartinib Resistance Proteomics Data
+quizProtData <- querySynapseTable('syn23595222') %>%
+  subset(!is.nan(value)) %>%
+  subset(!is.na(value)) %>%
+  mutate(feature = unlist(Gene)) %>%
+  select(-Entry_name, -Gene) %>%
+  mutate(data_type = "Global")
+## Quizartinib Resistance Phosphoproteomics Unnormalized
+quizPhosData <- querySynapseTable("syn24366514") %>%
+  subset(!is.nan(value)) %>%
+  subset(!is.na(value)) %>%
+  mutate(feature = unlist(site)) %>%
+  select(-Entry_name, -Gene, -site, -Peptide) %>%
+  mutate(data_type = "Phospho")
+
+quizData <- quizProtData %>%
+  rbind(quizPhosData)
+
+quiz <- subtype_prediction_new_data(new_data_long = quizData, 
+                                    model = model_global_phospho,
+                                    meta_cols = c("cellLine", "Ligand"), 
+                                    sample_str = "Sample", value_str = "value", 
+                                    plot_title = "Quizartinib resistance", 
+                                    zero_2_NA = TRUE)
+
+
+
+
+# Gilteritinib resistant cell line proteomics - syn22156807
+gilt_resist_prot <- querySynapseTable("syn22156807") %>%
+  subset(!is.nan(value)) %>%
+  subset(!is.na(value)) %>%
+  mutate(feature = unlist(Gene)) %>%
+  select(-Gene, -Protein) %>%
+  mutate(data_type = "Global")
+# Gilteritinib resistant cell line phospho- syn22156809
+gilt_resist_phos <- querySynapseTable("syn22156809") %>%
+  subset(!is.nan(value)) %>%
+  subset(!is.na(value)) %>%
+  mutate(feature = unlist(site)) %>%
+  select(-Gene, -Protein, -site, -Peptide) %>%
+  mutate(data_type = "Phospho")
+
+giltData <- gilt_resist_prot %>%
+  rbind(gilt_resist_phos)
+
+gilt <- subtype_prediction_new_data(new_data_long = giltData, 
+                                    model = model_global_phospho,
+                                    meta_cols = c("cellLine", "ligand"), 
+                                    sample_str = "Sample", value_str = "value", 
+                                    plot_title = "Gilteritinib resistance", 
+                                    zero_2_NA = TRUE)
+
+
+
+
+
+
+# Cell line time course proteomics - syn22255431
+cell_line_time_prot <- querySynapseTable("syn22255431") %>%
+  subset(!is.nan(LogFoldChange)) %>%
+  subset(!is.na(LogFoldChange)) %>%
+  mutate(feature = unlist(Gene),
+         cellLine = unlist(cellLine),
+         timePoint = unlist(timePoint),
+         data_type = "Global") %>%
+  select(-Gene) 
+# Cell line time course phospho uncorrected - syn25618653
+cell_line_time_phos <- querySynapseTable("syn25618653") %>%
+  subset(!is.nan(LogFoldChange)) %>%
+  subset(!is.na(LogFoldChange)) %>%
+  mutate(feature = unlist(site),
+         cellLine = unlist(cellLine),
+         timePoint = unlist(timePoint),
+         data_type = "Phospho") %>%
+  select(-Gene, -site, -Peptide)
+
+cell_line_time_data <- cell_line_time_prot %>%
+  rbind(cell_line_time_phos)
+
+
+cell_line_time <- subtype_prediction_new_data(new_data_long = cell_line_time_data, 
+                                              model = model_global_phospho,
+                                              meta_cols = c("cellLine", "timePoint"), 
+                                              sample_str = "Sample", value_str = "LogFoldChange", 
+                                              plot_title = "Cell line time course", 
+                                              zero_2_NA = TRUE)
+
+
+
+
+
+# AML Drug combos Molm14 proteomics (corrected/uncorrected) - syn25813133/syn25813139
+aml_combo_molm14_prot <- querySynapseTable("syn25813133") %>%
+  subset(!is.nan(LogRatio)) %>%
+  subset(!is.na(LogRatio)) %>%
+  mutate(feature = unlist(Gene)) %>%
+  mutate(data_type = "Global") %>%
+  select(-Gene, -SampleID, -Channel, -Plex, -LoadingMass)
+# AML Drug combos Molm14 phospho (corrected/uncorrected) - syn25813172/syn25813182
+aml_combo_molm14_phos <- querySynapseTable("syn25813172") %>%
+  subset(!is.nan(LogRatio)) %>%
+  subset(!is.na(LogRatio)) %>%
+  mutate(feature = unlist(SiteID)) %>%
+  mutate(data_type = "Phospho") %>%
+  select(-Gene, -SiteID, -SampleID, -Channel, -Plex, -LoadingMass)
+
+
+aml_combo_molm14_data <- aml_combo_molm14_prot %>%
+  rbind(aml_combo_molm14_phos)
+
+## Due to missingness, PCA plot is using very few features. Use mean imputation
+## to deal with this. The reason is very few features per sample have missing values, so
+## the imputation with the mean should be on the benign side, and rescue many features.
+# xx <- apply(is.na(exprs(aml_combo_molm14$`Global msnset`)), 2, sum)
+aml_combo_molm14 <- subtype_prediction_new_data(new_data_long = aml_combo_molm14_data, 
+                                                model = model_global_phospho,
+                                                meta_cols = c("Treatment", "Time"), 
+                                                sample_str = "SampleName", value_str = "LogRatio", 
+                                                plot_title = "AML combo MOLM14", 
+                                                zero_2_NA = TRUE)
+
+
+
+
+
+# AML Drug combos HL60 proteomics (corrected/uncorrected) - syn25813233/syn25813236
+aml_combo_hl60_prot <- querySynapseTable("syn25813233") %>%
+  subset(!is.nan(LogRatio)) %>%
+  subset(!is.na(LogRatio)) %>%
+  mutate(feature = unlist(Gene)) %>%
+  mutate(data_type = "Global") %>%
+  select(-Gene, -SampleID, -Channel, -Plex, -LoadingMass)
+# AML Drug combos HL60 phospho (corrected/uncorrected) - syn25813243/syn25813252
+aml_combo_hl60_phos <- querySynapseTable("syn25813243") %>%
+  subset(!is.nan(LogRatio)) %>%
+  subset(!is.na(LogRatio)) %>%
+  mutate(feature = unlist(SiteID)) %>%
+  mutate(data_type = "Phospho") %>%
+  select(-Gene, -SiteID, -SampleID, -Channel, -Plex, -LoadingMass)
+
+aml_combo_hl60_data <- aml_combo_hl60_prot %>%
+  rbind(aml_combo_hl60_phos)
+
+
+## Same comment applies to this one as to the aml_molm14 immediately above.
+# xx <- apply(is.na(exprs(aml_combo_hl60$`Global msnset`)), 2, sum)
+aml_combo_hl60 <- subtype_prediction_new_data(new_data_long = aml_combo_hl60_data, 
+                                              model = model_global_phospho,
+                                              meta_cols = c("Treatment", "Time"), 
+                                              sample_str = "SampleName", value_str = "LogRatio", 
+                                              plot_title = "AML combo HL60", 
+                                              zero_2_NA = TRUE)
+
+
+
+
+```
+
+
+
+
+
+```{r}
+m <- cell_line_time$`Global msnset`
+path_str <- ""
+
+alluvial_df <- pData(m) %>%
+  mutate(sample_y = 1,
+         timePoint = as.factor(timePoint),
+         cellLine = as.factor(cellLine),
+         Subtype = sub("Cluster ", "", Subtype))
+
+p_alluvial <- ggplot(alluvial_df, aes(y = sample_y, axis1 = Subtype, axis2 = cellLine, axis3 = timePoint)) +
+  geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) + 
+  geom_stratum(width = 1/12, color = "grey") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)))
+
+path_str <- paste0("enet_multinomial_data/cell_line_subtypes_", path_str, ".pdf")
+ggsave(plot = p_alluvial, filename = path_str, width = , height = )
+
+
+
+```
+
+

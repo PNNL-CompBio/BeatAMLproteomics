@@ -104,10 +104,22 @@ set.seed(42)
 # phospho_imp <- phospho.data %>%
 #   select(Barcode.ID, SiteID, LogRatio) %>%
 #   dplyr::rename(feature = SiteID) %>%
-#   pivot_wider(names_from = Barcode.ID, 
-#               values_from = LogRatio) %>% 
+#   pivot_wider(names_from = Barcode.ID,
+#               values_from = LogRatio) %>%
 #   as.data.frame()
 # rownames(phospho_imp) <- phospho_imp$feature
+# 
+# missing_count <- phospho_imp %>%
+#   pivot_longer(-feature, names_to = "Barcode.ID", values_to = "LogRatio") %>%
+#   left_join(meta, by = "Barcode.ID") %>%
+#   group_by(feature, Plex) %>%
+#   mutate(count = sum(!is.na(LogRatio))) %>%
+#   ungroup(Plex, feature) %>%
+#   group_by(feature) %>%
+#   summarise(`Plexes missing` = sum(count == 0)/10,
+#             `Number missing` = sum(is.na(LogRatio)))
+# ggplot(missing_count, aes(x = `Number missing`)) + geom_histogram()
+# 
 # phospho_imp <- phospho_imp[, -1] %>% as.matrix()
 # phospho_imp <- DreamAI(phospho_imp, k=10, maxiter_MF = 10, ntree = 100,
 #                        maxnodes = NULL, maxiter_ADMIN = 30, tol = 10^(-2),
