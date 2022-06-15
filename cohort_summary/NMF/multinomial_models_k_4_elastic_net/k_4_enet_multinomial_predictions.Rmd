@@ -95,6 +95,30 @@ make_prediction <- function(chosen_alpha, data_type, robust){
     data_mat <- phospho_mat_train_imp
     data_mat_test <- phospho_mat_test_imp
     data_mat_full <- phospho_imp
+  } else if (data_type == "Combined_v2"){
+    data_mat <- combined_v2_mat_train
+    data_mat_test <- combined_v2_mat_test
+    data_mat_full_g <- global.data %>%
+      dplyr::rename(feature = Gene) %>%
+      filter(feature %in% global_features) %>%
+      pivot_wider(names_from = Barcode.ID, 
+                  values_from = LogRatio) %>% 
+      as.data.frame()
+    rownames(data_mat_full_g) <- data_mat_full_g$feature
+    data_mat_full_g <- data_mat_full_g[, -1] %>% as.matrix()
+    
+    data_mat_full_p <- phospho.data %>%
+      select(Barcode.ID, SiteID, LogRatio) %>%
+      dplyr::rename(feature = SiteID) %>%
+      filter(feature %in% phospho_features) %>%
+      pivot_wider(names_from = Barcode.ID, 
+                  values_from = LogRatio) %>% 
+      as.data.frame()
+    rownames(data_mat_full_p) <- data_mat_full_p$feature
+    data_mat_full_p <- data_mat_full_p[, -1] %>% as.matrix()
+    
+    data_mat_full <- rbind(data_mat_full_g,
+                           data_mat_full_p[, colnames(data_mat_full_g)])
   }
   
   xx <- all_results[[data_type]]
@@ -223,9 +247,10 @@ make_prediction_plot <- function(chosen_alpha, data_type, confidence_cutoff = 0.
   p_all <- arrangeGrob(p1, p2, p4, ncol = 2, nrow = 2,
                        top = textGrob(paste0("Survival plots, ", data_type, ", alpha = ", chosen_alpha), 
                                       gp = gpar(fontsize = 20)))
-  ggsave(paste0("enet_multinomial_data/predicted_survival_", 
-                data_type, "_", chosen_alpha, path_ending), 
-         width = 16, height = 12, p_all)
+  
+  save_path <- paste0("enet_multinomial_data/predicted_survival_", 
+                data_type, "_", chosen_alpha, path_ending)
+  ggsave(save_path, width = 16, height = 12, p_all)
   return(list(p1, p2, p4))
 }
 
@@ -239,28 +264,38 @@ lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alph
   make_prediction_plot(chosen_alpha, "Global", robust = TRUE)
   make_prediction_plot(chosen_alpha, "Phospho_imp", robust = TRUE)
   make_prediction_plot(chosen_alpha, "Combined", robust = TRUE)
+  make_prediction_plot(chosen_alpha, "Combined_v2", robust = TRUE)
   make_prediction_plot(chosen_alpha, "Global", robust = FALSE)
   make_prediction_plot(chosen_alpha, "Phospho_imp", robust = FALSE)
   make_prediction_plot(chosen_alpha, "Combined", robust = FALSE)
+  make_prediction_plot(chosen_alpha, "Combined_v2", robust = FALSE)
 })
 
-prediction_survival_plots <- make_prediction_plot(0.7, "Global", robust = TRUE)
-ggsave("enet_multinomial_data/global_prediction_survival_alpha_0.7_all_samples.pdf",
+prediction_survival_plots <- make_prediction_plot(0.9, "Global", robust = TRUE)
+ggsave("enet_multinomial_data/global_prediction_survival_alpha_0.9_all_samples.png",
        width = 7, height = 7, plot = prediction_survival_plots[[2]])
-ggsave("enet_multinomial_data/global_prediction_survival_alpha_0.7_heldout_samples.pdf",
+ggsave("enet_multinomial_data/global_prediction_survival_alpha_0.9_heldout_samples.png",
        width = 7, height = 7, plot = prediction_survival_plots[[3]])
 
-prediction_survival_plots <- make_prediction_plot(0.7, "Combined", robust = TRUE)
-ggsave("enet_multinomial_data/combined_prediction_survival_alpha_0.7_all_samples.pdf",
+prediction_survival_plots <- make_prediction_plot(0.9, "Combined_v2", robust = TRUE)
+ggsave("enet_multinomial_data/combined_v2_prediction_survival_alpha_0.9_all_samples.png",
        width = 7, height = 7, plot = prediction_survival_plots[[2]])
-ggsave("enet_multinomial_data/combined_prediction_survival_alpha_0.7_heldout_samples.pdf",
+ggsave("enet_multinomial_data/combined_v2_prediction_survival_alpha_0.9_heldout_samples.png",
        width = 7, height = 7, plot = prediction_survival_plots[[3]])
 
-prediction_survival_plots <- make_prediction_plot(0.7, "Phospho_imp", robust = TRUE)
-ggsave("enet_multinomial_data/phosphoImp_prediction_survival_alpha_0.7_all_samples.pdf",
+
+prediction_survival_plots <- make_prediction_plot(0.9, "Global", robust = TRUE)
+ggsave("enet_multinomial_data/global_prediction_survival_alpha_0.9_all_samples.pdf",
        width = 7, height = 7, plot = prediction_survival_plots[[2]])
-ggsave("enet_multinomial_data/phosphoImp_prediction_survival_alpha_0.7_heldout_samples.pdf",
+ggsave("enet_multinomial_data/global_prediction_survival_alpha_0.9_heldout_samples.pdf",
        width = 7, height = 7, plot = prediction_survival_plots[[3]])
+
+prediction_survival_plots <- make_prediction_plot(0.9, "Combined_v2", robust = TRUE)
+ggsave("enet_multinomial_data/combined_v2_prediction_survival_alpha_0.9_all_samples.pdf",
+       width = 7, height = 7, plot = prediction_survival_plots[[2]])
+ggsave("enet_multinomial_data/combined_v2_prediction_survival_alpha_0.9_heldout_samples.pdf",
+       width = 7, height = 7, plot = prediction_survival_plots[[3]])
+
 
 ```
 
@@ -456,13 +491,86 @@ sanity_check <- mut_enrichment_plot(0.7, "Global", TRUE)
 
 ```
 
+# Extensions by data type.
+
+```{r eval=FALSE, include=FALSE}
+predictions_1 <- make_prediction(0.7, "Global", TRUE) %>%
+  select(Barcode.ID, pred_cluster_v2) %>%
+  dplyr::rename(Cluster_global = pred_cluster_v2) %>%
+  mutate(data_type = "Global")
+write.table(predictions_1, "enet_multinomial_data/full_210_prediction_cluster_assignments_global.txt", sep = "\t")
+
+predictions_2 <- make_prediction(0.9, "Combined_v2", TRUE) %>%
+  select(Barcode.ID, pred_cluster_v2) %>%
+  dplyr::rename(Cluster_global_phospho = pred_cluster_v2) %>%
+  mutate(data_type = "Global + Phospho")
+write.table(predictions_2, "enet_multinomial_data/full_210_prediction_cluster_assignments_global_phospho.txt", sep = "\t")
+
+predictions_3 <- make_prediction(0.9, "Combined", TRUE) %>%
+  select(Barcode.ID, pred_cluster_v2) %>%
+  dplyr::rename(Cluster_global_phospho_imp = pred_cluster_v2) %>%
+  mutate(data_type = "Global + Phospho imputed")
+write.table(predictions_3, "enet_multinomial_data/full_210_prediction_cluster_assignments_global_phospho_imp.txt", sep = "\t")
+
+predictions_combined <- merge(predictions_1, predictions_2, by = "Barcode.ID") %>%
+  merge(predictions_3, by = "Barcode.ID") %>%
+  mutate(NMF = case_when(Barcode.ID %in% cluster_assignments$Barcode.ID ~ TRUE,
+                         TRUE ~ FALSE))
+
+predictions_combined_new <- predictions_combined %>%
+  filter(NMF == TRUE)
+table(predictions_combined_new$Cluster_global_phospho_imp, predictions_combined_new$Cluster_global_phospho)
+table(predictions_combined$Cluster_global_phospho_imp, predictions_combined$Cluster_global_phospho)
+table(predictions_combined$Cluster_global_phospho == predictions_combined$Cluster_global_phospho_imp)
+
+
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+## Combines all the best models for each alpha.
+data_type <- "Global"
+predictions <- make_prediction(0.1, data_type, TRUE) %>%
+  select(Barcode.ID, pred_cluster_v2) %>%
+  dplyr::rename(!!paste("Cluster", 0.1) := pred_cluster_v2)
+predictions_prob <- make_prediction(0.1, data_type, TRUE) 
+for(alpha in c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)){
+    predictions <- make_prediction(alpha, data_type, TRUE) %>%
+      select(Barcode.ID, pred_cluster_v2) %>%
+      dplyr::rename(!!paste("Cluster", alpha) := pred_cluster_v2) %>%
+      left_join(predictions, by = "Barcode.ID")
+    predictions_prob <-  make_prediction(alpha, data_type, TRUE) %>%
+      rbind(predictions_prob)
+}
+
+predictions_prob_summary <- predictions_prob %>%
+  group_by(Barcode.ID) %>%
+  mutate(Cluster1 = mean(`Full Cluster 1`),
+         Cluster2 = mean(`Full Cluster 2`),
+         Cluster3 = mean(`Full Cluster 3`),
+         Cluster4 = mean(`Full Cluster 4`)) %>%
+  select(Barcode.ID, Cluster1, Cluster2, Cluster3, Cluster4) %>% unique()
+
+predictions_prob_summary$assn <- apply(predictions_prob_summary[, -1], 1, which.max)
+
+predictions_prob_summary <- merge(predictions_prob_summary, meta, by = "Barcode.ID") %>%
+  mutate(overallSurvival = as.numeric(overallSurvival)) %>%
+  filter(!(Barcode.ID %in% cluster_assignments$Barcode.ID))
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ assn, data = predictions_prob_summary)
+p1 <- ggsurvplot(sfit, color = "assn", data = predictions_prob_summary)$plot
+
+```
+
+
 
 # Checking consistency of subtypes: Predicting on 210 vs NMF assignment.
 
 
+
 ```{r eval=FALSE, include=FALSE}
 ## Uploading 210 subtype prediction to synapse
-predictions <- make_prediction(0.7, "Global", TRUE) %>%
+predictions <- make_prediction(0.9, "Combined_v2", TRUE) %>%
   select(Barcode.ID, pred_cluster_v2) %>%
   dplyr::rename(Cluster = pred_cluster_v2) %>%
   mutate(Cluster = as.character(Cluster))
@@ -471,6 +579,7 @@ write.table(predictions, "enet_multinomial_data/full_210_prediction_cluster_assi
 upload.plot("enet_multinomial_data/full_210_prediction_cluster_assignments_k4.txt", "syn29612385")
 
 ```
+
 
 Checking how the predicted clusters on the 210 patients compare to the NMF assignments.
 
@@ -487,276 +596,5 @@ combined <- left_join(prediction_210, NMF_159, by = "Barcode.ID") %>%
 table(combined$k.4, combined$Cluster)
 
 ```
-
-
-# Predicting on new data.
-
-
-
-```{r}
-signatures <- read.table("enet_multinomial_data/enet_multinomial_all_signatures.txt", sep = "\t")
-
-## Functions to predict subtypes on new data.
-## mat_new should be normalized and include all the features of global_mat_train.
-subtype_prediction <- function(mat_new, metadata){
-  chosen_alpha = 0.7
-  chosen_lambda = 0.0114996
-  data_mat <- global_mat_train
-  
-  cluster_lab <- enet_meta %>%
-    mutate(cluster_lab = paste("Cluster", k.4)) %>%
-    pull(cluster_lab) %>%
-    as.factor()
-  names(cluster_lab) <- enet_meta$Barcode.ID
-  cluster_lab <- cluster_lab[colnames(data_mat)]
-  
-  model <- glmnet(x = t(data_mat),
-                  y = cluster_lab,
-                  family = 'multinomial',
-                  alpha = chosen_alpha,
-                  lambda = chosen_lambda)
-  
-  cluster_predictions <- predict(model, s = chosen_lambda, 
-                                 newx = t(mat_new), 
-                                 type = "response")[, , 1] %>% as.data.frame()
-  colnames(cluster_predictions) <- paste("New", colnames(cluster_predictions))
-  cluster_predictions$max_new <- apply(cluster_predictions, 1, max) %>% unname()
-  cluster_predictions$pred_cluster <- predict(model, s = chosen_lambda, 
-                                              newx = t(mat_new), 
-                                              type = "class")
-  cluster_predictions$SampleName <- colnames(mat_new)
-  cluster_predictions <- cluster_predictions %>%
-    merge(metadata, by = "SampleName")
-  return(cluster_predictions)
-}
-
-sig_heatmap <- function(data_mat, col_df, file_path, plot_title){
-  signatures <- signatures %>%
-    group_by(chosen_type, alpha, Gene) %>%
-    dplyr::mutate(total = n()) %>%
-    ungroup()
-  
-  data_mat <- data_mat[which(apply(data_mat, 1, sd) != 0), ]
-  
-  row_df <- signatures %>%
-    dplyr::filter(alpha == 0.7,
-                  Gene %in% rownames(data_mat)) %>%
-    dplyr::mutate(Cluster = paste("Cluster", Cluster)) %>%
-    dplyr::filter(chosen_type == "Global") %>%
-    dplyr::select(Gene, Cluster) %>%
-    group_by(Gene) %>%
-    dplyr::mutate(total = n()) %>%
-    dplyr::mutate(Cluster = case_when(total == 1 ~ as.character(Cluster),
-                                      TRUE ~ "Mixed"),
-                  Cluster = factor(Cluster, levels = c("Cluster 1", "Cluster 2", 
-                                                       "Cluster 3", "Cluster 4", "Mixed"))) %>%
-    unique() %>%
-    as.data.frame()
-  rownames(row_df) <- row_df$Gene
-  
-  col_df <- col_df %>%
-    dplyr::select(pred_cluster, SampleName, Time, Treatment) %>%
-    dplyr::rename(Cluster = pred_cluster) %>%
-    dplyr::mutate(Cluster = as.factor(Cluster)) 
-  rownames(col_df) <- col_df$SampleName
-  col_df <- col_df %>%
-    select(Cluster, Time, Treatment)
-  
-  ann_colors <- list("Cluster" = c("Cluster 1" = subtype_colors[[1]], 
-                                   "Cluster 2" = subtype_colors[[2]],
-                                   "Cluster 3" = subtype_colors[[3]],
-                                   "Cluster 4" = subtype_colors[[4]],
-                                   "Mixed" = "grey"))
-  
-  heatmap_breaks <- seq(-3, 3, by = 0.2)
-  heatmap_colors <- colorRampPalette(rev(brewer.pal(n = 10, name = "RdBu")))(length(heatmap_breaks))
-  cluster_row = pheatmap:::cluster_mat(data_mat[rownames(row_df), ], distance = "euclidean", 
-                                       method = "ward.D")
-  row_df <- row_df[cluster_row$order, ] %>%
-    mutate(order = 1:n()) %>%
-    arrange(Cluster) %>%
-    select(Cluster)
-  sigs <- rownames(row_df)
-  
-  make.pheatmap(data_mat[sigs, ], filename = file_path, format = "pdf",
-                scale = "none", cluster_rows = FALSE, clustering_method = "ward.D", 
-                annotation_col = col_df, annotation_row = row_df, annotation_colors = ann_colors,
-                breaks = heatmap_breaks, color = heatmap_colors, show_rownames = F, show_colnames = F,
-                main = plot_title, height = 7, width = 7)
-}
-
-
-```
-
-
-### Predicting on MOLM14 and HL60 cell line data.
-
-
-```{r}
-
-## Preparing the cell line data.
-HL60 <- querySynapseTable("syn25813233")
-MOLM14 <- querySynapseTable("syn25813133")
-
-signature_proteins <- read.table(syn$get("syn30029402")$path, sep = "\t") %>%
-  filter(data_type == "Global") %>%
-  pull(Gene) %>% unique()
-
-metadata_HL60 <- HL60 %>%
-  select(SampleName, Treatment, Time, LoadingMass, Pair, Plex) %>%
-  unique()
-rownames(metadata_HL60) <- metadata_HL60$SampleName
-m_HL60 <- make.msnset(HL60, feature.col = "Gene", 
-                      sample.col = "SampleName", 
-                      value.col = "LogRatio", metadata = metadata_HL60)
-
-metadata_MOLM14 <- MOLM14 %>%
-  select(SampleName, Treatment, Time, LoadingMass, Pair, Plex) %>%
-  unique()
-rownames(metadata_MOLM14) <- metadata_MOLM14$SampleName
-m_MOLM14 <- make.msnset(MOLM14, feature.col = "Gene", 
-                        sample.col = "SampleName", 
-                        value.col = "LogRatio", metadata = metadata_MOLM14)
-
-mat_HL60 <- exprs(m_HL60)
-mat_MOLM14 <- exprs(m_MOLM14)
-
-mat_HL60 <- sweep(mat_HL60, 1, apply(mat_HL60, 1, mean, na.rm = T), FUN = '-')
-mat_HL60 <- sweep(mat_HL60, 1, apply(mat_HL60, 1, sd, na.rm = T), FUN = '/')
-mat_MOLM14 <- sweep(mat_MOLM14, 1, apply(mat_MOLM14, 1, mean, na.rm = T), FUN = '-')
-mat_MOLM14 <- sweep(mat_MOLM14, 1, apply(mat_MOLM14, 1, sd, na.rm = T), FUN = '/')
-
-mat_HL60 <- mat_HL60[rownames(mat_HL60) %in% rownames(global_mat_train), ]
-dummy_rows <- setdiff(rownames(global_mat_train), rownames(mat_HL60))
-dummy_mat <- matrix(0, ncol = ncol(mat_HL60), nrow = length(dummy_rows))
-rownames(dummy_mat) <- dummy_rows
-colnames(dummy_mat) <- colnames(mat_HL60)
-mat_HL60 <- rbind(mat_HL60, dummy_mat)
-mat_HL60 <- mat_HL60[rownames(global_mat_train), ]
-
-mat_MOLM14 <- mat_MOLM14[rownames(mat_MOLM14) %in% rownames(global_mat_train), ]
-dummy_rows <- setdiff(rownames(global_mat_train), rownames(mat_MOLM14))
-dummy_mat <- matrix(0, ncol = ncol(mat_MOLM14), nrow = length(dummy_rows))
-rownames(dummy_mat) <- dummy_rows
-colnames(dummy_mat) <- colnames(mat_MOLM14)
-mat_MOLM14 <- rbind(mat_MOLM14, dummy_mat)
-mat_MOLM14 <- mat_MOLM14[rownames(global_mat_train), ]
-
-
-```
-
-
-
-
-```{r}
-
-cluster_MOLM14 <- subtype_prediction(mat_MOLM14, metadata_MOLM14)
-cluster_HL60 <- subtype_prediction(mat_HL60, metadata_HL60)
-
-sig_heatmap(mat_MOLM14, cluster_MOLM14, "enet_multinomial_data/predicted_subtypes_MOLM14", "MOLM14")
-sig_heatmap(mat_HL60, cluster_HL60, "enet_multinomial_data/predicted_subtypes_HL60", "HL60")
-
-
-```
-
-
-
-### Predicting on the Pilot Data.
-
-
-
-```{r}
-## Loading pilot data using scripts from the BEATAMLPilot github
-orig.data<-querySynapseTable('syn22172602')
-
-orig.data <- orig.data %>% dplyr::rename(proteinLevels ='LogFoldChange') %>%
-  dplyr::rename(mRNALevels = 'transcriptCounts') %>%
-  dplyr::rename(geneMutations = 'Tumor VAF') %>%
-  mutate(Gene = unlist(Gene)) %>% rowwise() %>%
-  mutate(binaryMutations = ifelse(geneMutations == 0, 0, 1))
-
-pat.data <- querySynapseTable("syn22314121") %>%
-  mutate(Gene = unlist(Gene)) %>%
-  subset(Treatment == 'Vehicle') %>%
-  subset(`Cell number` >= 10000000) %>%
-  dplyr::select(Gene, LogFoldChange, `AML sample`)%>%
-  distinct() %>%
-  full_join(orig.data, by = c('AML sample','Gene')) %>%
-  rowwise() %>%
-  mutate(proteinLevels = max(proteinLevels, LogFoldChange, na.rm = T)) %>%
-  dplyr::select(-LogFoldChange) %>%
-  mutate(mRNALevels = tidyr::replace_na(mRNALevels, 0)) %>%
-  mutate(geneMutations = tidyr::replace_na(geneMutations, 0)) %>%
-  mutate(binaryMutations = tidyr::replace_na(binaryMutations, 0)) %>%
-  dplyr::select(-countMetric) %>%
-  distinct()
-
-pats.with.prot <- pat.data %>%
-  group_by(`AML sample`) %>%
-  summarize(hasProt = all(proteinLevels == 0)) %>%
-  subset(hasProt == FALSE) %>%
-  dplyr::select('AML sample')
-
-pilot_proteomics <- pat.data %>% subset(`AML sample` %in% pats.with.prot$`AML sample`) %>%
-  filter(proteinLevels != 0) %>%
-  dplyr::rename(Barcode.ID = `AML sample`) %>%
-  dplyr::group_by(Barcode.ID, Gene) %>%
-  mutate(LogFC = mean(proteinLevels)) %>%
-  select(Gene, Barcode.ID, LogFC) %>%
-  unique()
-pilot_samples <- pilot_proteomics %>%
-  pull(Barcode.ID) %>% unique() %>% sort()
-
-
-# pilot_samples[which(!(pilot_samples %in% metadata_pilot$Barcode.ID))]
-# "16-01253" "16-01259" "17-00638" "CB-1" "CB-2"
-metadata_pilot <- openxlsx::read.xlsx(syn$get("syn23538805")$path, "wv1to4") %>%
-  dplyr::rename(Barcode.ID = labId) %>%
-  select(Barcode.ID, overallSurvival, vitalStatus, causeOfDeath) %>%
-  filter(Barcode.ID %in% pilot_samples) %>%
-  right_join(data.frame(Barcode.ID = pilot_samples, dummy = "TRUE"), by = "Barcode.ID") %>%
-  mutate(SampleName = Barcode.ID)
-rownames(metadata_pilot) <- metadata_pilot$Barcode.ID
-
-m_pilot <- make.msnset(pilot_proteomics, feature.col = "Gene", value.col = "LogFC",
-                       sample.col = "Barcode.ID", metadata = metadata_pilot)
-
-mat_pilot <- exprs(m_pilot)
-## Centering and imputing NA with mean, which is zero.
-mat_pilot <- sweep(mat_pilot, 1, apply(mat_pilot, 1, mean, na.rm = T), FUN = '-')
-mat_pilot[is.na(mat_pilot)] <- 0
-## Dividing by sd. Note a few NA's are introduced by this from 0/0. Happens to a given
-## Gene if that gene has only one sample in pilot_proteomics.
-mat_pilot <- sweep(mat_pilot, 1, apply(mat_pilot, 1, sd, na.rm = T), FUN = '/')
-mat_pilot[is.na(mat_pilot)] <- 0
-
-mat_pilot <- mat_pilot[rownames(mat_pilot) %in% rownames(global_mat_train), ]
-dummy_rows <- setdiff(rownames(global_mat_train), rownames(mat_pilot))
-dummy_mat <- matrix(0, ncol = ncol(mat_pilot), nrow = length(dummy_rows))
-rownames(dummy_mat) <- dummy_rows
-colnames(dummy_mat) <- colnames(mat_pilot)
-
-mat_pilot <- rbind(mat_pilot, dummy_mat)
-mat_pilot <- mat_pilot[rownames(global_mat_train), ]
-
-```
-
-
-```{r}
-pilot_subtypes <- subtype_prediction(mat_pilot, metadata_pilot) %>%
-  mutate(Time = "Dummy", Treatment = "Dummy") %>%
-  dplyr::mutate(overallSurvival = as.numeric(overallSurvival),
-                vitalStatus = case_when(vitalStatus == "Dead" ~ 1,
-                                        TRUE ~ 0))
-
-sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ pred_cluster, data = pilot_subtypes)
-p2 <- ggsurvplot(sfit, color = "pred_cluster", data = pilot_subtypes,
-                 palette = subtype_colors, pval = TRUE)$plot +
-        theme(legend.text = element_text(size = 12, color = "black"),
-              legend.title = element_text(size = 12, color = "black"))
-
-sig_heatmap(mat_pilot, pilot_subtypes, "enet_multinomial_data/pilot_subtypes", "Pilot")
-```
-
 
 
