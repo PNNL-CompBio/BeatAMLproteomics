@@ -6,39 +6,226 @@ output: html_document
 ---
 
 
-Here we just put together a few heatmaps from the deconvolution data
+Here we use decomprolute to assess the deconvolution algorithm that best agrees with mRNA based approaches and use that to deconvolve cell type in the aML proteomics data.
 
 ```{r login}
 library(amlresistancenetworks)
 library(dplyr)
+library(tidyr)
 library(pheatmap)
+library(RColorBrewer)
+
 syn = synapseLogin()
 
-decontab <- syn$tableQuery('select * from syn27085832')$asDataFrame()
+#decontab <- syn$tableQuery('select * from syn27085832')$asDataFrame()
+clusters <-read.table(syn$get('syn26642544')$path,sep='\t',header=T)
+
+clin <- read.table(syn$get('syn26642974')$path,quote='"',header=T)%>%
+  select(labId,FLT3_ITDCall,percentBlastsBM,percentBlastsPB)%>%
+  distinct()
+
+estimate <- syn$tableQuery('select * from syn27148720')$asDataFrame()%>%
+  dplyr::rename(labId='sampleID')%>%
+  dplyr::select(labId,TumorPurity)
+
+##let's read in the AML subtypes as well
+aml.res <- read.table('AML-tumor-prot-raw-xcell-AML.tsv',sep='\t',header=T,check.names = F,row.names = 1)
+
+celltypes <- c("Tumor-combined GMP-like","Tumor-combined Myeloid-like",
+  "Tumor-celltype HSC-like","Tumor-celltype Progenitor-like",
+  "Tumor-celltype Promono-like","Tumor-celltype Monocyte-like",'LSC17') 
+
+new.res <- aml.res%>%
+    tibble::rownames_to_column('subType')%>%
+    pivot_longer(cols=2:ncol(.),names_to='patient',values_to='cellPop')%>%
+  subset(subType%in%celltypes)
+
+lsc17.df<-subset(new.res,subType=='LSC17')%>%
+  select(labId='patient',`LSC17 score`='cellPop')
+
+##collect cluster membeership, FLT3 status
+pat.annote <- clusters%>%
+  dplyr::select(k.4,k.5,k.8)%>%
+  mutate(k.4=as.factor(k.4),k.5=as.factor(k.5),k.8=as.factor(k.8))%>%
+  tibble::rownames_to_column('labId')%>%full_join(clin)%>%
+ # left_join(estimate)%>%
+  mutate(FLT3=ifelse(FLT3_ITDCall=='Negative','Negative','Positive'))%>%
+  left_join(lsc17.df)%>%
+  tibble::column_to_rownames('labId')%>%
+     # mutate(`Bone marrow blasts`=as.numeric(percentBlastsBM),
+#                `Blood blasts`=as.numeric(percentBlastsPB))%>%
+  dplyr::select(`K4 Cluster`=k.4,`K5 Cluster`=k.5,`K8 Cluster`=k.8,`FLT3 ITD`=FLT3,`LSC17 score`)
+              #,TumorPurity)
+
+new.res<-new.res%>%
+  left_join(tibble::rownames_to_column(pat.annote,'patient'))%>%
+  mutate(cellType=gsub('Tumor-','',subType))%>%
+  mutate(cellType=gsub('celltype|combined ','',cellType))
+
+
+
+k8.colors=  RColorBrewer::brewer.pal(8,'Dark2')
+#c("#999999", "#E69F00", "#56B4E9", "#009E73", 
+          #             "#F0E442", "#0072B2", "#D55E00", "#CC79A7")#rev(c("#fff7fb","#ece2f0","#d0d1e6","#a6bddb","#67a9cf","#3690c0","#02818a","#016450"))
+names(k8.colors)=seq(1,8)
+k5.colors=k8.colors[1:5]#c("#fef0d9","#fdcc8a","#fc8d59","#e34a33","#b30000")
+names(k5.colors)=seq(1,5)
+
+k4.colors=k8.colors[c(2,3,5,6)]
+names(k4.colors)=seq(1,4)
+
+flt3.colors<-c(Positive='#f0f0f0',Negative='#636363')
 
 ```
 
 
-Now for each matrix/algorithm let's plot.
+## Standard protein deconvolution
 
-```{r do plots}
+We found that LM7c matrix and xcell are the best in terms of mRNA/prot agreement, so we plot the deconvoltuion of AML samples on this.
 
-algs = unique(decontab$algorithm)
-mats = unique(decontab$matrix)
+```{r do plots, warning=F, message=F}
 
-res = lapply(algs,function(a){
-  lapply(mats,function(m){
-    fname = paste0(a,'-',m,'.pdf')
-    tmat <- subset(decontab,algorithm==a)%>%
-      subset(matrix==m)%>%
-      tibble::remove_rownames()%>%
-      select('Cell type','sample','cellPop')%>%
-      pivot_wider(names_from='sample',values_from='cellPop')%>%
-            tibble::column_to_rownames('Cell type')%>%
-      as.matrix()%>%
-      pheatmap(.,filename=fname,labels_col=rep("",ncol(.)))
-    synapseStore(fname,parentId='syn27092543')
-  })
+
+#algs = unique(decontab$algorithm)
+#mats = unique(decontab$matrix)
+a = 'xcell'
+m = c('LM7c')
+dats = c('prot','mrna')
+
+lapply(dats,function(d){
+    deconv = paste0('AML-tumor-',d,'-raw-',a,'-',m,'.tsv')
+    print(deconv)
+    fname = paste0(a,'-',m,'-',d,'.pdf')
+    tmat <- read.table(deconv,sep='\t',header=T,row.names=1,check.names=F)
+    
+    
+  ##K4 plot
+  ann.colors=list(`K4 Cluster`=k4.colors,`FLT3 ITD`=flt3.colors)#,`Blood
+    anns=c('K4 Cluster','FLT3 ITD','LSC17 score')
+
+    pheatmap(tmat,labels_col=rep("",ncol(tmat)),
+             annotation_col=pat.annote[,anns],
+             annotation_colors=ann.colors,
+             cellheight=12,cellwidth=2,
+             clustering_distance_cols = 'correlation')
+
+    f2name=paste0('k4-',fname) 
+
+    pheatmap(tmat,filename=f2name,labels_col=rep("",ncol(tmat)),
+             annotation_col=pat.annote[,anns],annotation_colors=ann.colors,
+             cellheight=12,cellwidth=2,
+             clustering_distance_cols = 'correlation',height=8)
+    synapseStore(f2name,parentId='syn27092543')
+  
+    
+  ##K5 plot
+  ann.colors=list(`K5 Cluster`=k8.colors[1:5],`FLT3 ITD`=flt3.colors)#,`Blood
+    anns=c('K5 Cluster','FLT3 ITD','LSC17 score')
+
+    pheatmap(tmat,labels_col=rep("",ncol(tmat)),
+             annotation_col=pat.annote[,anns],
+             annotation_colors=ann.colors,
+             cellheight=12,cellwidth=2,
+             clustering_distance_cols = 'correlation')
+
+    f2name=paste0('k5-',fname) 
+
+    pheatmap(tmat,filename=f2name,labels_col=rep("",ncol(tmat)),
+             annotation_col=pat.annote[,anns],annotation_colors=ann.colors,
+             cellheight=12,cellwidth=2,
+             clustering_distance_cols = 'correlation',height=8)
+    synapseStore(f2name,parentId='syn27092543')
+  
+    ##k8 plot
+    anns=c('K8 Cluster','FLT3 ITD','LSC17 score')
+    ann.colors=list(`K8 Cluster`=k8.colors,`FLT3 ITD`=flt3.colors)#,`Blood blasts`=grey.colors(100),`Bone marrow blasts`=grey.colors(100))
+
+    f2name=paste0('k8-',fname) 
+
+  pheatmap(tmat,filename=f2name,labels_col=rep("",ncol(tmat)),annotation_col=pat.annote[,anns],annotation_colors=ann.colors,cellheight=12,cellwidth=2,clustering_distance_cols = 'correlation',height=8)
+    synapseStore(f2name,parentId='syn27092543')
+   
+}) 
+#    })
+  
+#})
+
+```
+The standard cell types do not cluster samples by subtype.
+
+## AML subtypes
+
+
+Now we want to visualize the AML cell types, which use a different matrix
+
+```{r aml cell types}
+ann.colors=list(`K5 Cluster`=k8.colors[1:5],`FLT3 ITD`=flt3.colors)#,`Blood blasts`=grey.colors(100),`Bone marrow blasts`=grey.colors(100))
+
+anns=c('K4 Cluster','FLT3 ITD','LSC17 score')
+    ann.colors=list(`K4 Cluster`=k4.colors,`FLT3 ITD`=flt3.colors)#,`Blood
+
+fname = 'xcell-AML.pdf'
+a = 'xcell'
+m = c('AML')
+dats = c('prot','mrna')
+
+lapply(dats,function(d){
+    deconv = paste0('AML-tumor-',d,'-raw-',a,'-',m,'.tsv')
+    print(deconv)
+    fname = paste0(a,'-',m,'-',d,'.pdf')
+    tmat <- read.table(deconv,sep='\t',header=T,row.names=1,check.names=F)
+    
+   sc.res<-tmat[celltypes[1:6],]
+
+pheatmap(sc.res,labels_col=rep("",ncol(sc.res)),
+         annotation_col=pat.annote[,anns],annotation_colors=ann.colors,
+         cellheight=12,cellwidth=2,clustering_distance_cols = 'correlation')
+ f2name=paste0('k4-',fname) 
+
+ pheatmap(sc.res,filename=f2name,labels_col=rep("",ncol(sc.res)),annotation_col=pat.annote[,anns],annotation_colors=ann.colors,cellheight=12,cellwidth=2,clustering_distance_cols = 'correlation',height=8)
+    synapseStore(f2name,parentId='syn27092543')
 })
+```
+Here there seem to be two distinct clusters - cluster 2-3 are in the tumor-like, and 1/4/5 are in the normal-like. Perhaps we can see how they are represented in boxplots instead.
+
+
+```{r aml type box plot}
+library(ggplot2)
+
+other<-new.res%>%
+  subset(subType!='LSC17')%>%
+  separate('subType',into=c('sample','cell'),sep='-')%>%
+  mutate(cell=tolower(cell))
+
+ggplot(other,aes(x=cell,y=cellPop,fill=`K4 Cluster`))+
+    geom_boxplot()+theme(axis.text.x = element_text(angle = 270, vjust = 0.0))+
+    scale_fill_manual(values=ann.colors$`K4 Cluster`)
+  scale_color_manual(values=ann.colors$`K4 Cluster`)
+ggsave('scSubtypes_by_cluster.pdf')  
+synapseStore('scSubtypes_by_cluster.pdf',parentId='syn27092543')
+
+ggplot(other,aes(x=`K4 Cluster`,y=cellPop,fill=cell))+
+    geom_boxplot()
+ggsave('scSubtypes_all.pdf')
+synapseStore('scSubtypes_all.pdf',parentId='syn27092543')
+
+lsc17 <- new.res%>%
+  subset(subType=='LSC17')
+
+ggplot(lsc17,aes(x=subType,y=cellPop,fill=`K4 Cluster`))+geom_boxplot()+    scale_fill_manual(values=ann.colors$`K4 Cluster`)
+ggsave('lsc17_by_cluster.pdf')
+synapseStore('lsc17_by_cluster.pdf',parentId='syn27092543')
+
+
+ggplot(lsc17,aes(x=`K4 Cluster`,y=cellPop,fill=subType))+geom_boxplot()
+ggsave("lsc17_all.pdf")
+synapseStore('lsc17_all.pdf',parentId='syn27092543')
+
 
 ```
+
+now what does this mean? THE LSC17 signature is clearly highest in Cluster 2, which makes it the most stem-like, which agrees with the tumor HSC assignment in the single cell data. 
+
+
+
+

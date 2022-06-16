@@ -1,7 +1,7 @@
 ---
-title: "Metagene Network Analysis"
+title: "Network analysis of predictive genes"
 author: "Sara Gosline"
-date: "1/31/2022"
+date: "5/18/2022"
 output: html_document
 ---
 
@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Network analysis 
 
-The goal of this document is to study the larger networks that comprise the metagenes. We want to map all the metagene features to one single network.
+The goal of this document is to study the larger networks that comprise the genes that predict subtype.
 
 ```{r load data,message=F,echo=T,warning=F}
 
@@ -19,28 +19,9 @@ source("../util/synapseUtil.R")
 library(dplyr)
 syn<-synapseLogin()
 ##load in metagenes
-k5  <- read.table(syn$get('syn26718017')$path,sep='\t',header=T)
-k8 <- read.table(syn$get('syn26718020')$path,sep='\t',header=T)
 
-##now load in alternate scores
-k5_weights <- read.table(syn$get('syn26969682')$path,sep='\t',header=T)%>%
-  tidyr::pivot_longer(starts_with('Cluster.'),names_to='clusterWeight',values_to = 'weight')%>%
-  mutate(fromCluster=Cluster==gsub('Cluster.','',clusterWeight,fixed=T))%>%
-  subset(fromCluster)
-
-
-##now load in alternate scores
-k8_weights <- read.table(syn$get('syn26969686')$path,sep='\t',header=T)%>%
-  tidyr::pivot_longer(starts_with('Cluster.'),names_to='clusterWeight',values_to = 'weight')%>%
-  mutate(fromCluster=Cluster==gsub('Cluster.','',clusterWeight,fixed=T))%>%
-  subset(fromCluster)
-
-k4_weights <- read.table(syn$get('syn26969681')$path,sep='\t',header=T)%>%
-  tidyr::pivot_longer(starts_with('Cluster.'),names_to='clusterWeight',values_to = 'weight')%>%
-  mutate(fromCluster=Cluster==gsub('Cluster.','',clusterWeight,fixed=T))%>%
-  subset(fromCluster)
-
-
+enet_sigs <- read.table(syn$get('syn30029402')$path,sep='\t',header=T)%>%
+  subset(alpha=0.9)
 cols=nationalparkcolors::park_palette("Badlands")
 clus.cols=RColorBrewer::brewer.pal(8,'Dark2')[c(2,3,5,6)]
 
@@ -54,20 +35,16 @@ library(ggplot2)
 
 
 ##summary of features
-ggplot(k4_weights)+
+ggplot(enet_sigs)+
     geom_bar(aes(x=Cluster,fill=data_type),position='dodge')+
     scale_fill_manual(values=cols)
 
-ggsave('k4_metagenes.pdf')
+ggsave('k4_enet_genes.pdf')
 
-ggplot(k5_weights)+
-    geom_bar(aes(x=Cluster,fill=data_type),position='dodge')+
-  scale_fill_manual(values=cols)
 
 
 ```
-
-There is clearly a disparity. However, that makes sense as the molecules correlate in various ways. 
+There is generally a division between various data types 
 
 ## Metagene plotting
 
@@ -79,36 +56,6 @@ library(pheatmap)
 source("../util/loading_data.R")
 #combined <- load.combined.data()
 ```
-
-
-
-## Metagene weights for gene enrichment.  
-
-Now we can evaluate how similar the weights are to the feature scores
-
-```{r feature_scores}
-
-
-ggplot(k5_weights)+
-  geom_point(aes(x=feature_score,y=weight,alpha=0.5,
-                 shape=data_type,col=as.factor(Cluster)))
-
-
-ggplot(k8_weights)+geom_point(aes(x=feature_score,y=weight,alpha=0.5,
-                                  shape=data_type,col=as.factor(Cluster)))
-
-
-
-ggplot(k4_weights)+geom_point(aes(x=feature_score,
-                                  y=weight,alpha=0.5,                                                                  shape=data_type,
-                                  col=as.factor(Cluster)))+
-    scale_color_manual(values=clus.cols)
-```
-They seem to correlate so we can use them for pathway enrichment
-
-## Pathway enrichment
-
-I believe camilo did GSEA enrichment of the metagene pathways. what is the result? How does it compare to GO enrichmnet?
 
 
 
@@ -133,7 +80,7 @@ build_run_network <- function(gene_name,
   prot_inds <- which(gene_type=='Global')
   phos_inds <- which(gene_type=='Phospho')
   
-  netname=paste0('k',k,'_cluster',cluster)
+  netname=paste0('k',k,'_clusterPred',cluster)
   
     ##rename WES
   wes_terms <- gene_score[wes_inds]
@@ -180,23 +127,6 @@ build_run_network <- function(gene_name,
   return(graph)
 }
 
-
-print("K4 Clusters")
-k4_weights%>%group_by(data_type,Cluster)%>%summarize(numFeatures=n())%>%arrange(Cluster)%>%
-  DT::datatable()
-
-
-
-print("K5 Clusters")
-k5_weights%>%group_by(data_type,Cluster)%>%summarize(numFeatures=n())%>%arrange(Cluster)%>%
-  DT::datatable()
-
-
-print('K8 Clusters')
-k8_weights%>%group_by(data_type, Cluster)%>%
-  summarize(numFeatures=n())%>%
-  arrange(Cluster)%>%
-  DT::datatable()
 ```
 
 Now we can run the analysis
@@ -204,9 +134,20 @@ Now we can run the analysis
 
 ```{r k4 cluster analysis}
 library(dplyr)
- k4_nets <- k4_weights %>%
+
+enet_sigs<-enet_sigs%>%
+  subset(data_type=='Global + Phospho')%>%
+  mutate(data_type='Global')
+
+pg<-grep('-',enet_sigs$Gene)
+enet_sigs$data_type[pg]<-rep('Phospho',length(pg))
+
+ k4_nets <- enet_sigs %>%
      mutate(k=4,nrand=100)%>%
+ #  subset(Cluster==4)%>%
      group_by(Cluster)%>%
+   mutate(weight=10)%>%
+   dplyr::rename(feature='Gene')%>%
      dplyr::summarize(net=list(build_run_network(feature,
                                               weight,
                                               data_type,

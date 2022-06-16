@@ -63,7 +63,7 @@ rownames(rnatab)<-rnatab$Gene
 data('SI_geneset',package='estimate')
 write.table(SI_geneset,file='gs.gct',sep='\t')
 
-write.table(rnatab[-1,],file='rna.txt',sep='\t',quote=F)
+write.table(rnatab[,-1],file='rna.txt',sep='\t',quote=F)
 
 aml <- c('rna.txt')
 filteredCommonGenes <- "combnorm.gct"

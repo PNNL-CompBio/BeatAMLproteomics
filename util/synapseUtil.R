@@ -21,13 +21,10 @@ synapseLogin<-function(){
 }
 
 #' Synapse store
-#' @import reticulate
 #' @param path to file
 #' @param parentId of folder to store
 #' @export
 synapseStore<-function(path,parentId){
-  library(reticulate)
-
   synapse=reticulate::import('synapseclient')
   sync=synapse$login()
   sync$store(synapse$File(path,parentId=parentId))
@@ -39,7 +36,6 @@ synapseStore<-function(path,parentId){
 #' @param table to store on synapse
 #' @param tabname name of table
 #' @param parentId id of project
-#' @import reticulate
 #' @export
 synTableStore<-function(tab,tabname,parentId='syn22128879'){
   #we have to first write the table to a file, then build it and store it
@@ -59,7 +55,6 @@ synTableStore<-function(tab,tabname,parentId='syn22128879'){
 #'Removes all rows from table and replaces
 #'@param table
 #'@param synapse id of table to replace
-#'@import reticulate
 #'@export
 synTableUpdate<-function(tab,synid){
   library(reticulate)
