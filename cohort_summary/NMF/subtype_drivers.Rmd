@@ -141,6 +141,7 @@ rank_gsea <- function(m, var_name, t2g, top_n = 7, ending = ""){
   
   gsea_mat_p <- gsea_mat_p %>% as.matrix()
   gsea_mat_p[is.na(gsea_mat_p)] <- 1
+  gsea_mat_p <- apply(gsea_mat_p, 2, signif, digits = 3)
   
   gsea_mat_p <- gsea_mat_p[, levels]
   gsea_mat <- gsea_mat[, levels]

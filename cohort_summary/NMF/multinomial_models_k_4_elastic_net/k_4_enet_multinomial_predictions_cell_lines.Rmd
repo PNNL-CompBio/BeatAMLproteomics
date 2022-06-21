@@ -20,12 +20,16 @@ survival, mutation, etc.
 library(dplyr)
 library(ggplot2)
 library(glmnet)
-library(gridExtra)
-library(grid)
+# library(gridExtra)
+# library(grid)
+library(ggpubr)
 library(ggalluvial)
 
 source("../NMF_helper.R")
 source("../cluster_model_helper.R")
+
+names(subtype_colors) <- as.character(1:8)
+subtype_colors <- subtype_colors[1:4]
 
 ```
 
@@ -469,27 +473,217 @@ aml_combo_hl60 <- subtype_prediction_new_data(new_data_long = aml_combo_hl60_dat
 
 
 
-
-```{r}
-m <- cell_line_time$`Global msnset`
-path_str <- ""
+```{r Cytokine induced}
+m <- tram$`Global msnset`
+plot_title <- "Cytokine induced drug sensitivity"
+path_str <- tolower(plot_title) %>% gsub(" ", "_", .)
+colnames(pData(m))
 
 alluvial_df <- pData(m) %>%
-  mutate(sample_y = 1,
-         timePoint = as.factor(timePoint),
-         cellLine = as.factor(cellLine),
-         Subtype = sub("Cluster ", "", Subtype))
+  mutate(Time = as.factor(TimePoint),
+         CellType = as.factor(CellType),
+         Subtype = sub("Cluster ", "", Subtype)) %>%
+  group_by(Subtype, Time, CellType) %>%
+  summarize(Count = n()) %>%
+  rbind(data.frame(Subtype = "3", Time = "5", Count = 0, CellType = "MOLM-13"))
 
-p_alluvial <- ggplot(alluvial_df, aes(y = sample_y, axis1 = Subtype, axis2 = cellLine, axis3 = timePoint)) +
-  geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) + 
-  geom_stratum(width = 1/12, color = "grey") +
-  geom_text(stat = "stratum", aes(label = after_stat(stratum)))
+p <- ggplot(alluvial_df, aes(x = Time, y = Count, alluvium = Subtype)) +
+  geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) +
+  facet_wrap(~ CellType, ncol = 1) + ggtitle(plot_title) + 
+  scale_y_continuous(breaks = c(0, 2, 4, 6, 8, 10)) +
+  scale_x_discrete(expand = c(0.15, 0))
 
-path_str <- paste0("enet_multinomial_data/cell_line_subtypes_", path_str, ".pdf")
-ggsave(plot = p_alluvial, filename = path_str, width = , height = )
-
+path_str <- paste0("enet_multinomial_data/cell_line_subtypes_", path_str, "_alluvial.pdf")
+ggsave(plot = p, filename = path_str, height = 5, width = 6)
 
 
 ```
 
 
+
+
+```{r Quizartinib Resistance}
+m <- quiz$`Global msnset`
+plot_title <- "Quizartinib Resistance"
+path_str <- tolower(plot_title) %>% gsub(" ", "_", .)
+colnames(pData(m))
+
+alluvial_df <- pData(m) %>%
+  mutate(CellLine = as.factor(cellLine),
+         Subtype = sub("Cluster ", "", Subtype)) %>%
+  group_by(Subtype, CellLine, Ligand) %>%
+  summarize(Count = n()) %>%
+  pivot_wider(names_from = "Subtype", values_from = "Count", values_fill = 0) %>%
+  pivot_longer(-c("Ligand", "CellLine"), names_to = "Subtype", values_to = "Count")
+
+p1 <- ggplot(alluvial_df %>% filter(Ligand != "None"), 
+             aes(x = CellLine, y = Count, alluvium = Subtype)) +
+  geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) +
+  facet_wrap(~ Ligand, ncol = 1) + ggtitle(plot_title) +  
+  scale_x_discrete(expand = c(0.3, 0)) + 
+  theme(axis.title.x = element_blank())
+
+p2 <- ggplot(alluvial_df %>% filter(Ligand == "None"), 
+             aes(x = CellLine, y = Count, alluvium = Subtype)) +
+  geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) +
+  facet_wrap(~ Ligand, ncol = 1) + 
+  scale_y_continuous(limits = c(0, 4)) +
+  scale_x_discrete(expand = c(0.3, 0))
+
+p <- ggarrange(p1, p2, common.legend = TRUE, ncol = 1, heights = c(3, 1.5))
+
+path_str <- paste0("enet_multinomial_data/cell_line_subtypes_", path_str, "_alluvial.pdf")
+ggsave(plot = p, filename = path_str, height = 8, width = 6.5)
+
+
+```
+
+
+
+
+
+```{r Gilteritinib Resistance}
+m <- gilt$`Global msnset`
+plot_title <- "Gilteritinib Resistance"
+path_str <- tolower(plot_title) %>% gsub(" ", "_", .)
+colnames(pData(m))
+
+alluvial_df <- pData(m) %>%
+  # mutate(cellLine = sub("Quizartinib", "Quiz", cellLine)) %>%
+  mutate(CellLine = as.factor(cellLine),
+         Subtype = sub("Cluster ", "", Subtype),
+         Ligand = as.factor(ligand)) %>%
+  group_by(Subtype, CellLine, Ligand) %>%
+  summarize(Count = n()) %>%
+  pivot_wider(names_from = "Subtype", values_from = "Count", values_fill = 0) %>%
+  pivot_longer(-c("Ligand", "CellLine"), names_to = "Subtype", values_to = "Count")
+
+p1 <- ggplot(alluvial_df, 
+             aes(x = CellLine, y = Count, alluvium = Subtype)) +
+  geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) +
+  facet_wrap(~ Ligand, ncol = 1) + ggtitle(plot_title) +
+  scale_x_discrete(expand = c(0.3, 0)) + 
+  theme(axis.title.x = element_blank())
+
+path_str <- paste0("enet_multinomial_data/cell_line_subtypes_", path_str, "_alluvial.pdf")
+ggsave(plot = p1, filename = path_str, height = 8, width = 6.5)
+
+p2 <- ggplot(alluvial_df, 
+             aes(x = Ligand, y = Count, alluvium = Subtype)) +
+  geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) +
+  facet_wrap(~ CellLine, ncol = 1) + ggtitle(plot_title) +
+  scale_x_discrete(expand = c(0.3, 0))
+
+path_str <- sub(".pdf", "_v2.pdf", path_str)
+ggsave(plot = p2, filename = path_str, height = 5, width = 6)
+
+
+```
+
+
+
+
+
+```{r Cell line time course}
+m <- cell_line_time$`Global msnset`
+plot_title <- "Cell line time course"
+path_str <- tolower(plot_title) %>% gsub(" ", "_", .)
+colnames(pData(m))
+
+alluvial_df <- pData(m) %>%
+  filter(cellLine != "NaN") %>%
+  mutate(Time = factor(timePoint, levels = c("30 min", "3 hr", "16 hr")),
+         CellLine = as.factor(cellLine),
+         Subtype = sub("Cluster ", "", Subtype)) %>%
+  group_by(Subtype, Time, CellLine) %>%
+  summarize(Count = n()) %>%
+  pivot_wider(values_from = "Count", names_from = "Subtype", values_fill = 0) %>%
+  pivot_longer(-c("Time", "CellLine"), values_to = "Count", names_to = "Subtype")
+
+p <- ggplot(alluvial_df, aes(x = Time, y = Count, alluvium = Subtype)) +
+  geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) +
+  facet_wrap(~ CellLine, ncol = 1) + ggtitle(plot_title) + 
+  scale_x_discrete(expand = c(0.15, 0))
+
+path_str <- paste0("enet_multinomial_data/cell_line_subtypes_", path_str, "_alluvial.pdf")
+ggsave(plot = p, filename = path_str, height = 5, width = 6)
+
+```
+
+
+
+
+
+```{r AML Drug combo MOLM14}
+m <- aml_combo_molm14$`Global msnset`
+plot_title <- "AML Drug combo MOLM14"
+path_str <- tolower(plot_title) %>% gsub(" ", "_", .)
+colnames(pData(m))
+
+alluvial_df <- lapply(c("T", "R", "G", "GT", "TR", "RG"), function(xx){
+  dff <- pData(m) %>%
+    filter(Treatment %in% c(xx, "C")) %>%
+    mutate(plot_group = xx,
+           Time = as.character(Time))
+}) %>% do.call("rbind", .)
+
+alluvial_df <- alluvial_df %>%
+  mutate(Treatment = paste(Treatment, Time),
+         Subtype = sub("Cluster ", "", Subtype)) %>%
+  group_by(Subtype, plot_group, Time) %>%
+  mutate(Count = n()) %>%
+  ungroup() %>%
+  select(Subtype, plot_group, Time, Treatment, Count) %>% unique() %>%
+  pivot_wider(names_from = "Subtype", values_from = "Count", values_fill = 0) %>%
+  pivot_longer(-c("Treatment", "Time", "plot_group"), names_to = "Subtype", values_to = "Count") %>%
+  mutate(Drug = sub(" .*$", "", Treatment))
+
+p <- ggplot(alluvial_df, 
+            aes(x = Time, y = Count, alluvium = Subtype)) +
+  geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) +
+  ggtitle(plot_title) + facet_wrap(~ plot_group, ncol = 2)+
+  scale_x_discrete(expand = c(0.15, 0))
+
+path_str <- paste0("enet_multinomial_data/cell_line_subtypes_", path_str, "_alluvial.pdf")
+ggsave(plot = p, filename = path_str, height = 5, width = 7)
+
+```
+
+
+
+
+
+```{r AML Drug combo HL60}
+m <- aml_combo_hl60$`Global msnset`
+plot_title <- "AML Drug combo HL60"
+path_str <- tolower(plot_title) %>% gsub(" ", "_", .)
+colnames(pData(m))
+
+alluvial_df <- lapply(c("T", "R", "G", "GT", "TR", "RG"), function(xx){
+  dff <- pData(m) %>%
+    filter(Treatment %in% c(xx, "C")) %>%
+    mutate(plot_group = xx,
+           Time = as.character(Time))
+}) %>% do.call("rbind", .)
+
+alluvial_df <- alluvial_df %>%
+  mutate(Treatment = paste(Treatment, Time),
+         Subtype = sub("Cluster ", "", Subtype)) %>%
+  group_by(Subtype, plot_group, Time) %>%
+  mutate(Count = n()) %>%
+  ungroup() %>%
+  select(Subtype, plot_group, Time, Treatment, Count) %>% unique() %>%
+  pivot_wider(names_from = "Subtype", values_from = "Count", values_fill = 0) %>%
+  pivot_longer(-c("Treatment", "Time", "plot_group"), names_to = "Subtype", values_to = "Count") %>%
+  mutate(Drug = sub(" .*$", "", Treatment))
+
+p <- ggplot(alluvial_df, 
+            aes(x = Time, y = Count, alluvium = Subtype)) +
+  geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) +
+  ggtitle(plot_title) + facet_wrap(~ plot_group, ncol = 2)+
+  scale_x_discrete(expand = c(0.15, 0))
+
+path_str <- paste0("enet_multinomial_data/cell_line_subtypes_", path_str, "_alluvial.pdf")
+ggsave(plot = p, filename = path_str, height = 5, width = 7)
+
+```
