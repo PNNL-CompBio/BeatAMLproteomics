@@ -1,0 +1,183 @@
+---
+title: "PeCorA subtypes"
+author: "Camilo Posso"
+date: "05/22/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(pheatmap)
+
+source("../../../util/synapseUtil.R")
+source("../../../util/loading_data.R")
+source("../../../util/mutational_analysis_helper.R")
+source("../../../mutational_analysis/PeCorA/pecora_scripts/pecora_analysis.R")
+
+syn <- synapseLogin()
+
+clusters <- read.table(syn$get("syn30030154")$path, sep = "\t")
+rownames(clusters) <- clusters$Barcode.ID
+
+phenodata <- read.table(syn$get("syn25807733")$path, sep = "\t",
+                         header = TRUE, colClasses = "character") %>%
+  column_to_rownames("SampleID.abbrev")
+phenodata$Plex <- as.character(phenodata$Plex)
+phenodata$Loading.Mass <- as.numeric(phenodata$Loading.Mass)
+
+global_peptide_corrected <- load.global.data("Peptide")
+peptide_corrected_relaxed <- read.table(syn$get("syn31502736")$path, sep = "\t")
+colnames(peptide_corrected_relaxed) <- sub("^X*", "", colnames(peptide_corrected_relaxed))
+colnames(peptide_corrected_relaxed) <- phenodata[colnames(peptide_corrected_relaxed), "Barcode.ID"]
+
+
+global_data <- load.global.data()
+metadata <- load.metadata()
+
+all_mutation_data <- load_mutational_sample_data()
+
+f_data <- data.frame(feature = rownames(peptide_corrected_relaxed)) %>%
+  mutate(Gene = sub("\\@.*$", "", feature),
+         Peptide = sub("^.*\\@", "", feature),
+         Protein = Gene) %>%
+  group_by(Protein) %>%
+  mutate(n_peptides = n()) %>%
+  ungroup(Protein) %>%
+  as.data.frame()
+rownames(f_data) <- f_data$feature
+f_data_old <- data.frame(feature = rownames(global_peptide_corrected)) %>%
+  mutate(Gene = sub("\\@.*$", "", feature),
+         Peptide = sub("^.*\\@", "", feature),
+         Protein = Gene) %>%
+  group_by(Protein) %>%
+  mutate(n_peptides = n()) %>%
+  ungroup(Protein) %>%
+  as.data.frame()
+rownames(f_data_old) <- f_data_old$feature
+
+protein_variance <- peptide_corrected_relaxed %>%
+  rownames_to_column("feature") %>%
+  pivot_longer(cols = -feature, names_to = "Barcode.ID", values_to = "LogRatio") %>%
+  left_join(f_data, by = "feature") %>%
+  select(feature, Protein, Barcode.ID, LogRatio) %>%
+  group_by(Protein) %>%
+  summarize(std = sd(LogRatio, na.rm = TRUE))
+
+m <- MSnSet(exprs = as.matrix(peptide_corrected_relaxed),
+            pData = metadata[colnames(peptide_corrected_relaxed), ],
+            fData = f_data)
+pData(m)$Cluster <- clusters[rownames(pData(m)), "Cluster"]
+
+m_old <- MSnSet(exprs = as.matrix(global_peptide_corrected),
+                pData = metadata[colnames(global_peptide_corrected), ],
+                fData = f_data_old)
+pData(m_old)$Cluster <- clusters[rownames(pData(m)), "Cluster"]
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+genes1 <- unique(global_data$Gene)
+genes2 <- unique(f_data$Gene)
+## Not all the genes in the gene level data show up in the peptide level data,
+## this is due to the filtering applied prior to correction of the peptide data.
+table(genes1 %in% genes2)
+
+pecora_results <- pecora_analysis(m, "Cluster", f_data$Gene, median_mod = FALSE)
+write.table(pecora_results, "Data/pecora_results.txt", sep = "\t")
+
+pecora_results_median <- pecora_analysis(m, "Cluster", f_data$Gene, median_mod = TRUE)
+write.table(pecora_results_median, "Data/pecora_results_median.txt", sep = "\t")
+
+```
+
+
+
+
+
+```{r eval=FALSE, include=FALSE}
+genes1 <- unique(global_data$Gene)
+genes2 <- unique(f_data_old$Gene)
+## Not all the genes in the gene level data show up in the peptide level data,
+## this is due to the filtering applied prior to correction of the peptide data.
+## The uncorrected data does contain all the genes found in the global gene level dataset.
+table(genes1 %in% genes2)
+
+pecora_results_old <- pecora_analysis(m_old, "Cluster", f_data_old$Gene, median_mod = FALSE)
+write.table(pecora_results_old, "Data/pecora_results_old.txt", sep = "\t")
+
+pecora_results_old_median <- pecora_analysis(m_old, "Cluster", f_data_old$Gene, median_mod = TRUE)
+write.table(pecora_results_old_median, "Data/pecora_results_median_old.txt", sep = "\t")
+
+```
+
+
+```{r}
+m_protein <- make.msnset(global_data, feature.col = "Gene", metadata = metadata)
+pData(m)$Cluster <- clusters[rownames(pData(m)), "Cluster"]
+
+pecora_results_old_proteinmod <- pecora_analysis(m_old, "Cluster", f_data_old$Gene, m_protein = m_protein)
+write.table(pecora_results_old_proteinmod, "Data/pecora_results_old_proteinmod.txt", sep = "\t")
+
+```
+
+
+
+```{r}
+m_protein <- make.msnset(global_data, feature.col = "Gene", metadata = metadata)
+pData(m)$Cluster <- clusters[rownames(pData(m)), "Cluster"]
+
+pecora_results_proteinmod <- pecora_analysis(m, "Cluster", f_data$Gene, m_protein = m_protein)
+write.table(pecora_results_proteinmod, "Data/pecora_results_proteinmod.txt", sep = "\t")
+
+```
+
+
+
+```{r}
+chosen_feature = "ACSL5@I.CFTSGTTGDPK.G"
+chosen_protein = sub("@.*$", "", chosen_feature)
+
+
+pecora_plot(m, pecora_results, chosen_protein, chosen_feature)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

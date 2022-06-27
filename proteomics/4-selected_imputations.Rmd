@@ -1,0 +1,93 @@
+---
+title: "PTRC Ex10 Batch correction and normalization"
+author: "Camilo Posso"
+date: "`r format(Sys.Date(), '%m/%d/%Y')`"
+output: html_document
+---
+
+```{r setup}
+library(MSnSet.utils)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(DreamAI)
+
+library(devtools)
+source("../util/synapseUtil.R")
+source("../util/loading_data.R")
+source("../util/make_plots_util.R")
+
+syn <- synapseLogin()
+
+phenodata <- read.table(syn$get("syn25807733")$path, sep = "\t",
+                         header = TRUE, colClasses = "character") %>%
+  column_to_rownames("SampleID.abbrev")
+phenodata$Plex <- as.character(phenodata$Plex)
+phenodata$Loading.Mass <- as.numeric(phenodata$Loading.Mass)
+
+peptide_corrected_relaxed <- read.table(syn$get("syn31502736")$path, sep = "\t")
+colnames(peptide_corrected_relaxed) <- sub("^X*", "", colnames(peptide_corrected_relaxed))
+colnames(peptide_corrected_relaxed) <- meta[colnames(peptide_corrected_relaxed), "Barcode.ID"]
+
+load("../Misc/load.combined.data 3-09-2022.RData")
+
+```
+
+
+## Phospho imputation
+
+
+```{r eval=FALSE, include=FALSE}
+### Imputing phospho data, lots of missing values.
+phospho_imp <- phospho.data %>%
+  select(Barcode.ID, SiteID, LogRatio) %>%
+  dplyr::rename(feature = SiteID) %>%
+  pivot_wider(names_from = Barcode.ID,
+              values_from = LogRatio) %>%
+  as.data.frame()
+rownames(phospho_imp) <- phospho_imp$feature
+
+missing_count <- phospho_imp %>%
+  pivot_longer(-feature, names_to = "Barcode.ID", values_to = "LogRatio") %>%
+  left_join(meta, by = "Barcode.ID") %>%
+  group_by(feature, Plex) %>%
+  mutate(count = sum(!is.na(LogRatio))) %>%
+  ungroup(Plex, feature) %>%
+  group_by(feature) %>%
+  summarise(`Plexes missing` = sum(count == 0)/10,
+            `Number missing` = sum(is.na(LogRatio)))
+ggplot(missing_count, aes(x = `Number missing`)) + geom_histogram()
+
+phospho_imp <- phospho_imp[, -1] %>% as.matrix()
+phospho_imp <- DreamAI(phospho_imp, k=10, maxiter_MF = 10, ntree = 100,
+                       maxnodes = NULL, maxiter_ADMIN = 30, tol = 10^(-2),
+                       gamma_ADMIN = 0, gamma = 50, CV = FALSE, fillmethod = "row_mean",
+                       maxiter_RegImpute = 10,conv_nrmse = 1e-6, iter_SpectroFM = 40,
+                       method = c("KNN"), out="Ensemble")$Ensemble
+## Writing to table for easier use.
+write.table(phospho_imp, "data/ptrc_ex10_crosstab_phospho_siteID_corrected_relaxed_v2_imputed.txt", sep = "\t")
+upload.plot(filename = "data/ptrc_ex10_crosstab_phospho_siteID_corrected_relaxed_v2_imputed.txt", parentId = "syn30875000")
+
+```
+
+
+
+## Peptide imputation
+
+
+
+```{r}
+peptide_imp <- DreamAI(peptide_corrected_relaxed, k=10, maxiter_MF = 10, ntree = 100,
+                       maxnodes = NULL, maxiter_ADMIN = 30, tol = 10^(-2),
+                       gamma_ADMIN = 0, gamma = 50, CV = FALSE, fillmethod = "row_mean",
+                       maxiter_RegImpute = 10,conv_nrmse = 1e-6, iter_SpectroFM = 40,
+                       method = c("KNN"), out="Ensemble")$Ensemble
+
+n.sigfig <- 3
+
+write.table(signif(peptide_imp, n.sigfig), 
+            "data/ptrc_ex10_crosstab_global_peptide_corrected_relaxed_v2_imputed.txt", sep = "\t")
+upload.plot(filename = "data/ptrc_ex10_crosstab_global_peptide_corrected_relaxed_v2_imputed.txt", parentId = "syn31514128")
+
+
+```

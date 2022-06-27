@@ -52,8 +52,14 @@ get_signature <- function(chosen_alpha, chosen_type){
     data_mat <- global_mat_train
   } else if (chosen_type == "Phospho"){
     data_mat <- phospho_mat_train
-  } else {
+  } else if (chosen_type == "RNA"){
     data_mat <- RNA_mat_train
+  } else if (chosen_type == "Phospho_imp") {
+    data_mat <- phospho_mat_train_imp
+  } else if (chosen_type == "Combined"){
+    data_mat <- combined_mat_train
+  } else if (chosen_type == "Combined_v2"){
+    data_mat <- combined_v2_mat_train
   }
 
   xx <- all_results[[chosen_type]]
@@ -97,7 +103,7 @@ get_signature <- function(chosen_alpha, chosen_type){
   return(signatures)
 }
 
-signatures <- lapply(c("Global", "Phospho", "RNA"), function(chosen_type){
+signatures <- lapply(c("Global", "Phospho", "RNA", "Phospho_imp", "Combined", "Combined_v2"), function(chosen_type){
   lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
     test <- get_signature(chosen_alpha, chosen_type)
   }) %>% do.call("rbind", .)
@@ -119,9 +125,23 @@ signatures <- read.table("enet_multinomial_data/enet_multinomial_all_signatures.
 signatures_synapse <- signatures %>%
   select(Cluster, Gene, alpha, chosen_type) %>%
   dplyr::rename(data_type = chosen_type) %>%
-  filter(alpha == 0.7)
+  filter(alpha == 0.7) %>%
+  filter(data_type %in% c("Global", "Phospho", "RNA"))
 
-write.table(signatures_synapse, "enet_multinomial_data/enet_multinomial_signatures_k4.txt", sep = "\t")
+signatures_synapse_combined <- signatures %>%
+  select(Cluster, Gene, alpha, chosen_type) %>%
+  dplyr::rename(data_type = chosen_type) %>%
+  filter(alpha == 0.9) %>%
+  filter(data_type %in% c("Combined", "Combined_v2")) %>%
+  mutate(data_type = case_when(data_type == "Combined" ~ "Global + Phospho_imp",
+                               data_type == "Combined_v2" ~ "Global + Phospho",
+                               TRUE ~ data_type)) %>%
+  rbind(signatures_synapse)
+
+signatures_synapse_final <- signatures_synapse_combined %>%
+  filter(data_type != "Global + Phospho_imp")
+
+write.table(signatures_synapse_final, "enet_multinomial_data/enet_multinomial_signatures_k4.txt", sep = "\t")
 upload.plot("enet_multinomial_data/enet_multinomial_signatures_k4.txt", "syn29612385")
 
 ```
@@ -134,13 +154,23 @@ Signature heatmap
 chosen.colors <- subtype_colors
 
 signature_heatmap <- function(chosen_alpha, data_type, save_plot = TRUE){
+  data_type_title <- data_type
   if (data_type == "Global"){
-      data_mat <- global_mat_train
-    } else if (data_type == "Phospho"){
-      data_mat <- phospho_mat_train
-    } else {
-      data_mat <- RNA_mat_train
-    }
+    data_mat <- global_mat_train
+  } else if (data_type == "Phospho"){
+    data_mat <- phospho_mat_train
+  } else if (data_type == "RNA"){
+    data_mat <- RNA_mat_train
+  } else if (data_type == "Phospho_imp") {
+    data_mat <- phospho_mat_train_imp
+    data_type_title <- "Phospho imputed"
+  } else if (data_type == "Combined"){
+    data_mat <- combined_mat_train
+    data_type_title <- "Global + Phospho imputed"
+  } else if (data_type == "Combined_v2"){
+    data_mat <- combined_v2_mat_train
+    data_type_title <- "Global + Phospho"
+  }
   
   signatures <- signatures %>%
     group_by(chosen_type, alpha, Gene) %>%
@@ -189,31 +219,35 @@ signature_heatmap <- function(chosen_alpha, data_type, save_plot = TRUE){
                       data_type, "_alpha_", chosen_alpha)
   
   if (save_plot){
-    make.pheatmap(data_mat[sigs, ], filename = file_path, format = "pdf",
+    make.pheatmap(data_mat[sigs, ], filename = file_path, format = "png",
                   scale = "none", cluster_rows = FALSE, clustering_method = "ward.D", 
                   annotation_col = col_df, annotation_row = row_df, annotation_colors = ann_colors,
                   breaks = heatmap_breaks, color = heatmap_colors, show_rownames = F, show_colnames = F,
-                  main = paste0(length(sigs), " total features, alpha = ", chosen_alpha, " ", data_type), 
+                  main = paste0(length(sigs), " total features, alpha = ", chosen_alpha, " ", data_type_title), 
                   height = 7, width = 7)
   }
     
   return(pheatmap(data_mat[sigs, ], scale = "none", cluster_rows = FALSE, clustering_method = "ward.D", 
                 annotation_col = col_df, annotation_row = row_df, annotation_colors = ann_colors,
                 breaks = heatmap_breaks, color = heatmap_colors, show_rownames = F, show_colnames = F,
-                main = paste0(length(sigs), " total features, alpha = ", chosen_alpha, " ", data_type)))
+                main = paste0(length(sigs), " total features, alpha = ", chosen_alpha, " ", data_type_title)))
 }
 
 signature_heatmap_v2 <- function(chosen_alpha){
   p_global <- signature_heatmap(chosen_alpha, "Global", save_plot = FALSE)
   p_phospho <- signature_heatmap(chosen_alpha, "Phospho", save_plot = FALSE)
   p_RNA <- signature_heatmap(chosen_alpha, "RNA", save_plot = FALSE)
+  p_phospho_imp <- signature_heatmap(chosen_alpha, "Phospho_imp", save_plot = FALSE)
+  p_combined <- signature_heatmap(chosen_alpha, "Combined", save_plot = FALSE)
+  p_combined_v2 <- signature_heatmap(chosen_alpha, "Combined_v2", save_plot = FALSE)
   
   top_grob <- textGrob(paste0("Signatures alpha = ", chosen_alpha), 
                        gp = gpar(fontsize = 20))
-  p_all <- arrangeGrob(p_global[[4]], p_RNA[[4]], p_phospho[[4]], 
-                       ncol = 3, top = top_grob)
+  p_all <- arrangeGrob(p_global[[4]], p_RNA[[4]], p_phospho[[4]],
+                       p_phospho_imp[[4]], p_combined[[4]], p_combined_v2[[4]],
+                       ncol = 3, nrow = 2, top = top_grob)
   ggsave(paste0("enet_multinomial_data/signature_heatmaps_alpha_", chosen_alpha, ".pdf"), p_all, 
-         width = 30, height = 12)
+         width = 30, height = 25)
 }
 
 ```
@@ -228,6 +262,38 @@ lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alph
 signature_heatmap(0.7, "Global")
 signature_heatmap(0.7, "RNA")
 signature_heatmap(0.7, "Phospho")
+signature_heatmap(0.9, "Global")
+signature_heatmap(0.9, "Phospho")
+signature_heatmap(0.9, "RNA")
+signature_heatmap(0.9, "Combined_v2")
+
+```
+
+
+
+```{r}
+sigs_global <- signatures %>%
+  filter(chosen_type == "Global",
+         alpha == 0.7) %>% 
+  select(Gene, chosen_type) %>%
+  unique()
+
+sigs_global_phospho <- signatures %>%
+  filter(chosen_type == "Combined_v2",
+         alpha == 0.9) %>% 
+  select(Gene, chosen_type) %>%
+  unique() %>%
+  mutate(type = case_when(grepl("-", Gene) ~ "Phospho",
+                          TRUE ~ "Global"))
+
+sigs_global_phospho_imputed <- signatures %>%
+  filter(chosen_type == "Combined",
+         alpha == 0.9) %>% 
+  select(Gene, chosen_type) %>%
+  unique() %>%
+  mutate(type = case_when(grepl("-", Gene) ~ "Phospho",
+                          TRUE ~ "Global"))
+
 
 ```
 

@@ -1,0 +1,120 @@
+---
+title: "PTRC Ex10 Batch correction and normalization"
+author: "Michael Nestor"
+date: "`r format(Sys.Date(), '%m/%d/%Y')`"
+output: html_document
+---
+
+```{r setup}
+library(MSnSet.utils)
+library(sva)
+library(dplyr)
+library(tibble)
+library(tidyr)
+
+library(devtools)
+source("../dataProcessing/proteomicsNormalizationMethods.R")
+source("../util/synapseUtil.R")
+```
+
+# Load metadata
+
+```{r load_metadata}
+## Selecting original global and phospho data
+phenodata.syn <- "syn25807733"
+crosstab.syn <- "syn25714901"
+
+syn <- synapseLogin()
+
+phenodata <- read.table(syn$get(phenodata.syn)$path, sep = "\t",
+                         header = TRUE, colClasses = "character") %>%
+  column_to_rownames("SampleID.abbrev")
+phenodata$Plex <- as.character(phenodata$Plex)
+phenodata$Loading.Mass <- as.numeric(phenodata$Loading.Mass)
+
+## Should we remove phospho-peptides? 
+crosstab <- read.table("data/ptrc_ex10_crosstab_global_peptide_original.txt", check.names = F, sep = "\t")
+
+path_to_crosstab <- "data/Batch Correction/ptrc_ex10_peptide_crosstab_original_relaxed.txt"
+
+```
+
+
+# Normalize and correct phospho data
+
+
+```{r}
+## Performing the exact same normalization and correction steps, with the "sufficiently present" features
+## filter considerably relaxed, allowing no more than 4 plexes to be missing per peptide.
+n.sigfig <- 3
+n.plexes <- 10
+
+m <- MSnSet(as.matrix(crosstab))
+pData(m) <- phenodata[sampleNames(m),]
+
+## Medpolish
+m <- normalizeByMedpolish(m)
+new_path_to_crosstab <- sub("_original", "_medpolish", path_to_crosstab)
+# write.table(signif(exprs(m), n.sigfig),
+#             file = new_path_to_crosstab,
+#             quote=F, sep="\t")
+write.table(exprs(m),file = new_path_to_crosstab,
+            quote=F, sep="\t")
+
+meta <- phenodata %>%
+  select(Plex) %>%
+  rownames_to_column("Sample")
+
+m.medpolish <- m
+
+## Filtering by missing batches, no more than 4 allowed
+xx <- as.data.frame(exprs(m)) %>%
+  mutate(feature = rownames(.)) %>%
+  pivot_longer(-feature, names_to = "Sample", values_to = "LogRatio") %>%
+  left_join(meta, by = "Sample") %>%
+  group_by(feature, Plex) %>%
+  mutate(count = sum(!is.na(LogRatio))) %>%
+  ungroup(Plex, feature) %>%
+  group_by(feature) %>%
+  summarise(`Plexes missing` = sum(count == 0)/10)
+
+chosen <- xx %>%
+  filter(`Plexes missing` <= n.plexes) 
+
+chosen <- chosen$feature
+m <- m[chosen, ]
+
+## Filering by no more than 50% missing per feature (different than above)
+m <- filterByProportionMissingValues(m, least_proportion_threshold = 0.5)
+    
+# Batch correction
+removed_covariates <- c("Plex", "Loading.Mass")
+
+########################### NOTE #############################
+# m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
+## The regression (used to estimate batch and loading mass effect) fails for 4125
+## Phosphosites. Reason has to do with the design matrix in regression not having full rank.
+## To see what the sites are, debug WGCNA::empiricalBayesLM and proceed past line 250. This ensures 
+## the regression has run for all sites. Then we can save the sites which failed to a new table using
+## write.table(colnames(data)[which(regressionValid == FALSE)], "Failed Regression.txt", row.names = F)
+#######################################################
+# debug(WGCNA::empiricalBayesLM)
+failed.sites <- read.table("data/Batch Correction/Failed Regression.txt")[-1, ]
+m <- m[!(rownames(m) %in% failed.sites), ]
+m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
+
+# Medpolish and save
+m <- normalizeByMedpolish(m)
+new_path_to_crosstab <- sub("_original", "_corrected", path_to_crosstab)
+write.table(signif(exprs(m), n.sigfig),
+            file = "data/Batch Correction/ptrc_ex10_crosstab_global_peptide_corrected_relaxed.txt",
+            quote=F, sep="\t")
+
+```
+
+```{r push to synapse}
+synapseStore("data/Batch Correction/ptrc_ex10_crosstab_global_peptide_corrected_relaxed.txt", "syn25714186")
+
+```
+
+

@@ -1,0 +1,420 @@
+---
+title: "PeCorA subtypes"
+author: "Camilo Posso"
+date: "05/22/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(pheatmap)
+
+source("../../../util/synapseUtil.R")
+source("../../../util/loading_data.R")
+source("../../../util/mutational_analysis_helper.R")
+source("../../../mutational_analysis/PeCorA/pecora_scripts/pecora_analysis.R")
+
+syn <- synapseLogin()
+
+clusters <- read.table(syn$get("syn30030154")$path, sep = "\t")
+rownames(clusters) <- clusters$Barcode.ID
+
+phenodata <- read.table(syn$get("syn25807733")$path, sep = "\t",
+                         header = TRUE, colClasses = "character") %>%
+  column_to_rownames("SampleID.abbrev")
+phenodata$Plex <- as.character(phenodata$Plex)
+phenodata$Loading.Mass <- as.numeric(phenodata$Loading.Mass)
+
+global_peptide_corrected <- load.global.data("Peptide")
+peptide_corrected_relaxed <- read.table(syn$get("syn31502736")$path, sep = "\t")
+colnames(peptide_corrected_relaxed) <- sub("^X*", "", colnames(peptide_corrected_relaxed))
+colnames(peptide_corrected_relaxed) <- phenodata[colnames(peptide_corrected_relaxed), "Barcode.ID"]
+
+peptide_corrected_relaxed <- sweep(peptide_corrected_relaxed, 1, 
+                                   apply(peptide_corrected_relaxed, 1, mean, na.rm = T), FUN = '-')
+peptide_corrected_relaxed <- sweep(peptide_corrected_relaxed, 1, 
+                                   apply(peptide_corrected_relaxed, 1, sd, na.rm = T), FUN = '/')
+
+## Some issues with synapse at the moment (6-13)
+# global_data <- load.global.data()
+load("../../../Misc/load.combined.data 3-09-2022.RData")
+global_data <- global.data
+metadata <- load.metadata() %>%
+  merge(clusters, by = "Barcode.ID")
+rownames(metadata) <- metadata$Barcode.ID
+
+
+f_data <- data.frame(feature = rownames(peptide_corrected_relaxed)) %>%
+  mutate(Gene = sub("\\@.*$", "", feature),
+         Peptide = sub("^.*\\@", "", feature),
+         Protein = Gene) %>%
+  group_by(Protein) %>%
+  mutate(n_peptides = n()) %>%
+  ungroup(Protein) %>%
+  as.data.frame()
+rownames(f_data) <- f_data$feature
+
+m_peptide <- MSnSet(exprs = as.matrix(peptide_corrected_relaxed),
+                    pData = metadata[colnames(peptide_corrected_relaxed), ],
+                    fData = f_data)
+
+```
+
+
+
+```{r}
+global_mat <- pivot_wider(global_data, names_from = "Barcode.ID", 
+                          values_from = "LogRatio") %>%
+  column_to_rownames("Gene")
+
+global_mat <- sweep(global_mat, 1, apply(global_mat, 1, mean, na.rm = T), FUN = '-')
+global_mat <- sweep(global_mat, 1, apply(global_mat, 1, sd, na.rm = T), FUN = '/')
+m_global <- MSnSet(exprs = global_mat %>% as.matrix(), 
+                   pData = metadata[colnames(global_mat), ])
+global_mat$Gene <- rownames(global_mat)
+
+
+global_mat_pep_rows <- left_join(f_data %>% select(-Peptide, -Protein, -n_peptides), 
+                                 global_mat, by = "Gene")
+global_mat_pep_rows <- global_mat_pep_rows %>%
+  select(-Gene) %>%
+  column_to_rownames("feature") %>%
+  as.matrix()
+global_mat_pep_rows <- global_mat_pep_rows[rownames(peptide_corrected_relaxed), ]
+
+protein_peptide_deviation <- peptide_corrected_relaxed - global_mat_pep_rows
+
+protein_peptide_long <- protein_peptide_deviation %>%
+  rownames_to_column("feature") %>%
+  pivot_longer(-feature, names_to = "Barcode.ID", values_to = "protein_peptide_dev")
+
+m_devs <- MSnSet(exprs = as.matrix(protein_peptide_deviation), 
+                 pData = metadata[colnames(protein_peptide_deviation), ])
+
+```
+
+
+## How does peptide relate to protein in general? Depends on the sample.
+
+
+```{r}
+sd_by_sample <- protein_peptide_long %>% group_by(Barcode.ID) %>% 
+  summarize(sd = sd(protein_peptide_dev, na.rm = T)) %>%
+  merge(clusters, by = "Barcode.ID")
+rownames(sd_by_sample) <- sd_by_sample$Barcode.ID
+
+hist(protein_peptide_long %>% filter(Barcode.ID == "17-00763") %>% pull(protein_peptide_dev),
+     breaks = 100)
+
+hist(protein_peptide_long %>% filter(Barcode.ID == "12-00123") %>% pull(protein_peptide_dev),
+     breaks = 100)
+
+hist(protein_peptide_long %>% filter(Barcode.ID == "16-00811") %>% pull(protein_peptide_dev),
+     breaks = 100)
+
+hist(protein_peptide_long %>% filter(Barcode.ID == "17-00249") %>% pull(protein_peptide_dev),
+     breaks = 100)
+
+hist(protein_peptide_long %>% pull(protein_peptide_dev),
+     breaks = 100)
+
+qqplot(protein_peptide_long %>% filter(Barcode.ID == "16-00811") %>% pull(protein_peptide_dev), 
+       rnorm(130000))
+
+```
+
+
+```{r}
+sd_subtype_mean <- sd_by_sample %>%
+  group_by(Cluster) %>%
+  summarize(sd_subtype = sqrt(sum(sd^2))/n())
+
+subtype_pep_test <- function(m, var_name, chosen_level, sd_est = "Estimate 1"){
+  
+  ndf_mat <- !(is.na(exprs(m[, pData(m)[[var_name]] == chosen_level])))
+  ndf_mat <- ndf_mat*1
+  ndf_count <- apply(ndf_mat, 1, sum)
+  
+  sample_sd <- sd_by_sample[colnames(ndf_mat), "sd"]
+  sd_mat <- matrix(sample_sd, nrow = nrow(ndf_mat), 
+                   ncol = ncol(ndf_mat), byrow = TRUE)
+  colnames(sd_mat) <- colnames(ndf_mat)
+  sd_mat <- sd_mat * ndf_mat
+  sd_mat <- sweep(sd_mat, 1, ndf_count, FUN = '/')
+  
+  pep_means <- apply(exprs(m[, pData(m)[[var_name]]== chosen_level]), 1, mean, na.rm = T)
+  pep_means <- data.frame(feature = names(pep_means), 
+                          mean_deviation = unname(pep_means), 
+                          n_deg_count = unname(ndf_count))
+  
+  if (sd_est == "Estimate 1"){
+    sd_est <- sqrt(apply(sd_mat^2, 1, sum))
+  } else if (sd_est == "Estimate 2"){
+    sd_est <- rep(sd(pep_means[[2]], na.rm = T), nrow(exprs(m)))
+  } else if (sd_est == "Estimate 3") {
+    ## Geometric average
+    sd_est <- sqrt(sqrt(apply(sd_mat^2, 1, sum))*rep(sd(pep_means[[2]], na.rm = T), nrow(exprs(m))))
+  } else if (length(sd_est) == 1){
+    cat("Using provided sd estimate.\n")
+    sd_est <- rep(sd_est, nrow(exprs(m)))
+  } else {
+    cat("Using provided sd estimate.\n")
+  }
+  
+  pep_means$pep_mean_sd <- sd_est
+  pep_means$raw_pval <- sapply(1:nrow(pep_means), function(index){
+    pep_mean = pep_means[[2]][[index]]
+    ## Two sided test for mean not equal to zero.
+    pval <- 2*pnorm(abs(pep_mean), mean = 0, 
+                    sd = sd_est[[index]], lower.tail = F)
+  })
+  pep_means$adj_pval <- p.adjust(pep_means$raw_pval, method = "BH")
+  
+  return(pep_means)
+}
+
+
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+
+pData(m_devs)$fav_cat <- sample(c("Void", "Tabby", "Cheetos", ":3"), 210, replace = TRUE)
+pData(m_devs)$fav_cat_v2 <- sample(c("Void", "Tabby"), 210, replace = TRUE)
+
+test2 <- subtype_pep_test(m_devs, var_name = "FLT3.ITD", 
+                          chosen_level = "TRUE", 
+                          sd_est = "Estimate 1")
+
+test3 <- subtype_pep_test(m_devs, var_name = "fav_cat", 
+                          chosen_level = "Tabby", 
+                          sd_est = "Estimate 1")
+
+test4 <- subtype_pep_test(m_devs, var_name = "fav_cat", 
+                          chosen_level = "Void", 
+                          sd_est = "Estimate 1")
+
+test5 <- subtype_pep_test(m_devs, var_name = "fav_cat", 
+                          chosen_level = "Cheetos", 
+                          sd_est = "Estimate 1")
+
+test6 <- subtype_pep_test(m_devs, var_name = "fav_cat", 
+                          chosen_level = ":3", 
+                          sd_est = "Estimate 1")
+
+test7 <- subtype_pep_test(m_devs, var_name = "fav_cat_v2", 
+                          chosen_level = "Void", 
+                          sd_est = "Estimate 1")
+
+test_FLT3 <- subtype_pep_test(m_devs, var_name = "FLT3.ITD",  
+                              chosen_level = "TRUE", 
+                              sd_est = "Estimate 1")
+
+```
+
+
+
+```{r}
+cluster_1 <- subtype_pep_test(m_devs, var_name = "Cluster",  
+                              chosen_level = "Cluster 1", 
+                              sd_est = "Estimate 1") %>%
+  mutate(test_type = "Cluster 1") %>%
+  select(feature, mean_deviation, raw_pval, test_type, pep_mean_sd)
+
+cluster_2 <- subtype_pep_test(m_devs, var_name = "Cluster",  
+                              chosen_level = "Cluster 2", 
+                              sd_est = "Estimate 1") %>%
+  mutate(test_type = "Cluster 2") %>%
+  select(feature, mean_deviation, raw_pval, test_type, pep_mean_sd)
+
+cluster_3 <- subtype_pep_test(m_devs, var_name = "Cluster",  
+                              chosen_level = "Cluster 3", 
+                              sd_est = "Estimate 1") %>%
+  mutate(test_type = "Cluster 3") %>%
+  select(feature, mean_deviation, raw_pval, test_type, pep_mean_sd)
+
+cluster_4 <- subtype_pep_test(m_devs, var_name = "Cluster",  
+                              chosen_level = "Cluster 4", 
+                              sd_est = "Estimate 1") %>%
+  mutate(test_type = "Cluster 4") %>%
+  select(feature, mean_deviation, raw_pval, test_type, pep_mean_sd)
+
+## 43890 of 137225 peptides showing significant* peptide to protein deregulation
+## within the subtypes.
+cluster_pep_interaction <- rbind(cluster_1, cluster_2, 
+                                 cluster_3, cluster_4) %>%
+  group_by(feature) %>%
+  summarize(agg_pval = exp(mean(log(raw_pval))),
+            agg_pval2 = prod(raw_pval)) %>%
+  mutate(adj_pval = p.adjust(agg_pval, method = "BH"),
+         gene = sub("@.*$", "", feature)) %>% as.data.frame()
+
+# table(cluster_pep_interaction$adj_pval < 0.05)
+# cluster_pep_interaction %>% filter(adj_pval < 0.05) %>% pull(gene) %>% unique()
+rownames(cluster_pep_interaction) <- cluster_pep_interaction$feature
+
+pecora_results <- read.table("Data/pecora_results_proteinmod.txt", sep = "\t")
+rownames(pecora_results) <- pecora_results$Peptide
+cluster_pep_interaction$pecora_adj_pval <- pecora_results[rownames(cluster_pep_interaction), "adj_pval"]
+
+```
+
+
+
+```{r}
+cutoff <- 0.05
+
+## Most of the significant results from pep_prot interaction are significant in 
+## PeCorA also. By contrast, half of the PeCorA sig hits are not significant 
+## according in the pep_prot interaction results.
+table(cluster_pep_interaction$pecora_adj_pval < cutoff, 
+      cluster_pep_interaction$adj_pval < cutoff)
+
+## As the cutoff lowers, we see that the lower the pvalue in the pep_prot results,
+## the lower the pvalue in PeCorA.
+table(cluster_pep_interaction$pecora_adj_pval < cutoff*0.01, 
+      cluster_pep_interaction$adj_pval < cutoff*0.01)
+
+## From this plot we can see clearly that the two methods are after the same thing,
+## however the overall pvalues in prot_pep_interaction give much fewer significant results.
+## This is also a somewhat (fairly?***) sound test. So the agreement with PeCorA is a
+## good sign.
+pecora_adjpval <- -log10(cluster_pep_interaction$pecora_adj_pval)
+prot_pep_dev_adjpval <- -log10(cluster_pep_interaction$adj_pval)
+plot(pecora_adjpval, prot_pep_dev_adjpval)
+
+```
+
+
+```{r}
+pecora_results <- read.table("Data/pecora_results_FLT3.ITD_proteinmod.txt", sep = "\t")
+rownames(pecora_results) <- pecora_results$Peptide
+rownames(test_FLT3) <- test_FLT3$feature
+pecora_adjpval <- -log10(pecora_results$adj_pval)
+  
+prot_pep_dev_adjpval <- -log10(test_FLT3[rownames(pecora_results), "adj_pval"])
+table(pecora_results$adj_pval < 0.05, test_FLT3[rownames(pecora_results), "adj_pval"] < 0.05)
+
+plot(pecora_adjpval, prot_pep_dev_adjpval)
+
+```
+
+
+
+
+
+## Plotting features
+
+
+```{r}
+# chosen_feature = "SREK1@R.TVYVGNLNSQTTTADQLLEFFK.Q"
+chosen_feature = "ACTB@K.SYELPDGQVITIGNER.F"
+chosen_protein = sub("@.*$", "", chosen_feature)
+
+pecora_plot(m_peptide, pecora_results, chosen_protein, chosen_feature)
+pecora_plot(m_peptide, pecora_results, chosen_protein, chosen_feature, median_mod = TRUE)
+pecora_plot(m_peptide, pecora_results, chosen_protein, chosen_feature, m_protein = m_global)
+plot_feature(m_global, feature = chosen_protein, color_by = "Cluster")
+plot_feature(m_peptide, feature = chosen_feature, color_by = "Cluster")
+plot_feature(m_devs, chosen_feature, color_by = "Cluster")
+
+
+```
+
+
+
+```{r}
+# table(colnames(exprs(m_global)) == colnames(exprs(m_peptide)))
+chosen_feature = "ACTB@K.SYELPDGQVITIGNER.F"
+chosen_protein = sub("@.*$", "", chosen_feature)
+
+plot_df <- data.frame(value = exprs(m_global)[chosen_protein, ],
+                      sample = colnames(exprs(m_global)), type = "Protein") %>%
+  arrange(value) %>%
+  mutate(sample = factor(sample, levels = sample)) %>%
+  rbind(data.frame(value = exprs(m_peptide)[chosen_feature, ], 
+                   sample = colnames(exprs(m_peptide)), type = "Peptide"))
+
+ggplot(plot_df, aes(x = sample, y = value, color = type)) + geom_point() +
+  ggtitle(paste("Protein + Peptide ", chosen_feature))
+
+
+```
+
+
+
+
+
+
+
+
+
+## Filtering pecora by logfoldchange.
+
+
+```{r}
+limma_pep <- limma_gen(m_peptide, "~0 + Cluster", "Cluster") %>% 
+  rownames_to_column("feature") %>%
+  mutate(Gene = sub("@.*$", "", feature))
+limma_prot <- limma_gen(m_global, "~0 + Cluster", "Cluster") %>%
+  rownames_to_column("Gene")
+
+limma_joined <- left_join(limma_pep, limma_prot, by = "Gene") %>%
+  mutate(cluster_1_diff = abs(ClusterCluster.1.x - ClusterCluster.1.y),
+         cluster_2_diff = abs(ClusterCluster.2.x - ClusterCluster.2.y),
+         cluster_3_diff = abs(ClusterCluster.3.x - ClusterCluster.3.y),
+         cluster_4_diff = abs(ClusterCluster.4.x - ClusterCluster.4.y)) %>%
+  select(Gene, feature, adj_pval_pep = adj.P.Val.x, adj_pval_prot = adj.P.Val.y,
+         cluster_1_diff, cluster_2_diff, cluster_3_diff, cluster_4_diff)
+limma_joined$max_diff <- pmax(limma_joined$cluster_1_diff, limma_joined$cluster_2_diff,
+                              limma_joined$cluster_3_diff, limma_joined$cluster_4_diff)
+rownames(limma_joined) <- limma_joined$feature
+
+limma_devs <- limma_gen(m_devs, "~0 + Cluster", "Cluster")
+
+```
+
+
+```{r}
+pecora_results <- read.table("Data/pecora_results_proteinmod.txt", sep = "\t")
+rownames(pecora_results) <- pecora_results$Peptide
+pecora_results <- limma_joined[rownames(pecora_results), ] %>%
+  select(adj_pval_pep, adj_pval_prot, max_diff) %>%
+  cbind(pecora_results)
+pecora_results <- limma_devs[rownames(pecora_results), ] %>%
+  select(adj_pval_dev = adj.P.Val) %>%
+  cbind(pecora_results) %>%
+  select(Protein, Peptide, pvalue_Cluster, adj_pval,
+         adj_pval_prot, adj_pval_pep, adj_pval_dev, max_diff)
+  
+```
+
+
+
+
+```{r}
+hist(pecora_results %>% filter(adj_pval < 0.05) %>% pull(max_diff), breaks = 100)
+hist(pecora_results %>% pull(max_diff), breaks = 100)
+
+nrow(pecora_results %>% filter(adj_pval < 0.05) %>% filter(max_diff > 0.65))
+
+```
+
+
+
+
+
+
+
+
+
+
+
