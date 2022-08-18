@@ -36,7 +36,9 @@ Finding the appropriate lambda range.
 
 ```{r eval=FALSE, include=FALSE}
 bound_mult <- 1.0
-bounds <- lapply(list(global_mat_train, phospho_mat_train, RNA_mat_train), function(data_mat){
+bounds <- lapply(list(global_mat_train, phospho_mat_train, RNA_mat_train, 
+                      phospho_mat_train_imp, combined_mat_train, 
+                      combined_v2_mat_train), function(data_mat){
   print(nrow(data_mat))
   lambda_min <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
     cluster_lab <- enet_meta %>%
@@ -87,6 +89,12 @@ all_bounds <- list("min_bounds_Global" = bounds[[1]]$min_bounds,
                    "max_bounds_Phospho" = bounds[[2]]$max_bounds,
                    "min_bounds_RNA" = bounds[[3]]$min_bounds,
                    "max_bounds_RNA" = bounds[[3]]$max_bounds,
+                   "min_bounds_Phospho_imp" = bounds[[4]]$min_bounds,
+                   "max_bounds_Phospho_imp" = bounds[[4]]$max_bounds,
+                   "min_bounds_Combined" = bounds[[5]]$min_bounds,
+                   "max_bounds_Combined" = bounds[[5]]$max_bounds,
+                   "min_bounds_Combined_v2" = bounds[[6]]$min_bounds,
+                   "max_bounds_Combined_v2" = bounds[[6]]$max_bounds,
                    "bound_mult" = bound_mult)
 saveRDS(all_bounds, "./enet_multinomial_data/all_bounds.RDS")
 
@@ -191,10 +199,16 @@ derived from a combined dataset which includes phospho data as well as RNA count
 results_global <- run_cv_grid(global_mat_train)
 results_phospho <- run_cv_grid(phospho_mat_train)
 results_RNA <- run_cv_grid(RNA_mat_train)
+results_phospho_imp <- run_cv_grid(phospho_mat_train_imp)
+results_combined <- run_cv_grid(combined_mat_train)
+results_combined_v2 <- run_cv_grid(combined_v2_mat_train)
 
 all_results <- list("Global" = results_global,
                     "Phospho" = results_phospho,
-                    "RNA" = results_RNA)
+                    "RNA" = results_RNA,
+                    "Phospho_imp" = results_phospho_imp,
+                    "Combined" = results_combined,
+                    "Combined_v2" = results_combined_v2)
 
 saveRDS(all_results, "./enet_multinomial_data/elastic_net_multinomial_results_k_4.RDS")
 
@@ -219,12 +233,18 @@ get_model_metrics <- function(chosen_alpha, chosen_type){
   random_states <- sample(1:1000000, size = 20)
   
   if (chosen_type == "Global"){
-      data_mat <- global_mat_train
-    } else if (chosen_type == "Phospho"){
-      data_mat <- phospho_mat_train
-    } else if (chosen_type == "RNA"){
-      data_mat <- RNA_mat_train
-    }
+    data_mat <- global_mat_train
+  } else if (chosen_type == "Phospho"){
+    data_mat <- phospho_mat_train
+  } else if (chosen_type == "RNA"){
+    data_mat <- RNA_mat_train
+  } else if (chosen_type == "Phospho_imp") {
+    data_mat <- phospho_mat_train_imp
+  } else if (chosen_type == "Combined"){
+    data_mat <- combined_mat_train
+  } else if (chosen_type == "Combined_v2") {
+    data_mat <- combined_v2_mat_train
+  }
     
   cluster_lab <- enet_meta %>%
     mutate(cluster_lab = paste("Cluster", k.4)) %>%
@@ -349,7 +369,10 @@ Putting all metrics into a table.
 model_metrics <- lapply(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), function(chosen_alpha){
   metrics <- get_model_metrics(chosen_alpha, "Global") %>%
     rbind(get_model_metrics(chosen_alpha, "Phospho")) %>%
-    rbind(get_model_metrics(chosen_alpha, "RNA"))
+    rbind(get_model_metrics(chosen_alpha, "RNA")) %>%
+    rbind(get_model_metrics(chosen_alpha, "Phospho_imp")) %>%
+    rbind(get_model_metrics(chosen_alpha, "Combined")) %>%
+    rbind(get_model_metrics(chosen_alpha, "Combined_v2"))
   return(metrics)
 }) %>% do.call("rbind", .)
 
@@ -366,6 +389,7 @@ Plotting errors by cluster
 ```{r}
 model_metrics <- read.table("enet_multinomial_data/all_model_metrics.txt", sep = "\t") %>%
   dplyr::rename(alpha = chosen_alpha)
+data_type_colors <- c(data_type_colors[1:4], "grey", "#1A1237")
 
 plot_metrics <- function(chosen_alpha){
   global_model_metrics <- model_metrics %>%
@@ -376,6 +400,15 @@ plot_metrics <- function(chosen_alpha){
     filter(alpha == chosen_alpha)
   rna_model_metrics <- model_metrics %>%
     filter(data_type == "RNA") %>%
+    filter(alpha == chosen_alpha)
+  phospho_imp_model_metrics <- model_metrics %>%
+    filter(data_type == "Phospho_imp") %>%
+    filter(alpha == chosen_alpha)
+  combined_model_metrics <- model_metrics %>%
+    filter(data_type == "Combined") %>%
+    filter(alpha == chosen_alpha)
+  combined_v2_model_metrics <- model_metrics %>%
+    filter(data_type == "Combined_v2") %>%
     filter(alpha == chosen_alpha)
   
   summary <- data.frame(Cluster = c("1", "2", "3", "4"), 
@@ -392,7 +425,28 @@ plot_metrics <- function(chosen_alpha){
                      Recall = rna_model_metrics$Recall,
                      Precision = rna_model_metrics$Precision,
                      `Classification error` = rna_model_metrics$missclass_error,
-                     data_type = "RNA"))
+                     data_type = "RNA")) %>%
+    rbind(data.frame(Cluster = c("1", "2", "3", "4"), 
+                     Recall = phospho_imp_model_metrics$Recall,
+                     Precision = phospho_imp_model_metrics$Precision,
+                     `Classification error` = phospho_imp_model_metrics$missclass_error,
+                     data_type = "Phospho_imp")) %>%
+    rbind(data.frame(Cluster = c("1", "2", "3", "4"), 
+                     Recall = combined_model_metrics$Recall,
+                     Precision = combined_model_metrics$Precision,
+                     `Classification error` = combined_model_metrics$missclass_error,
+                     data_type = "Combined")) %>%
+    rbind(data.frame(Cluster = c("1", "2", "3", "4"), 
+                     Recall = combined_v2_model_metrics$Recall,
+                     Precision = combined_v2_model_metrics$Precision,
+                     `Classification error` = combined_v2_model_metrics$missclass_error,
+                     data_type = "Combined_v2")) %>%
+    mutate(data_type = case_when(data_type == "Combined" ~ "Global + Phospho_imp",
+                                 data_type == "Combined_v2" ~ "Global + Phospho",
+                                 TRUE ~ data_type)) %>%
+    mutate(data_type = factor(data_type, levels = c("Global", "Phospho", "RNA", 
+                                                    "Phospho_imp", "Global + Phospho_imp", 
+                                                    "Global + Phospho")))
   
   p_recall <- ggplot(summary, aes(x = Cluster, y = Recall, fill = data_type)) + 
     geom_bar(stat = 'identity', width = 0.33, position = position_dodge()) + 
@@ -444,6 +498,10 @@ error_plots <- plot_metrics(0.7)
 
 ggsave("enet_multinomial_data/recall_alpha_0.7.pdf", error_plots[[1]], width = 7, height = 6)
 ggsave("enet_multinomial_data/classification_error_alpha_0.7.pdf", error_plots[[3]], width = 7, height = 6)
+
+error_plots <- plot_metrics(0.9)
+ggsave("enet_multinomial_data/classification_error_alpha_0.9.pdf", error_plots[[3]], width = 7, height = 6)
+ggsave("enet_multinomial_data/classification_error_alpha_0.9.png", plot = error_plots[[3]], width = 7, height = 6)
 
 ```
 
