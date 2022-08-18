@@ -382,6 +382,20 @@ write.table(model_metrics, "enet_multinomial_data/all_model_metrics.txt",
 ```
 
 
+
+```{r}
+model_metrics <- read.table("enet_multinomial_data/all_model_metrics.txt", sep = "\t") %>%
+  dplyr::rename(alpha = chosen_alpha) %>%
+  mutate(data_type = case_when(data_type == "Combined" ~ "Global + Phospho_imp",
+                               data_type == "Combined_v2" ~ "Global + Phospho",
+                               TRUE ~ data_type))
+
+write.table(model_metrics, "enet_multinomial_data/all_model_metrics_k4.txt", sep = "\t")
+synapseStore("enet_multinomial_data/all_model_metrics_k4.txt", "syn29612385")
+
+```
+
+
 Plotting errors by cluster
 
 

@@ -1,0 +1,448 @@
+---
+title: "K = 4 multinomial predictions"
+author: "Camilo Posso"
+date: "06/02/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+Predict subtypes on pilot data samples.
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+# library(gridExtra)
+# library(grid)
+library(ggpubr)
+library(survminer)
+
+source("../NMF_helper.R")
+source("../cluster_model_helper.R")
+
+names(subtype_colors) <- as.character(1:8)
+subtype_colors <- subtype_colors[1:4]
+
+samples_16 <- c('12-00211', '13-00034', '13-00166', '13-00515', '13-00602',
+                '14-00034', '14-00045', '14-00083', '14-00127', '14-00240',
+                '14-00359', '14-00488', '14-00495', '14-00537', '15-00051',
+                '15-00464')
+
+samples_16_new <- c('12-00211', '13-00166', '13-00515', '14-00034',
+                    '14-00359', '14-00488', '14-00537', '15-00464')
+
+```
+
+Setting up models
+
+```{r}
+
+## Global model
+data_mat <- global_mat_train
+
+cluster_lab <- enet_meta %>%
+  mutate(cluster_lab = paste("Cluster", k.4)) %>%
+  pull(cluster_lab) %>%
+  as.factor()
+names(cluster_lab) <- enet_meta$Barcode.ID
+cluster_lab <- cluster_lab[colnames(data_mat)]
+
+model_global <- glmnet(x = t(data_mat),
+                       y = cluster_lab,
+                       family = 'multinomial',
+                       alpha = 0.7,
+                       lambda = 0.0114996)
+
+
+## Global + Phospho model
+data_mat <- combined_v2_mat_train
+
+cluster_lab <- enet_meta %>%
+  mutate(cluster_lab = paste("Cluster", k.4)) %>%
+  pull(cluster_lab) %>%
+  as.factor()
+names(cluster_lab) <- enet_meta$Barcode.ID
+cluster_lab <- cluster_lab[colnames(data_mat)]
+
+model_global_phospho <- glmnet(x = t(data_mat),
+                               y = cluster_lab,
+                               family = 'multinomial',
+                               alpha = 0.9,
+                               lambda = 0.007655539)
+
+
+## Global + Phospho imputed model
+data_mat <- combined_mat_train
+
+cluster_lab <- enet_meta %>%
+  mutate(cluster_lab = paste("Cluster", k.4)) %>%
+  pull(cluster_lab) %>%
+  as.factor()
+names(cluster_lab) <- enet_meta$Barcode.ID
+cluster_lab <- cluster_lab[colnames(data_mat)]
+
+model_global_phospho_imputed <- glmnet(x = t(data_mat),
+                                       y = cluster_lab,
+                                       family = 'multinomial',
+                                       alpha = 0.9,
+                                       lambda = 0.003933862)
+
+
+```
+
+
+
+```{r}
+source("../../../../beatAMLpilotProteomics/beatAMLdata.R")
+loadBeatAMLData()
+clinical_summary <- openxlsx::read.xlsx(syn$get("syn23538805")$path)
+
+new_data_long <- pat.data %>%
+  select(sample = `AML sample`,
+         feature = Gene,
+         LogRatio = proteinLevels) %>%
+  mutate(data_type = "Global")
+
+new_data_long <- pat.phos %>%
+  select(sample = Sample, 
+         feature = site,
+         LogRatio = LogFoldChange) %>%
+  mutate(data_type = "Phospho") %>%
+  rbind(new_data_long) %>%
+  mutate(meta_column = "dummy")
+
+```
+
+
+
+```{r}
+subtype_prediction_new_data <- function(new_data_long, meta_cols, model,
+                                        feature_str = "feature", sample_str = "sample", 
+                                        value_str = "LogRatio", zero_2_NA = FALSE,
+                                        plot_title = "", complete_only = FALSE){
+  
+  model_features <- rownames(model$beta$`Cluster 1`)
+  sig_features <- sapply(model$beta, function(coefs){
+    rownames(coefs)[which(coefs != 0)]
+  }) %>% unlist() %>% unname() %>% unique()
+
+  metadata <- new_data_long %>%
+    select(sample = sym(sample_str), .dots = meta_cols) %>%
+    unique()
+  colnames(metadata)[2:ncol(metadata)] <- meta_cols
+  rownames(metadata) <- metadata$sample
+  
+  if (zero_2_NA){
+    n_zeros <- sum(new_data_long[[value_str]] == 0)
+    cat(paste0("Replacing exact zero with NA in a total of ", n_zeros, " entries.\n"))
+    new_data_long <- new_data_long %>%
+      filter(!!as.symbol(value_str) != 0)
+  }
+  
+  mat_new <- new_data_long %>%
+    select(feature = sym(feature_str), sample = sym(sample_str), value = sym(value_str)) %>%
+    pivot_wider(names_from = "sample", values_from = "value", values_fn = mean) %>%
+    column_to_rownames("feature") %>% as.matrix()
+  mat_global <- new_data_long %>%
+    filter(data_type == "Global") %>%
+    select(feature = sym(feature_str), sample = sym(sample_str), value = sym(value_str)) %>%
+    pivot_wider(names_from = "sample", values_from = "value", values_fn = mean) %>%
+    column_to_rownames("feature") %>% as.matrix()
+  mat_phospho <- new_data_long %>%
+    filter(data_type == "Phospho") %>%
+    select(feature = sym(feature_str), sample = sym(sample_str), value = sym(value_str)) %>%
+    pivot_wider(names_from = "sample", values_from = "value", values_fn = mean) %>%
+    column_to_rownames("feature") %>% as.matrix()
+  
+  if (complete_only){
+    ## Since we use na.rm = F, the effect is that any rows with NA will be
+    ## imputed with zero. The imputation is still necessary to use the model, but the
+    ## difference is the features with incomplete data are thrown out.
+    incomplete_features <- rownames(mat_new)[!complete.cases(mat_new)]
+    mat_new <- sweep(mat_new, 1, apply(mat_new, 1, mean, na.rm = F), FUN = '-')
+    mat_new <- sweep(mat_new, 1, apply(mat_new, 1, sd, na.rm = F), FUN = '/')
+    mat_new[is.na(mat_new)] <- 0  
+  } else {
+    mat_new <- sweep(mat_new, 1, apply(mat_new, 1, mean, na.rm = T), FUN = '-')
+    mat_new <- sweep(mat_new, 1, apply(mat_new, 1, sd, na.rm = T), FUN = '/')
+    ## Impute with the mean.
+    mat_new[is.na(mat_new)] <- 0
+  }
+  
+  
+  ## Including the necessary features for the model only. Missing features are imputed with 0.
+  mat_new <- mat_new[rownames(mat_new) %in% model_features, ]
+  dummy_rows <- setdiff(model_features, rownames(mat_new))
+  dummy_mat <- matrix(0, ncol = ncol(mat_new), nrow = length(dummy_rows))
+  rownames(dummy_mat) <- dummy_rows
+  colnames(dummy_mat) <- colnames(mat_new)
+  mat_new <- rbind(mat_new, dummy_mat)
+  mat_new <- mat_new[model_features, ]
+  
+  n_imputed <- length(intersect(sig_features, dummy_rows))
+  if (complete_only){
+    n_imputed <- n_imputed + length(intersect(sig_features, 
+                                              incomplete_features))
+  }
+  cat(paste0("Adding ", n_imputed, " constant features needed for subtype prediction.\n"))
+  
+  
+  cluster_predictions <- predict(model, newx = t(mat_new), 
+                                 type = "response")[, , 1] %>% as.data.frame()
+  colnames(cluster_predictions) <- paste("New", colnames(cluster_predictions))
+  cluster_predictions$max_new <- apply(cluster_predictions, 1, max) %>% unname()
+  cluster_predictions$pred_cluster <- predict(model, newx = t(mat_new), 
+                                              type = "class") %>%
+    as.character()
+  cluster_predictions$sample <- colnames(mat_new)
+  metadata <- cluster_predictions %>%
+    select(sample, Subtype = pred_cluster, everything()) %>%
+    merge(metadata, by = "sample")
+  rownames(metadata) <- metadata$sample
+  
+  m_global <- MSnSet(exprs = mat_global, pData = metadata[colnames(mat_global), ])
+  m_phospho <- MSnSet(exprs = mat_phospho, pData = metadata[colnames(mat_phospho), ])
+  
+  return(list("Global msnset" = m_global, 
+              "Phospho msnset" = m_phospho, 
+              "Combined mat" = mat_new))
+}
+
+get_probabilities <- function(m1, m2){
+  pdata1 <- pData(m1)[, c(1, 3:6)]
+  pdata2 <- pData(m2)[, c(1, 3:6)]
+  colnames(pdata1) <- c("sample", "Subtype 1", "Subtype 2", 
+                        "Subtype 3", "Subtype 4")
+  colnames(pdata2) <- c("sample", "complete_features Subtype 1", "complete_features Subtype 2", 
+                        "complete_features Subtype 3", "complete_features Subtype 4")
+  meta_detailed <- merge(pdata1, pdata2, by = "sample") 
+  return(meta_detailed)
+}
+
+palette_colors <- c("1" = subtype_colors[[1]],
+                    "2" = subtype_colors[[2]],
+                    "3" = subtype_colors[[3]],
+                    "4" = subtype_colors[[4]])
+```
+
+
+
+
+
+```{r}
+new_data_long_exp3 <- new_data_long %>%
+  filter(sample %in% samples_16)
+
+complete_only <- F
+zero_2_NA <- T
+predictions <- subtype_prediction_new_data(new_data_long_exp3, meta_cols = c("meta_column"), 
+                                           model = model_global_phospho, 
+                                           zero_2_NA = zero_2_NA, 
+                                           complete_only = complete_only)
+
+pilot_meta <- predictions$`Global msnset` %>% pData() %>%
+  left_join(clinical_summary %>% select(sample = labId, overallSurvival, vitalStatus), by = "sample") %>%
+  mutate(vitalStatus = case_when(vitalStatus == "Dead" ~ 2,
+                                 TRUE ~ 1),
+         Subtype = sub("Cluster ", "", Subtype),
+         exp_3 = sample %in% samples_16,
+         exp_3_new = sample %in% samples_16_new)
+
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Subtype, data = pilot_meta)
+p1 <- ggsurvplot(sfit, color = "Subtype", data = pilot_meta,
+                 palette = palette_colors, pval = TRUE)$plot + 
+  ggtitle(paste("zero_2_NA", zero_2_NA, "complete_only", complete_only))
+
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Subtype, data = pilot_meta %>% filter(exp_3_new))
+p2 <- ggsurvplot(sfit, color = "Subtype", data = pilot_meta %>% filter(exp_3_new),
+                 palette = palette_colors, pval = TRUE)$plot + 
+  ggtitle("Experiment 3 new samples survival")
+
+ggsave(plot = p2, filename = paste0("../../../Validations/", "Experiment_3_new_samples_survival", ".png"))
+
+drug_data <- auc.dat %>%
+  select(`AML sample`, Condition, AUC) %>%
+  pivot_wider(names_from = "AML sample", values_from = AUC, values_fn = mean) %>%
+  pivot_longer(-Condition, names_to = "sample", values_to = "AUC")
+
+
+```
+
+```{r}
+cohort_subtypes <- read.table(syn$get("syn30030154")$path) %>%
+  dplyr::rename(Subtype = Cluster) %>%
+  mutate(Subtype = sub("Cluster ", "",  Subtype))
+meta <- merge(meta, cohort_subtypes, by = "Barcode.ID")
+
+
+```
+
+
+```{r}
+meta$overallSurvival <- as.numeric(meta$overallSurvival)
+
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Subtype, data = meta)
+p2 <- ggsurvplot(sfit, color = "Subtype", data = meta,
+                 palette = palette_colors, pval = TRUE)$plot + 
+  ggtitle("210 cohort survival by subtype")
+
+ggsave(plot = p2, filename = paste0("../../../Validations/", "210_cohort_survival", ".png"), height = 7, width = 7)
+
+
+```
+
+
+
+```{r}
+## comparing to subtype assignments from 210 cohort on the overlap.
+xx <- read.table(syn$get("syn30030154")$path) %>% 
+  dplyr::rename(sample = Barcode.ID) %>% 
+  right_join(pilot_meta, by = "sample")
+
+table(xx$Cluster, xx$Subtype)
+
+```
+
+
+
+```{r}
+chosen_drug <- "Venetoclax"
+plot_title_1 <- paste("Experiment 3 all samples", chosen_drug, "response")
+plot_title_2 <- paste("Experiment 3 new samples", chosen_drug, "response")
+
+plot_df <- pilot_meta %>%
+  left_join(drug_data, by = "sample")
+
+p1 <- ggplot(plot_df %>% filter(Condition == chosen_drug), aes(x = Subtype, y = AUC, fill = Subtype)) + 
+  geom_violin() + scale_fill_manual(values = subtype_colors) + 
+  ylim(0, 300) + ggtitle(plot_title_1) + 
+  theme(axis.text.x = element_text(size = 13), axis.text.y = element_text(size = 13))
+
+p2 <- ggplot(plot_df %>% filter(Condition == chosen_drug & sample %in% samples_16_new), aes(x = Subtype, y = AUC, fill = Subtype)) + 
+  geom_violin() + scale_fill_manual(values = subtype_colors) + 
+  ylim(0, 300) + ggtitle(plot_title_2) +
+  theme(axis.text.x = element_text(size = 13), axis.text.y = element_text(size = 13))
+
+plot_path1 <- gsub(" ", "_", plot_title_1)
+plot_path2 <- gsub(" ", "_", plot_title_2)
+
+ggsave(plot = p1, filename = paste0("../../../Validations/", plot_path1, ".png"))
+ggsave(plot = p2, filename = paste0("../../../Validations/", plot_path2, ".png"))
+
+```
+
+
+```{r}
+cohort_subtypes <- read.table(syn$get("syn30030154")$path) %>%
+  dplyr::rename(Subtype = Cluster) %>%
+  mutate(Subtype = sub("Cluster ", "",  Subtype))
+
+```
+
+
+```{r}
+chosen_drug <- "A-674563"
+plot_title <- paste("210 conhort", chosen_drug, "response")
+
+plot_df2 <- functional.data %>%
+  filter(Inhibitor %in% c(chosen_drug)) %>%
+  left_join(cohort_subtypes, by = "Barcode.ID")
+
+p <- ggplot(plot_df2, aes(x = Subtype, y = AUC, fill = Subtype)) + 
+  geom_violin() + scale_fill_manual(values = subtype_colors) + ggtitle(plot_title) +
+  ylim(0, 300) +
+  theme(axis.text.x = element_text(size = 13), axis.text.y = element_text(size = 13))
+
+plot_path <- gsub(" ", "_", plot_title)
+
+ggsave(plot = p, filename = paste0("../../../Validations/", plot_path, ".png"))
+
+
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+plots <- list()
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+complete_only <- F
+zero_2_NA <- T
+predictions <- subtype_prediction_new_data(new_data_long, meta_cols = c("meta_column"), 
+                                           model = model_global_phospho, 
+                                           zero_2_NA = zero_2_NA, 
+                                           complete_only = complete_only)
+
+pilot_meta <- predictions$`Global msnset` %>% pData() %>%
+  left_join(clinical_summary %>% select(sample = labId, overallSurvival, vitalStatus), by = "sample") %>%
+  mutate(vitalStatus = case_when(vitalStatus == "Dead" ~ 2,
+                                 TRUE ~ 1),
+         Subtype = sub("Cluster ", "", Subtype),
+         exp_3 = sample %in% samples_16,
+         exp_3_new = sample %in% samples_16_new)
+
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Subtype, data = pilot_meta)
+p1 <- ggsurvplot(sfit, color = "Subtype", data = pilot_meta,
+                 palette = palette_colors, pval = TRUE)$plot + 
+  ggtitle(paste("zero_2_NA", zero_2_NA, "complete_only", complete_only))
+
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Subtype, data = pilot_meta %>% filter(exp_3))
+p2 <- ggsurvplot(sfit, color = "Subtype", data = pilot_meta %>% filter(exp_3),
+                 palette = palette_colors, pval = TRUE)$plot + 
+  ggtitle(paste("zero_2_NA", zero_2_NA, "complete_only", complete_only))
+
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Subtype, data = pilot_meta %>% filter(exp_3_new))
+p3 <- ggsurvplot(sfit, color = "Subtype", data = pilot_meta %>% filter(exp_3_new),
+                 palette = palette_colors, pval = TRUE)$plot + 
+  ggtitle(paste("zero_2_NA", zero_2_NA, "complete_only", complete_only))
+
+# plots <- append(plots, list(list(p1, p2, p3)))
+
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+predictions <- subtype_prediction_new_data(new_data_long, meta_cols = c("meta_column"), 
+                                           model = model_global_phospho, 
+                                           zero_2_NA = TRUE, 
+                                           complete_only = FALSE)
+
+pilot_meta <- predictions$`Global msnset` %>% pData() %>%
+  left_join(clinical_summary %>% select(sample = labId, overallSurvival, vitalStatus), by = "sample") %>%
+  mutate(vitalStatus = case_when(vitalStatus == "Dead" ~ 2,
+                                 TRUE ~ 1),
+         Subtype = sub("Cluster ", "", Subtype),
+         exp_3 = sample %in% samples_16,
+         exp_3_new = sample %in% samples_16_new)
+
+predictions <- subtype_prediction_new_data(new_data_long, meta_cols = c("meta_column"), 
+                                           model = model_global_phospho, 
+                                           zero_2_NA = TRUE, 
+                                           complete_only = TRUE)
+
+pilot_meta <- predictions$`Global msnset` %>% pData() %>%
+  select(sample, Subtype_complete_only = Subtype, everything()) %>%
+  left_join(pilot_meta, by = "sample") 
+
+
+```
+
+
+
+
+
+
+
+
+

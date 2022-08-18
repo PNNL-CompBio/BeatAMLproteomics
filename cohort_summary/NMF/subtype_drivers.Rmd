@@ -19,8 +19,11 @@ The goal of this markdown is to find biological identifiers for the subtypes.
 ```{r include=FALSE}
 library(clusterProfiler)
 library(dplyr)
+library(ggpubr)
 library(ggplot2)
 library(kableExtra)
+library(ggplotify)
+library(KSEAapp)
 
 source("../../util/synapseUtil.R")
 source("../../util/loading_data.R")
@@ -48,8 +51,13 @@ rna_mat <- pivot_wider(RNA.data, names_from = "Barcode.ID",
 m_rna <- MSnSet(exprs = rna_mat %>% as.matrix(), 
                 pData = metadata[colnames(rna_mat), ])
 
-```
+phospho_mat <- pivot_wider(phospho.data %>% select(-Gene), names_from = "Barcode.ID", 
+                           values_from = "LogRatio") %>%
+  column_to_rownames("SiteID")
+m_phospho <- MSnSet(exprs = phospho_mat %>% as.matrix(), 
+                    pData = metadata[colnames(phospho_mat), ])
 
+```
 
 
 ```{r}
@@ -85,39 +93,143 @@ t2g_PathwayInteractionDB <- msigdbr(species = "Homo sapiens", category = "C2") %
   dplyr::filter(gs_subcat == "CP:PID") %>%
   dplyr::select(gs_name, gene_symbol) 
 
+KSDB <- read.csv(system.file('PSP&NetworKIN_Kinase_Substrate_Dataset_July2016.csv',
+                             package='amlresistancenetworks'),stringsAsFactors = FALSE)
+
 
 ```
 
 
 
+```{r}
+ksea_wrap <- function(m, var_name, top_n = 7, font_size = 7, ending = "", ...){
+  var_levels <- unique(pData(m)[[var_name]]) %>% sort()
+  combined_ksea <- data.frame()
+  exprs(m) <- sweep(exprs(m), 1, apply(exprs(m), 1, mean, na.rm = T), FUN = '-')
+    
+  for (level in var_levels){
+    fold_change_ingroup <- apply(exprs(m)[, m[[var_name]] == level], 1, mean, na.rm = T)
+    # fold_change_outgroup <- apply(exprs(m)[, m[[var_name]] != level], 1, mean, na.rm = T)
+    fold_change <- 2**fold_change_ingroup
+    PX <- data.frame(Protein = "NULL", Gene = names(fold_change), Peptide = "NULL", 
+                     Residue.Both = names(fold_change), p = "NULL", FC = fold_change) %>%
+      dplyr::mutate(Residue.Both = sub("^.*-", "", Residue.Both)) %>%
+      dplyr::mutate(Residue.Both = gsub("[a-z]", ";", Residue.Both)) %>%
+      dplyr::mutate(Residue.Both = gsub(";$", "", Residue.Both),
+                    Gene = sub("^(.*)-.*$", "\\1", Gene))
+  
+    combined_ksea <- KSEA.Scores(KSDB, PX, NetworKIN = TRUE, NetworKIN.cutoff = 5) %>%
+      dplyr::select(Kinase.Gene, m, FDR, z.score) %>%
+      dplyr::rename(pathway = Kinase.Gene, enrichment = z.score,
+                    adj_p_val = FDR, set_size = m) %>%
+      dplyr::mutate(data_type = "phospho",
+                    var_name = level,
+                    DB = "KSDB") %>%
+      filter(set_size >= 3) %>%
+      rbind(combined_ksea)
+  }
+  
+  combined_ksea$pathway_subtype_id <- paste(combined_ksea$pathway, 
+                                            combined_ksea$var_name, sep = " -- ")
+  rownames(combined_ksea) <- combined_ksea$pathway_subtype_id
+  write.table(combined_ksea, paste0("Data/subtype_drivers/ksea_", var_name, "_", 
+                                    ending, "_results.txt"), sep = "\t")
+  
+  chosen_pathways <- combined_ksea %>%
+    dplyr::group_by(var_name) %>%
+    dplyr::arrange(adj_p_val) %>%
+    dplyr::slice(1:top_n) %>%
+    dplyr::pull(pathway)
+  
+  combined_ksea_small <- combined_ksea %>%
+    dplyr::filter(pathway %in% chosen_pathways) %>%
+    dplyr::mutate(pathway = str_wrap(pathway, width = 50))
+  
+  ksea_mat <- combined_ksea_small %>%
+    dplyr::select(pathway, enrichment, var_name) %>%
+    pivot_wider(names_from = var_name, values_from = enrichment) %>%
+    column_to_rownames("pathway")
+  
+  ksea_mat_p <- combined_ksea_small %>%
+    dplyr::select(pathway, adj_p_val, var_name) %>%
+    pivot_wider(names_from = var_name, values_from = adj_p_val) %>%
+    column_to_rownames("pathway")
+  
+  ksea_mat_p <- ksea_mat_p %>% as.matrix()
+  ksea_mat_p[is.na(ksea_mat_p)] <- 1
+  ksea_mat_p <- apply(ksea_mat_p, 2, signif, digits = 3)
+  
+  ksea_mat_p <- ksea_mat_p[, var_levels]
+  ksea_mat_p2 <- ksea_mat_p
+  ksea_mat_p2[ksea_mat_p >= 0.01] <- ""
+  ksea_mat_p2[ksea_mat_p < 0.01] <- "*"
+  ksea_mat <- ksea_mat[, var_levels]
+  
+  title <- paste("KSEA", var_name, ending)
+  
+  if (nchar(ending) > 0){
+    ending <- tolower(ending)
+    var_name <- tolower(var_name)
+    plot_path <- paste0("Data/subtype_drivers/ksea_", var_name, "_", ending, ".pdf") %>%
+      gsub(" ", "_", .)
+  } else {
+    plot_path <- paste0("Data/subtype_drivers/ksea_", var_name, ".pdf")
+  }
+  
+  heatmap_breaks <- seq(-5, 5, by = 0.2)
+  heatmap_colors <- colorRampPalette(rev(brewer.pal(n = 7, name = "RdYlBu")))(length(heatmap_breaks))
+  p <- pheatmap(ksea_mat, display_numbers = ksea_mat_p2, cluster_cols = F, fontsize = 9,
+                fontsize_row = font_size, main = title, treeheight_row = 0, cellwidth = 33, 
+                breaks = heatmap_breaks, color = heatmap_colors, width = 6, 
+                filename = plot_path, ...)
+  return(p)
+  
+}
+
+
+```
+
 
 
 ```{r}
-rank_gsea <- function(m, var_name, t2g, top_n = 7, ending = ""){
-  levels <- unique(pData(m)[[var_name]]) %>% sort()
+rank_gsea <- function(m, var_name, t2g, wrap_width = 40, font_size = 7, 
+                      top_n = 7, ending = "", ...){
+  var_levels <- unique(pData(m)[[var_name]]) %>% sort()
   combined_gsea <- data.frame()
   exprs(m) <- sweep(exprs(m), 1, apply(exprs(m), 1, mean, na.rm = T), FUN = '-')
-    
-  for (level in levels){
-    fold_change_ingroup <- apply(exprs(m)[, m[[var_name]] == level], 1, mean, na.rm = T)
-    # fold_change_outgroup <- apply(exprs(m)[, m[[var_name]] != level], 1, mean, na.rm = T)
-    fold_change <- fold_change_ingroup
-    fold_change <- sort(fold_change, decreasing = TRUE)
-    set.seed(69)
-    ## For some pathways, gsea is unable to assess a pvalue. These are removed by the function
-    ## Internally. This is why some pathways (like "GOBP NCRNA METABOLISM") are excluded from
-    ## the result.
-    combined_gsea <- GSEA(fold_change, eps = 1e-16, minGSSize = 10, 
-                          pvalueCutoff = 1, TERM2GENE = t2g)@result %>%
-      dplyr::select(Description, setSize, NES, pvalue, p.adjust, core_enrichment) %>%
-      dplyr::mutate(var_name = level) %>%
-      rbind(combined_gsea)
+  
+  if (file.exists(paste0("Data/subtype_drivers/rank_gsea_", var_name, "_", 
+                         ending, "_results.txt"))){
+    print("Found GSEA results table.")
+    combined_gsea <- read.table(paste0("Data/subtype_drivers/rank_gsea_", var_name, "_", 
+                                       ending, "_results.txt"))
+  } else {
+    for (level in var_levels){
+      fold_change_ingroup <- apply(exprs(m)[, m[[var_name]] == level], 1, mean, na.rm = T)
+      # fold_change_outgroup <- apply(exprs(m)[, m[[var_name]] != level], 1, mean, na.rm = T)
+      fold_change <- fold_change_ingroup
+      fold_change <- sort(fold_change, decreasing = TRUE)
+      set.seed(69)
+      ## For some pathways, gsea is unable to assess a pvalue. These are removed by the function
+      ## Internally. This is why some pathways (like "GOBP NCRNA METABOLISM") are excluded from
+      ## the result.
+      combined_gsea <- GSEA(fold_change, eps = 1e-16, minGSSize = 10, 
+                            pvalueCutoff = 1, TERM2GENE = t2g)@result %>%
+        dplyr::select(Description, setSize, NES, pvalue, p.adjust, core_enrichment) %>%
+        dplyr::mutate(var_name = level) %>%
+        rbind(combined_gsea)
+    }
+  
+    combined_gsea$pathway_subtype_id <- paste(combined_gsea$Description, 
+                                              combined_gsea$var_name, sep = " -- ")
+    rownames(combined_gsea) <- combined_gsea$pathway_subtype_id
+    write.table(combined_gsea, paste0("Data/subtype_drivers/rank_gsea_", var_name, "_",
+                                      ending, "_results.txt"), sep = "\t")
   }
   
-  combined_gsea$pathway_subtype_id <- paste(combined_gsea$Description, 
-                                            combined_gsea$var_name, sep = " -- ")
-  rownames(combined_gsea) <- combined_gsea$pathway_subtype_id
-  write.table(combined_gsea, paste0("Data/subtype_drivers/rank_gsea_", var_name, "_", ending, "_results.txt"), sep = "\t")
+  combined_gsea <- combined_gsea %>%
+    dplyr::mutate(Description = sub("^[A-Z]+_", "", Description)) %>%
+    dplyr::mutate(Description = sub("^GOBP ", "", Description))
   
   chosen_pathways <- combined_gsea %>%
     dplyr::group_by(var_name) %>%
@@ -131,6 +243,8 @@ rank_gsea <- function(m, var_name, t2g, top_n = 7, ending = ""){
   
   gsea_mat <- combined_gsea_small %>%
     dplyr::select(Description, NES, var_name) %>%
+    dplyr::mutate(Description_og = Description) %>%
+    dplyr::mutate(Description = str_wrap(gsub("_", " ", Description), width = wrap_width)) %>%
     pivot_wider(names_from = var_name, values_from = NES) %>%
     column_to_rownames("Description")
   
@@ -141,12 +255,15 @@ rank_gsea <- function(m, var_name, t2g, top_n = 7, ending = ""){
   
   gsea_mat_p <- gsea_mat_p %>% as.matrix()
   gsea_mat_p[is.na(gsea_mat_p)] <- 1
-  gsea_mat_p <- apply(gsea_mat_p, 2, signif, digits = 3)
+  gsea_mat_p <- apply(gsea_mat_p, 2, signif, digits = 2)
   
-  gsea_mat_p <- gsea_mat_p[, levels]
-  gsea_mat <- gsea_mat[, levels]
+  gsea_mat_p <- gsea_mat_p[, var_levels]
+  gsea_mat_p2 <- gsea_mat_p
+  gsea_mat_p2[gsea_mat_p >= 0.01] <- ""
+  gsea_mat_p2[gsea_mat_p < 0.01] <- "*"
+  gsea_mat <- gsea_mat[, var_levels]
   
-  title <- paste("Rank GSEA", var_name, ending)
+  title <- paste("GSEA", var_name, ending)
   
   if (nchar(ending) > 0){
     ending <- tolower(ending)
@@ -157,43 +274,122 @@ rank_gsea <- function(m, var_name, t2g, top_n = 7, ending = ""){
     plot_path <- paste0("Data/subtype_drivers/rank_gsea_", var_name, ".pdf")
   }
   
-  pheatmap(gsea_mat, display_numbers = gsea_mat_p, cluster_cols = F, 
-           fontsize = 8, width = 10, filename = plot_path, main = title,)
-  
-  return("Done")
+  p <- pheatmap(gsea_mat, display_numbers = gsea_mat_p2, cluster_cols = F, fontsize = 9,
+                fontsize_row = font_size, main = title, treeheight_row = 0, cellwidth = 33, 
+                width = 6, filename = plot_path, ...)
+  pheatmap(gsea_mat, display_numbers = gsea_mat_p2, cluster_cols = F, fontsize = 9,
+           fontsize_row = font_size, main = title, treeheight_row = 0, cellwidth = 33, 
+           width = 6, filename = sub(".pdf$", ".png", plot_path), ...)
+           
+  return(p)
   
 }
 
-
 ```
 
+
+
+```{r Hallmarks}
+p1 <- rank_gsea(m_global, "Cluster", t2g = t2g_hallmark, top_n = 7, ending = "Global - Hallmarks")
+p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_hallmark, top_n = 7, ending = "RNA - Hallmarks")
+p3 <- ksea_wrap(m_phospho, var_name = "Cluster", top_n = 6, ending = "Phospho - PhosphoSitePlus & NetworKIN")
+
+p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_hallmarks.pdf", width = 16, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_hallmarks.png", width = 16, height = 6)
+                       
+```
+
+
+
+```{r GO BP}
+p1 <- rank_gsea(m_global, "Cluster", t2g = t2g_gobp, top_n = 7, 
+                ending = "Global - GO Biological Process", font_size = 6, wrap_width = 50)
+p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_gobp, top_n = 7, 
+                ending = "RNA - GO Biological Process", font_size = 6, wrap_width = 50)
+
+p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_gsea_gobp.pdf", width = 19, height = 5.5)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_gsea_gobp.png", width = 19, height = 5.5)
+                       
+```
+
+
+
+```{r Reactome}
+p1 <- rank_gsea(m_global, "Cluster", t2g = t2g_reactome, top_n = 7, ending = "Global - Reactome", 
+                font_size = 7, wrap_width = 50)
+p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_reactome, top_n = 7, ending = "RNA - Reactome", 
+                font_size = 6, wrap_width = 50)
+
+p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_reactome.pdf", width = 18, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_reactome.png", width = 18, height = 6)
+                       
+```
+
+
+
+```{r Biocarta}
+p1 <- rank_gsea(m_global, "Cluster", t2g = t2g_biocarta, top_n = 7, ending = "Global - Biocarta")
+p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_biocarta, top_n = 7, ending = "RNA - Biocarta")
+
+p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_biocarta.pdf", width = 16, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_biocarta.png", width = 16, height = 6)
+                       
+```
+
+
+
+```{r KEGG}
+p1 <- rank_gsea(m_global, "Cluster", t2g = t2g_kegg, top_n = 7, ending = "Global - KEGG")
+p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_kegg, top_n = 7, ending = "RNA - KEGG")
+
+p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_kegg.pdf", width = 17, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_kegg.png", width = 17, height = 6)
+                       
+```
+
+
+
+```{r Wikipathways}
+p1 <- rank_gsea(m_global, "Cluster", t2g = t2g_wikipathways, top_n = 7, ending = "Global - Wiki Pathways")
+p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_wikipathways, top_n = 7, ending = "RNA - Wiki Pathways")
+
+p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_wikipathways.pdf", width = 16, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_wikipathways.png", width = 16, height = 6)
+                       
+```
+
+
+
+```{r Pathway Interaction DB}
+p1 <- rank_gsea(m_global, "Cluster", t2g = t2g_PathwayInteractionDB, top_n = 7, ending = "Global - PID")
+p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_PathwayInteractionDB, top_n = 7, ending = "RNA - PID")
+
+p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_pathway_interaction_db.pdf", width = 16, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_pathway_interaction_db.png", width = 16, height = 6)
+                       
+```
 
 ```{r}
-rank_gsea(m_global, "Cluster", t2g = t2g_gobp, top_n = 7, ending = "Global - GO BP")
-rank_gsea(m_global, "Cluster", t2g = t2g_hallmark, top_n = 7, ending = "Global - Hallmarks")
-rank_gsea(m_global, "Cluster", t2g = t2g_biocarta, top_n = 7, ending = "Global - Biocarta")
-rank_gsea(m_global, "Cluster", t2g = t2g_kegg, top_n = 7, ending = "Global - KEGG")
-rank_gsea(m_global, "Cluster", t2g = t2g_PathwayInteractionDB, top_n = 7, ending = "Global - Pathway Interaction DB")
-rank_gsea(m_global, "Cluster", t2g = t2g_reactome, top_n = 7, ending = "Global - Reactome")
-rank_gsea(m_global, "Cluster", t2g = t2g_wikipathways, top_n = 7, ending = "Global - Wikipathways")
-
-
+ggsave(plot = p3[[4]], filename = "Data/subtype_drivers/ksea_by_cluster.pdf", height = 6, width = 6)
+ggsave(plot = p3[[4]], filename = "Data/subtype_drivers/ksea_by_cluster.png", height = 6, width = 6)
 
 ```
 
 
 
-```{r}
-rank_gsea(m_rna, "Cluster", t2g = t2g_gobp, top_n = 7, ending = "RNA - GO BP")
-rank_gsea(m_rna, "Cluster", t2g = t2g_hallmark, top_n = 7, ending = "RNA - Hallmarks")
-rank_gsea(m_rna, "Cluster", t2g = t2g_biocarta, top_n = 7, ending = "RNA - Biocarta")
-rank_gsea(m_rna, "Cluster", t2g = t2g_kegg, top_n = 7, ending = "RNA - KEGG")
-rank_gsea(m_rna, "Cluster", t2g = t2g_PathwayInteractionDB, top_n = 7, ending = "RNA - Pathway Interaction DB")
-rank_gsea(m_rna, "Cluster", t2g = t2g_reactome, top_n = 7, ending = "RNA - Reactome")
-rank_gsea(m_rna, "Cluster", t2g = t2g_wikipathways, top_n = 7, ending = "RNA - Wikipathways")
 
 
-```
+
+
+
+
 
 
 
