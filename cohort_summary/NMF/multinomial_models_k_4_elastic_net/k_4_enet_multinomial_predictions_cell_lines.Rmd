@@ -188,7 +188,7 @@ subtype_prediction_new_data <- function(new_data_long, meta_cols, model,
     as.character()
   cluster_predictions$sample <- colnames(mat_new)
   metadata <- cluster_predictions %>%
-    select(sample, Subtype = pred_cluster) %>%
+    select(sample, Subtype = pred_cluster, everything()) %>%
     merge(metadata, by = "sample")
   rownames(metadata) <- metadata$sample
   
@@ -198,6 +198,17 @@ subtype_prediction_new_data <- function(new_data_long, meta_cols, model,
   return(list("Global msnset" = m_global, 
               "Phospho msnset" = m_phospho, 
               "Combined mat" = mat_new))
+}
+
+get_probabilities <- function(m1, m2){
+  pdata1 <- pData(m1)[, c(1, 3:6)]
+  pdata2 <- pData(m2)[, c(1, 3:6)]
+  colnames(pdata1) <- c("sample", "Subtype 1", "Subtype 2", 
+                        "Subtype 3", "Subtype 4")
+  colnames(pdata2) <- c("sample", "complete_features Subtype 1", "complete_features Subtype 2", 
+                        "complete_features Subtype 3", "complete_features Subtype 4")
+  meta_detailed <- merge(pdata1, pdata2, by = "sample") 
+  return(meta_detailed)
 }
 
 
@@ -245,9 +256,13 @@ tram_comp <- subtype_prediction_new_data(new_data_long = tramData,
 tram_meta <- pData(tram_comp$`Global msnset`) %>%
   select(sample, Subtype_complete_only = Subtype) %>%
   merge(pData(tram$`Global msnset`), by = "sample") %>%
-  dplyr::rename(Subtype_v1 = Subtype)
+  dplyr::rename(Subtype_v1 = Subtype) %>%
+  select(-c(`New Cluster 1`, `New Cluster 2`, `New Cluster 3`, `New Cluster 4`, max_new))
 
-
+combined <- get_probabilities(tram$`Global msnset`, tram_comp$`Global msnset`) %>%
+  merge(tram_meta, by = "sample") %>%
+  dplyr::rename(`Treatment/Ligand` = Treatment) %>%
+  mutate(syn.id = "syn22986326/syn22986341")
 
 ```
 
@@ -289,8 +304,14 @@ quiz_comp <- subtype_prediction_new_data(new_data_long = quizData,
 quiz_meta <- pData(quiz_comp$`Global msnset`) %>%
   select(sample, Subtype_complete_only = Subtype) %>%
   merge(pData(quiz$`Global msnset`), by = "sample") %>%
-  dplyr::rename(Subtype_v1 = Subtype)
+  dplyr::rename(Subtype_v1 = Subtype) %>%
+  select(-c(`New Cluster 1`, `New Cluster 2`, `New Cluster 3`, `New Cluster 4`, max_new))
 
+combined <- get_probabilities(quiz$`Global msnset`, quiz_comp$`Global msnset`) %>%
+  merge(quiz_meta, by = "sample") %>% 
+  dplyr::rename(CellType = cellLine, `Treatment/Ligand` = Ligand) %>% 
+  mutate(TimePoint = NA, syn.id = "syn23595222/syn23595223") %>% 
+  rbind(combined)
 
 ```
 
@@ -332,8 +353,14 @@ gilt_comp <- subtype_prediction_new_data(new_data_long = giltData,
 gilt_meta <- pData(gilt_comp$`Global msnset`) %>%
   select(sample, Subtype_complete_only = Subtype) %>%
   merge(pData(gilt$`Global msnset`), by = "sample") %>%
-  dplyr::rename(Subtype_v1 = Subtype)
+  dplyr::rename(Subtype_v1 = Subtype) %>%
+  select(-c(`New Cluster 1`, `New Cluster 2`, `New Cluster 3`, `New Cluster 4`, max_new))
 
+combined <- get_probabilities(gilt$`Global msnset`, gilt_comp$`Global msnset`) %>%
+  merge(gilt_meta, by = "sample") %>% 
+  dplyr::rename(CellType = cellLine, `Treatment/Ligand` = ligand) %>% 
+  mutate(TimePoint = NA, syn.id = "syn22156807/syn22156809") %>% 
+  rbind(combined)
 
 ```
 
@@ -382,8 +409,14 @@ cell_line_time_comp <- subtype_prediction_new_data(new_data_long = cell_line_tim
 cell_line_time_meta <- pData(cell_line_time_comp$`Global msnset`) %>%
   select(sample, Subtype_complete_only = Subtype) %>%
   merge(pData(cell_line_time$`Global msnset`), by = "sample") %>%
-  dplyr::rename(Subtype_v1 = Subtype)
+  dplyr::rename(Subtype_v1 = Subtype) %>%
+  select(-c(`New Cluster 1`, `New Cluster 2`, `New Cluster 3`, `New Cluster 4`, max_new))
 
+combined <- get_probabilities(cell_line_time$`Global msnset`, cell_line_time_comp$`Global msnset`) %>%
+  merge(cell_line_time_meta, by = "sample") %>% 
+  dplyr::rename(CellType = cellLine, `Treatment/Ligand` = Treatment, TimePoint = timePoint) %>% 
+  mutate(syn.id = "syn22255431/syn25618653") %>% 
+  rbind(combined)
 
 ```
 
@@ -426,8 +459,14 @@ aml_combo_molm14_comp <- subtype_prediction_new_data(new_data_long = aml_combo_m
 aml_combo_molm14_meta <- pData(aml_combo_molm14_comp$`Global msnset`) %>%
   select(sample, Subtype_complete_only = Subtype) %>%
   merge(pData(aml_combo_molm14$`Global msnset`), by = "sample") %>%
-  dplyr::rename(Subtype_v1 = Subtype)
+  dplyr::rename(Subtype_v1 = Subtype) %>%
+  select(-c(`New Cluster 1`, `New Cluster 2`, `New Cluster 3`, `New Cluster 4`, max_new))
 
+combined <- get_probabilities(aml_combo_molm14$`Global msnset`, aml_combo_molm14_comp$`Global msnset`) %>%
+  merge(aml_combo_molm14_meta, by = "sample") %>% 
+  dplyr::rename(`Treatment/Ligand` = Treatment, TimePoint = Time) %>% 
+  mutate(syn.id = "syn25813139/syn25813182", CellType = "MOLM14 (manually annotated)") %>% 
+  rbind(combined)
 
 ```
 
@@ -472,12 +511,24 @@ aml_combo_hl60_comp <- subtype_prediction_new_data(new_data_long = aml_combo_hl6
 aml_combo_hl60_meta <- pData(aml_combo_hl60_comp$`Global msnset`) %>%
   select(sample, Subtype_complete_only = Subtype) %>%
   merge(pData(aml_combo_hl60$`Global msnset`), by = "sample") %>%
-  dplyr::rename(Subtype_v1 = Subtype)
+  dplyr::rename(Subtype_v1 = Subtype) %>%
+  select(-c(`New Cluster 1`, `New Cluster 2`, `New Cluster 3`, `New Cluster 4`, max_new))
 
-
+combined <- get_probabilities(aml_combo_hl60$`Global msnset`, aml_combo_hl60_comp$`Global msnset`) %>%
+  merge(aml_combo_hl60_meta, by = "sample") %>% 
+  dplyr::rename(`Treatment/Ligand` = Treatment, TimePoint = Time) %>% 
+  mutate(syn.id = "syn25813236/syn25813252", CellType = "HL60 (manually annotated)") %>% 
+  rbind(combined)
 
 ```
 
+
+```{r}
+write.table(combined, "enet_multinomial_data/cell_line_predictions_all_results.txt", 
+            sep = "\t", quote = F, row.names = F)
+
+synapseStore("enet_multinomial_data/cell_line_predictions_all_results.txt", "syn29612385")
+```
 
 
 
@@ -575,7 +626,7 @@ plot_title <- "Quizartinib Resistance"
 path_str <- tolower(plot_title) %>% gsub(" ", "_", .)
 colnames(pData(m))
 
-complete_only <- TRUE
+complete_only <- FALSE
 
 if (complete_only){
   plot_title <- paste(plot_title, "complete features")
@@ -636,6 +687,34 @@ p3 <- ggplot(alluvial_df,
 
 path_str <- sub(".pdf$", "_no_ligand.pdf", path_str)
 ggsave(plot = p3, filename = path_str, height = 5.2, width = 10)
+
+
+alluvial_df <- quiz_meta %>%
+  mutate(CellLine_old = cellLine,
+         CellLine = case_when(cellLine == "RESISTANT MOLM14" ~ "LATE Quizartinib Resistance MOLM14",
+                              TRUE ~ cellLine)) %>%
+  mutate(CellLine = as.factor(CellLine),
+         Subtype = sub("Cluster ", "", Subtype)) %>%
+  group_by(Subtype, CellLine) %>%
+  summarize(Count = n()) %>%
+  pivot_wider(names_from = "Subtype", values_from = "Count", values_fill = 0) %>%
+  pivot_longer(-c("CellLine"), names_to = "Subtype", values_to = "Count") %>%
+  mutate(CellLine = factor(CellLine, levels = c("MOLM14", "EARLY Quizartinib Resistance MOLM14",
+                                                "LATE Quizartinib Resistance MOLM14",
+                                                "RESISTANT MOLM14"))) %>%
+  group_by(CellLine) %>%
+  mutate(Proportion = Count/sum(Count))
+
+p4 <- ggplot(alluvial_df, 
+             aes(x = CellLine, y = Proportion, alluvium = Subtype)) +
+  geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) +
+  scale_x_discrete(expand = c(0.3, 0)) +
+  ggtitle(plot_title) + scale_x_discrete(expand = c(0.3, 0)) + 
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 7))
+
+path_str <- sub(".pdf$", "_v2.pdf", path_str)
+ggsave(plot = p4, filename = path_str, height = 5.2, width = 7)
 
 
 ```

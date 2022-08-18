@@ -321,6 +321,8 @@ mutation_data <- mutation_data[, c("Barcode.ID", "KRAS+NRAS", "NPM1_clinical")] 
                           TRUE ~ FALSE)) %>%
   select(Barcode.ID, FLT3, NPM1_clinical, RAS)
 
+rownames(mutation_data) <- mutation_data$Barcode.ID
+
 mut_enrichment <- function(sample_categories, assignments, log.scale = FALSE) {
   k = length(unique(assignments$Cluster))
   
@@ -484,6 +486,43 @@ mut_enrichment_plot <- function(chosen_alpha, data_type, robust = TRUE){
 
 ```
 
+
+## Uploading table with subtype probabilities
+
+```{r}
+predictions_df <- make_prediction(0.9, "Combined_v2", TRUE) %>%
+  select(Barcode.ID, 
+         `Cluster 1` = `Full Cluster 1`, 
+         `Cluster 2` = `Full Cluster 2`, 
+         `Cluster 3` = `Full Cluster 3`, 
+         `Cluster 4` = `Full Cluster 4`, 
+         max = max_full, pred_cluster_v2) %>%
+  dplyr::rename(Cluster_global_phospho = pred_cluster_v2) %>%
+  mutate(data_type = "Global + Phospho")
+write.table(predictions_df, "enet_multinomial_data/full_210_subtyping_probabilities_global_phospho.txt", 
+            sep = "\t", row.names = F, quote = F)
+
+synapseStore("enet_multinomial_data/full_210_subtyping_probabilities_global_phospho.txt", "syn29612385")
+
+```
+
+
+```{r}
+
+prediction_210 <- read.table(syn$get("syn30030154")$path, sep = "\t") %>%
+  mutate(Cluster = sub("Cluster ", "", Cluster))
+rownames(prediction_210) <- prediction_210$Barcode.ID
+NMF_samples <- enet_meta %>% pull(Barcode.ID)
+NMF_assn <- prediction_210 %>%
+  filter(Barcode.ID %in% NMF_samples)
+
+
+mutation_enrichment <- mut_enrichment(mutation_data, prediction_210, log.scale = F)
+write.table(mutation_enrichment, "mutation_enrichment_210.txt", sep = "\t", quote = F)
+mutation_enrichment_NMF <- mut_enrichment(mutation_data, NMF_assn, log.scale = F)
+write.table(mutation_enrichment_NMF, "mutation_enrichment_159.txt", sep = "\t", quote = F)
+
+```
 
 
 ```{r eval=FALSE, include=FALSE}
