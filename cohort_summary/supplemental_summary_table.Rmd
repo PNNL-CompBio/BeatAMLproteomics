@@ -1,0 +1,95 @@
+---
+title: "Manuscript supplemental table"
+author: "Camilo Posso"
+date: "08/08/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+Predict subtypes on the 51 held out samples, as well as entirely new datasets. CHeck
+survival, mutation, etc.
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+
+source("../util/loading_data.R")
+source("../util/synapseUtil.R")
+source("../util/make_plots_util.R")
+source("../util/mutational_analysis_helper.R")
+
+syn <- synapseLogin()
+meta <- load.metadata()
+RNA.data <- load.RNA.data()
+RNA_samples <- unique(RNA.data$Barcode.ID)
+
+prediction_210 <- read.table(syn$get("syn30030154")$path, sep = "\t") %>%
+  mutate(Cluster = paste("Predicted", Cluster))
+
+all_mutation_data <- load_mutational_sample_data()
+mutation_data <- all_mutation_data %>%
+  mutate(value = TRUE) %>%
+  pivot_wider(names_from = Gene, values_from = value, values_fn = any)
+mutation_data <- mutation_data[, c("Barcode.ID", "KRAS+NRAS", "NPM1_clinical")] %>%
+  full_join(meta[, c("Barcode.ID", "FLT3.ITD")], by = "Barcode.ID") %>%
+  mutate(RAS = case_when(!is.na(`KRAS+NRAS`) ~ `KRAS+NRAS`,
+                          TRUE ~ FALSE),
+         NPM1_clinical = case_when(!is.na(NPM1_clinical) ~ NPM1_clinical,
+                                   TRUE ~ FALSE),
+         FLT3 = case_when(FLT3.ITD == "TRUE" ~ TRUE,
+                          TRUE ~ FALSE)) %>%
+  select(Barcode.ID, FLT3, NPM1_clinical, RAS)
+
+rownames(mutation_data) <- mutation_data$Barcode.ID
+
+# extra_data_cols <- c("SampleID.abbrev", "specimen.type", "Sepcimen.access.group.concatenated", "FLT3.ITD", "NPM1", "RAS", 
+# "Subtype", "data_types", "specimen.location")
+supplemental_table <- meta %>%
+  select(Barcode.ID, Sample = SampleID.abbrev, 
+         Location = specimen.location, 
+         `Specimen Type` = specimen.type, 
+         `Specimen Group` = Specimen.access.group.concatenated) %>%
+  mutate(`Transcriptomics available` = Barcode.ID %in% RNA_samples) %>%
+  merge(prediction_210, by = "Barcode.ID") %>%
+  merge(mutation_data, by = "Barcode.ID") %>%
+  dplyr::rename(Subtype = Cluster) %>%
+  mutate(Subtype = sub("Predicted Cluster ", "Subtype ", Subtype),
+         Sample = as.numeric(Sample)) %>%
+  arrange(Sample) %>%
+  select(-Barcode.ID) 
+
+write.table(supplemental_table, "supplemental_table_1.txt", sep = "\t", quote = F, row.names = F)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

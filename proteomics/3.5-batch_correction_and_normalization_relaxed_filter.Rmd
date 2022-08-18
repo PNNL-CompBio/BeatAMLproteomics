@@ -116,6 +116,7 @@ new_path_to_crosstab <- sub("_original", "_corrected", path_to_crosstab)
 write.table(signif(exprs(m), n.sigfig),
             file = new_path_to_crosstab,
             quote=F, sep="\t")
+synapseStore(new_path_to_crosstab, "syn25714185")
 
 ```
 
