@@ -25,55 +25,77 @@ library(grid)
 #' @export pecora_analysis
 #'
 #'
-pecora_analysis <- function(m, treatment_string, proteins, median_mod = FALSE){
-
+pecora_analysis <- function(m, treatment_string, proteins, 
+                            median_mod = FALSE, m_protein = NULL){
+  
   mat <- exprs(m)
   peptide_mapping <- fData(m)
-
+  protein_mod <- FALSE
+  
   if (!("Protein" %in% colnames(peptide_mapping))){
     stop("fData should have 'Protein' and 'Peptide' columns.\n")
   }
-
+  
+  if (!is.null(m_protein)){
+    proteins <- intersect(proteins, rownames(exprs(m_protein)))
+  }
+  
   peptide_mapping <- peptide_mapping %>%
     mutate(Protein = as.character(Protein)) %>%
     select(Protein) %>%
     filter(Protein %in% proteins) %>%
     mutate(Peptide = rownames(.))
-
+  
   feature_names <- rownames(peptide_mapping)
-
+  
   metadata <- pData(m) %>%
     select(sym(treatment_string))
   metadata$Sample <- rownames(metadata)
-
+  
   mat <- mat[feature_names, ]
-
+  
   if (typeof(metadata[[1]]) == "character") {
     metadata[[1]] <- as.factor(metadata[[1]])
   }
-
+  
   PeCorA_input <- mat %>%
     as.data.frame() %>%
     mutate(Peptide = rownames(.)) %>%
     pivot_longer(cols = -Peptide, names_to = "Sample", values_to = "LogRatio") %>%
-    mutate(modpep_z = Peptide,
-           ms1adj = LogRatio) %>%
+    mutate(modpep_z = Peptide, ms1adj = LogRatio) %>%
     merge(peptide_mapping, by = "Peptide") %>%
     merge(metadata, by = "Sample") %>%
     dplyr::rename(Condition = sym(treatment_string))
-
+  
+  if (!is.null(m_protein)){
+    protein_input <- exprs(m_protein)[proteins, ] %>%
+      as.data.frame() %>%
+      mutate(Protein = rownames(.)) %>%
+      pivot_longer(cols = -Protein, names_to = "Sample", values_to = "LogRatio") %>%
+      mutate(Peptide = paste(Protein, "@DUMMY_PEPTIDE"), 
+             modpep_z = paste(Protein, "@DUMMY_PEPTIDE"), 
+             ms1adj = LogRatio) %>%
+      merge(metadata, by = "Sample") %>%
+      dplyr::rename(Condition = sym(treatment_string)) %>%
+      select(Sample, Peptide, LogRatio, modpep_z, ms1adj, Protein, Condition)
+    
+    PeCorA_input <- PeCorA_input %>%
+      rbind(protein_input)
+    protein_mod <- TRUE
+  }
+  
   pval_test_label <- paste0("pvalue_", treatment_string)
-
-  PeCorA_result <- PeCorA_mod(PeCorA_input, median_mod) %>%
+  
+  PeCorA_result <- PeCorA_mod(PeCorA_input, median_mod, protein_mod) %>%
     dplyr::rename(Peptide = peptide,
                   Protein = protein) %>%
     group_by(Protein) %>%
     ## Adjust raw pvalues using only pvalues from the same protein (group by protein)
     mutate(adj_pval_protein_wise = p.adjust(pvalue, method = "BH"))
-
+  
   pval_index <- which(colnames(PeCorA_result) == "pvalue")[[1]]
   colnames(PeCorA_result)[[pval_index]] <- pval_test_label
-
+  
   return(PeCorA_result)
 }
 
@@ -103,7 +125,8 @@ pecora_analysis <- function(m, treatment_string, proteins, median_mod = FALSE){
 #'
 #'
 pecora_plot <- function(m, pecora_results,
-                        chosen_protein, chosen_peptide) {
+                        chosen_protein, chosen_peptide,
+                        median_mod = FALSE, m_protein = NULL) {
   
   index <- which(grepl("pvalue_", colnames(pecora_results)))
   
@@ -116,9 +139,9 @@ pecora_plot <- function(m, pecora_results,
     pull(adj_pval) %>% 
     format(digits = 4)
   
-  chosen_feature <- pecora_results %>%
-    filter(Peptide == chosen_peptide) %>%
-    pull(feature)
+  # chosen_feature <- pecora_results %>%
+  #   filter(Peptide == chosen_peptide) %>%
+  #   pull(feature)
   
   if (length(p.value) == 0){
     message <- paste0(chosen_protein, " + ", chosen_peptide, " not found within the results.\n")
@@ -148,10 +171,33 @@ pecora_plot <- function(m, pecora_results,
     merge(features, by = "feature") %>%
     merge(metadata, by = "Sample") %>%
     dplyr::rename(Condition = sym(treatment_string)) %>%
-    mutate(peptide_group = case_when(Peptide == chosen_peptide ~ chosen_peptide,
+    mutate(peptide_group = case_when(feature == chosen_peptide ~ chosen_peptide,
                                      TRUE ~ "All other peptides")) %>%
     mutate(peptide_group = factor(peptide_group,
                                   levels = c("All other peptides", chosen_peptide)))
+  
+  if (median_mod) {
+    plot_df <- plot_df %>%
+      group_by(peptide_group, Sample) %>%
+      mutate(ms1adj = median(ms1adj, na.rm = T)) %>%
+      select(Sample, ms1adj, Condition, peptide_group) %>%
+      unique()
+  } else if (!is.null(m_protein)) {
+    plot_prot_df <- data.frame(ms1adj = exprs(m_protein)[chosen_protein, ], 
+                               Sample = colnames(exprs(m))) %>%
+      mutate(feature = paste(chosen_protein, "@DUMMY_PEPTIDE")) %>%
+      mutate(modpep_z = feature) %>%
+      merge(metadata, by = "Sample") %>%
+      dplyr::rename(Condition = sym(treatment_string)) %>%
+      mutate(peptide_group =  "Protein")
+    plot_df <- plot_df %>%
+      select(Sample, feature, ms1adj, modpep_z, Condition, peptide_group) %>% 
+      rbind(plot_prot_df) %>%
+      filter(peptide_group != "All other peptides") %>%
+      mutate(peptide_group = factor(peptide_group,
+                                    levels = c("Protein", chosen_peptide))) %>%
+      unique()
+  }
   
   ## Boxplot if condition is a factor. Otherwise, scatterplots when using numerical data.
   if (is.factor(plot_df$Condition)) {
@@ -164,9 +210,9 @@ pecora_plot <- function(m, pecora_results,
       geom_boxplot(notch = TRUE, outlier.shape = NA) +
       ggtitle(chosen_peptide) + annotation_custom(grob) +
       xlab(treatment_string) + ylab("Log Intensity") +
-      geom_point(position = position_jitterdodge(), alpha = 0.5) +
+      geom_point(position = position_jitterdodge(), alpha = 0.1) +
       theme(plot.title = element_text(hjust = 0.5))
-      
+    
     
   } else {
     
@@ -301,8 +347,11 @@ pecora_preprocess <- function(m, treatment_string, control_group = NULL,
 #'
 #' @export PeCorA_mod
 #'
-PeCorA_mod <- function (t, median_mod = FALSE) {
+PeCorA_mod <- function (t, median_mod = FALSE, protein_mod = FALSE) {
   
+  if (median_mod & protein_mod){
+    stop("The protein pecora modification is incompatible with the median modification.")
+  }
   print("checking which proteins still have at least 2 peptides")
   pgs <- levels(as.factor(t$Protein))
   pgs_morethan2 <- c()
@@ -332,7 +381,7 @@ PeCorA_mod <- function (t, median_mod = FALSE) {
     tmpdf["allothers"] <- rep("allothers", times = nrow(tmpdf))
     pvalues <- c(rep(0, length(unique(tmpdf$modpep_z))))
     i = 1
-    for (y in unique(tmpdf$modpep_z)) {
+    for (y in setdiff(unique(tmpdf$modpep_z), paste(x, "@DUMMY_PEPTIDE"))) {
       subtmpdf <- tmpdf
       subtmpdf[which(tmpdf$modpep_z == y), "allothers"] <- y
       if (median_mod){
@@ -340,6 +389,11 @@ PeCorA_mod <- function (t, median_mod = FALSE) {
           group_by(Sample, allothers) %>%
           mutate(ms1adj = median(ms1adj, na.rm = T)) %>%
           ungroup() %>%
+          select(Sample, ms1adj, Condition, allothers) %>%
+          unique()
+      } else if (protein_mod){
+        subtmpdf <- subtmpdf %>%
+          filter(allothers != "allothers" | grepl("@DUMMY_PEPTIDE", Peptide)) %>%
           select(Sample, ms1adj, Condition, allothers) %>%
           unique()
       }

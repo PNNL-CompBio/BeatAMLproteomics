@@ -22,8 +22,7 @@ source("../util/synapseUtil.R")
 ```{r load_metadata}
 ## Selecting original global and phospho data
 phenodata.syn <- "syn25807733"
-phospho.syn <- "syn25714936"
-global.syn <- "syn25714254"
+crosstab.syn <- "syn25714901"
 
 syn <- synapseLogin()
 
@@ -33,14 +32,10 @@ phenodata <- read.table(syn$get(phenodata.syn)$path, sep = "\t",
 phenodata$Plex <- as.character(phenodata$Plex)
 phenodata$Loading.Mass <- as.numeric(phenodata$Loading.Mass)
 
-crosstab <- read.table(syn$get(phospho.syn)$path, check.names = F, sep = "\t")
+## Should we remove phospho-peptides? 
+crosstab <- read.table("data/ptrc_ex10_crosstab_global_peptide_original.txt", check.names = F, sep = "\t")
 
-global_crosstab <- read.table(syn$get(global.syn)$path, check.names = F, sep = "\t")
-
-path_to_crosstab <- "data/Batch Correction/ptrc_ex10_crosstab_phospho_siteID_original_relaxed.txt"
-
-# corrected.synapse <- read.table("data/Batch Correction/ptrc_ex10_crosstab_phospho_siteID_corrected.txt",
-#                                 check.names = F, sep = "\t")
+path_to_crosstab <- "data/Batch Correction/ptrc_ex10_peptide_crosstab_original_relaxed.txt"
 
 ```
 
@@ -48,24 +43,22 @@ path_to_crosstab <- "data/Batch Correction/ptrc_ex10_crosstab_phospho_siteID_ori
 # Normalize and correct phospho data
 
 
-```{r normalize_phospho_data}
+```{r}
 ## Performing the exact same normalization and correction steps, with the "sufficiently present" features
-## filter considerably relaxed, allowing no more than 4 plexes to be missing per SiteID.
+## filter considerably relaxed, allowing no more than 4 plexes to be missing per peptide.
 n.sigfig <- 3
 n.plexes <- 10
 
 m <- MSnSet(as.matrix(crosstab))
 pData(m) <- phenodata[sampleNames(m),]
 
-# Fetch global sample medians
-global_coeffs <- apply(global_crosstab, MARGIN = 2, FUN = median, na.rm = T)
-
-# Normalize by global sample medians
-exprs(m) <- sweep(exprs(m), 2, global_coeffs)
+## Medpolish
 m <- normalizeByMedpolish(m)
 new_path_to_crosstab <- sub("_original", "_medpolish", path_to_crosstab)
-write.table(signif(exprs(m), n.sigfig),
-            file = new_path_to_crosstab,
+# write.table(signif(exprs(m), n.sigfig),
+#             file = new_path_to_crosstab,
+#             quote=F, sep="\t")
+write.table(exprs(m),file = new_path_to_crosstab,
             quote=F, sep="\t")
 
 meta <- phenodata %>%
@@ -76,19 +69,19 @@ m.medpolish <- m
 
 ## Filtering by missing batches, no more than 4 allowed
 xx <- as.data.frame(exprs(m)) %>%
-  mutate(SiteID = rownames(.)) %>%
-  pivot_longer(-SiteID, names_to = "Sample", values_to = "LogRatio") %>%
+  mutate(feature = rownames(.)) %>%
+  pivot_longer(-feature, names_to = "Sample", values_to = "LogRatio") %>%
   left_join(meta, by = "Sample") %>%
-  group_by(SiteID, Plex) %>%
+  group_by(feature, Plex) %>%
   mutate(count = sum(!is.na(LogRatio))) %>%
-  ungroup(Plex, SiteID) %>%
-  group_by(SiteID) %>%
+  ungroup(Plex, feature) %>%
+  group_by(feature) %>%
   summarise(`Plexes missing` = sum(count == 0)/10)
 
 chosen <- xx %>%
   filter(`Plexes missing` <= n.plexes) 
 
-chosen <- chosen$SiteID
+chosen <- chosen$feature
 m <- m[chosen, ]
 
 ## Filering by no more than 50% missing per feature (different than above)
@@ -106,7 +99,7 @@ removed_covariates <- c("Plex", "Loading.Mass")
 ## write.table(colnames(data)[which(regressionValid == FALSE)], "Failed Regression.txt", row.names = F)
 #######################################################
 # debug(WGCNA::empiricalBayesLM)
-failed.sites <- read.table("../proteomics/data/Batch Correction/Failed Regression.txt")[-1, ]
+failed.sites <- read.table("data/Batch Correction/Failed Regression.txt")[-1, ]
 m <- m[!(rownames(m) %in% failed.sites), ]
 m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
 
@@ -114,27 +107,13 @@ m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
 m <- normalizeByMedpolish(m)
 new_path_to_crosstab <- sub("_original", "_corrected", path_to_crosstab)
 write.table(signif(exprs(m), n.sigfig),
-            file = new_path_to_crosstab,
+            file = "data/Batch Correction/ptrc_ex10_crosstab_global_peptide_corrected_relaxed.txt",
             quote=F, sep="\t")
-synapseStore(new_path_to_crosstab, "syn25714185")
 
 ```
 
 ```{r push to synapse}
-meta <- phenodata %>%
-  rownames_to_column("Sample")
-
-data <- exprs(m) %>%
-  signif(n.sigfig) %>%
-  as.data.frame() %>%
-  rownames_to_column("SiteID") %>%
-  mutate(Gene = sub("(^.+)-.+", "\\1", SiteID)) %>%
-  select(Gene, SiteID, everything()) %>%
-  pivot_longer(cols = c(-SiteID, -Gene), names_to = "Sample", values_to = "LogRatio") %>%
-  filter(!is.na(LogRatio)) %>%
-  left_join(meta, by = "Sample")
-
-synTableStore(data, "BeatAML Phosphoproteomics relaxed_filter_v2_corrected", parentId = 'syn22128879')
+synapseStore("data/Batch Correction/ptrc_ex10_crosstab_global_peptide_corrected_relaxed.txt", "syn25714186")
 
 ```
 

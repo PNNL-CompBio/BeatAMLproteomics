@@ -6,6 +6,7 @@ proteomics/data
 .Rhistory
 .Rapp.history
 
+
 # Session Data files
 .RData
 
@@ -64,6 +65,9 @@ cohort_summary/NMF/multinomial_models_elastic_net/enet_multinomial_data
 cohort_summary/NMF/multinomial_models_k_4_elastic_net/enet_multinomial_data
 
 
+# Validation folder
+Validations
+
 # mutational analysis
 mutational_analysis/raw_tables
 
@@ -77,3 +81,13 @@ cohort_summary/data_sample_summary_circos.pdf
 cohort_summary/NMF/multinomial_models_elastic_net/k_5_alpha_notes.txt
 cohort_summary/NMF/multinomial_models_k_4_elastic_net/k_4_alpha_notes.txt
 cohort_summary/NMF/NMF_differential_markers_enrichment.Rmd
+cohort_summary/NMF/peptide_subtype_interaction/Data/
+
+
+# Drug story
+Drug Story/
+cohort_summary/NMF/multinomial_models_k_4_elastic_net/cell_line_data_notes.txt
+5-31 next.txt
+cohort_summary/NMF/peptide_subtype_interaction/Protein peptide deviation Vlad.pptx
+cohort_summary/NMF/peptide_subtype_interaction/Protein Peptide Deviation PTRC tuesday.pptx
+cohort_summary/supplemental_table_1.txt

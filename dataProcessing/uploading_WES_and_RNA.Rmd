@@ -118,5 +118,38 @@ synTableStore(WES_data, "BeatAML Waves1to4 WES data", parentId = 'syn22128879')
 ```
 
 
+## Uploading non table versions of these, with fixed sample names.
+
+
+```{r}
+RNA_mat <- RNA_data %>%
+  select(labId, display_label, `RNA counts`) %>%
+  pivot_wider(names_from = "labId", values_from = `RNA counts`) %>%
+  column_to_rownames("display_label") %>% as.data.frame()
+
+write.table(x = RNA_mat, file = "Data/BeatAML_Waves1to4_RNA_data_normalized.txt", 
+            sep = "\t", quote = F)
+synapseStore("Data/BeatAML_Waves1to4_RNA_data_normalized.txt", "syn24171152")
+
+
+```
+
+
+
+
+```{r}
+write.table(x = WES_data, file = "Data/beataml_wes_wv1to4_mutations_177_samples.txt", 
+            sep = "\t", quote = F)
+synapseStore("Data/beataml_wes_wv1to4_mutations_177_samples.txt", "syn24171152")
+
+
+```
+
+
+
+
+
+
+
 
 

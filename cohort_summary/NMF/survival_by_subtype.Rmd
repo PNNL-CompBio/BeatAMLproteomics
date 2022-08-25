@@ -1,0 +1,156 @@
+---
+title: "Survival by Subtype"
+author: "Camilo Posso"
+date: "07/12/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+library(survminer)
+library(survival)
+
+source("../../util/loading_data.R")
+source("../../util/make_plots_util.R")
+source("../../util/mutational_analysis_helper.R")
+source("../../util/synapseUtil.R")
+
+syn <- synapseLogin()
+metadata <- load.metadata()
+summary.table <- read.table(syn$get("syn26642974")$path) %>%
+  as.data.frame()
+rownames(summary.table) <- summary.table$labId
+
+live.status <- summary.table %>%
+  select(overallSurvival, vitalStatus, labId) %>%
+  dplyr::rename(Barcode.ID = labId)  %>%
+  mutate(vitalStatus = case_when(vitalStatus == "Dead" ~ 2,
+                                 TRUE ~ 1))
+summary.table <- summary.table[rownames(metadata), ]
+metadata$live.status <- live.status[rownames(metadata), "vitalStatus"] %>% as.numeric()
+
+```
+
+
+
+
+```{r}
+prediction_210 <- read.table(syn$get("syn30030154")$path, sep = "\t") %>%
+  mutate(Cluster = paste("Predicted", Cluster))
+NMF_159 <- read.table(syn$get("syn26642544")$path, sep = "\t") %>%
+  mutate(k.4 = paste("NMF Cluster", k.4))
+
+combined <- left_join(prediction_210, NMF_159, by = "Barcode.ID") %>% 
+  select(Barcode.ID, Cluster, k.4)
+table(combined$k.4, combined$Cluster)
+
+metadata <- left_join(metadata, combined, by = "Barcode.ID") %>% 
+  mutate(overallSurvival = as.numeric(overallSurvival)) %>%
+  mutate(Cluster = sub("Predicted Cluster ", "", Cluster),
+         k.4 = sub("NMF Cluster ", "", k.4))
+
+# metadata <- rbind(metadata, metadata %>% mutate(Cluster = "Baseline")) %>%
+#   mutate(Cluster = factor(Cluster, levels = c("1", "2", "3", "4", "Baseline")))
+# subtype_colors[[5]] <- "Grey"
+
+metadata <- metadata %>%
+  mutate(Cluster_1 = case_when(Cluster != "1" ~ "Other subtypes",
+                               TRUE ~ paste("Subtype", Cluster)),
+         Cluster_2 = case_when(Cluster != "2" ~ "Other subtypes",
+                               TRUE ~ paste("Subtype", Cluster)),
+         Cluster_3 = case_when(Cluster != "3" ~ "Other subtypes",
+                               TRUE ~ paste("Subtype", Cluster)),
+         Cluster_4 = case_when(Cluster != "4" ~ "Other subtypes",
+                               TRUE ~ paste("Subtype", Cluster))) %>%
+  mutate(k4_1 = case_when(k.4 != "1" ~ "Other subtypes",
+                               TRUE ~ paste("Subtype", k.4)),
+         k4_2 = case_when(k.4 != "2" ~ "Other subtypes",
+                               TRUE ~ paste("Subtype", k.4)),
+         k4_3 = case_when(k.4 != "3" ~ "Other subtypes",
+                               TRUE ~ paste("Subtype", k.4)),
+         k4_4 = case_when(k.4 != "4" ~ "Other subtypes",
+                               TRUE ~ paste("Subtype", k.4)))
+```
+
+
+```{r}
+sfit1 <- survfit(Surv(overallSurvival, live.status) ~ Cluster_1, data = metadata)
+p1 <- ggsurvplot(sfit1, color = "Cluster_1", data = metadata,
+                 palette = c("grey40", subtype_colors[[1]]), pval = TRUE, legend.title = "")$plot +
+        theme(legend.text = element_text(size = 12, color = "black"),
+              legend.title = element_text(size = 12, color = "black"))
+
+sfit2 <- survfit(Surv(overallSurvival, live.status) ~ Cluster_2, data = metadata)
+p2 <- ggsurvplot(sfit2, color = "Cluster_2", data = metadata,
+                 palette = c("grey40", subtype_colors[[2]]), pval = TRUE, legend.title = "")$plot +
+        theme(legend.text = element_text(size = 12, color = "black"),
+              legend.title = element_text(size = 12, color = "black"))
+
+sfit3 <- survfit(Surv(overallSurvival, live.status) ~ Cluster_3, data = metadata)
+p3 <- ggsurvplot(sfit3, color = "Cluster_3", data = metadata,
+                 palette = c("grey40", subtype_colors[[3]]), pval = TRUE, legend.title = "")$plot +
+        theme(legend.text = element_text(size = 12, color = "black"),
+              legend.title = element_text(size = 12, color = "black"))
+
+sfit4 <- survfit(Surv(overallSurvival, live.status) ~ Cluster_4, data = metadata)
+p4 <- ggsurvplot(sfit4, color = "Cluster_4", data = metadata,
+                 palette = c("grey40", subtype_colors[[4]]), pval = TRUE, legend.title = "")$plot +
+        theme(legend.text = element_text(size = 12, color = "black"),
+              legend.title = element_text(size = 12, color = "black"))
+        
+p_all <- ggarrange(p1, p2, p3, p4, ncol = 2, nrow = 2)
+p_all <- annotate_figure(p_all, top = text_grob("Individual Subtype Survival Significance - 210 patients", 
+                                                color = "black", face = "bold", size = 14))
+ggsave(plot = p_all, filename = "Data/individual_subtypes_survival_significance_210.pdf", height = 10, width = 10)
+
+
+```
+
+
+
+
+```{r}
+sfit1 <- survfit(Surv(overallSurvival, live.status) ~ k4_1, data = metadata %>% filter(!is.na(k.4)))
+p1 <- ggsurvplot(sfit1, color = "k4_1", data = metadata,
+                 palette = c("grey40", subtype_colors[[1]]), pval = TRUE, legend.title = "")$plot +
+        theme(legend.text = element_text(size = 12, color = "black"),
+              legend.title = element_text(size = 12, color = "black"))
+
+sfit2 <- survfit(Surv(overallSurvival, live.status) ~ k4_2, data = metadata %>% filter(!is.na(k.4)))
+p2 <- ggsurvplot(sfit2, color = "k4_2", data = metadata,
+                 palette = c("grey40", subtype_colors[[2]]), pval = TRUE, legend.title = "")$plot +
+        theme(legend.text = element_text(size = 12, color = "black"),
+              legend.title = element_text(size = 12, color = "black"))
+
+sfit3 <- survfit(Surv(overallSurvival, live.status) ~ k4_3, data = metadata %>% filter(!is.na(k.4)))
+p3 <- ggsurvplot(sfit3, color = "k4_3", data = metadata,
+                 palette = c("grey40", subtype_colors[[3]]), pval = TRUE, legend.title = "")$plot +
+        theme(legend.text = element_text(size = 12, color = "black"),
+              legend.title = element_text(size = 12, color = "black"))
+
+sfit4 <- survfit(Surv(overallSurvival, live.status) ~ k4_4, data = metadata %>% filter(!is.na(k.4)))
+p4 <- ggsurvplot(sfit4, color = "k4_4", data = metadata,
+                 palette = c("grey40", subtype_colors[[4]]), pval = TRUE, legend.title = "")$plot +
+        theme(legend.text = element_text(size = 12, color = "black"),
+              legend.title = element_text(size = 12, color = "black"))
+        
+p_all <- ggarrange(p1, p2, p3, p4, ncol = 2, nrow = 2)
+p_all <- annotate_figure(p_all, top = text_grob("Individual Subtype Survival Significance - 159 patients", 
+                                                color = "black", face = "bold", size = 14))
+ggsave(plot = p_all, filename = "Data/individual_subtypes_survival_significance_159.pdf", height = 10, width = 10)
+
+
+```
+
+
+

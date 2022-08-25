@@ -1,0 +1,265 @@
+---
+title: "Network analysis of predictive genes"
+author: "Sara Gosline"
+date: "5/18/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Network analysis 
+
+The goal of this document is to study the larger networks that comprise the genes that predict subtype.
+
+```{r load data,message=F,echo=T,warning=F}
+
+source("../util/synapseUtil.R")
+library(dplyr)
+syn<-synapseLogin()
+##load in metagenes
+
+reg_sigs <- syn$tableQuery('select drug,data_type,feature_names from syn27091721 where "model"=\'gbt\' and "data_type"=\'phospho_proteomics\'')$asDataFrame()%>%
+  ###what is the upward limit of model size? 
+  tidyr::separate(feature_names,into=paste0('col',c(1:100)),sep='\\|')%>%
+  tidyr::pivot_longer(names_to=NULL,cols=starts_with('col'))%>%
+  subset(!is.na(value))%>%
+  dplyr::select(-data_type)%>%
+  tidyr::separate(value,into=c('gene','data'),sep='_')%>%
+  tidyr::replace_na(list(data='Phospho'))%>%
+  distinct()
+
+
+reg_sigs$data_type=sapply(reg_sigs$data,function(x) ifelse(x=='prot','Global',x))
+
+
+cols=nationalparkcolors::park_palette("Badlands")
+clus.cols=RColorBrewer::brewer.pal(8,'Dark2')[c(2,3,5,6)]
+
+
+```
+
+First we want to look at how many features are being selected by each metagene here.
+
+```{r feature summaries}
+library(ggplot2)
+
+
+##summary of features
+ggplot(reg_sigs)+
+    geom_bar(aes(x=drug,fill=data_type),position='dodge')+
+    scale_fill_manual(values=cols)+
+  coord_flip()
+#    theme(axis.text.x = element_text(angle = 90))+
+
+
+ggsave('drug_gbt_genes.pdf')
+
+
+
+```
+There is generally a division between various data types 
+
+
+## Create function to take proteins by type and map them to network
+
+Then we can do network creation to build larger networks. This will enhance our ability to do functional enrichment. We need to keep track of two things - one is the type of feature we are handling, and the other is the weight for the network.
+
+```{r network mapping,message=F,echo=T,warning=F}
+
+build_run_network <- function(gene_name, 
+                              gene_score, 
+                              gene_type,
+                              drug,
+                              rands=100,
+                              store=FALSE){
+  
+  library(amlresistancenetworks)
+  
+  wes_inds <- which(gene_type=='WES')
+  rna_inds <- which(gene_type=='RNA')
+  prot_inds <- which(gene_type=='Global')
+  phos_inds <- which(gene_type=='Phospho')
+  
+  netname=paste0('predsOf',drug)
+  
+    ##rename WES
+  wes_terms <- gene_score[wes_inds]
+  names(wes_terms) <- gene_name[wes_inds]
+  
+  #lets separate out the substrates from the phosphosite data
+  phgenes<-data.frame(genes=gene_name[phos_inds],val=gene_score[phos_inds])%>%
+    tidyr::separate(genes, into=c('gene','mod'),sep='-')%>%
+    mutate(modlist=strsplit(mod,split='s|t|y'))%>%
+    tidyr::unnest()%>%
+    rowwise()%>%
+    mutate(newgene=paste(gene,modlist,sep='-'))
+  
+  kin_terms <- phgenes$val
+  names(kin_terms) <- phgenes$newgene
+  
+ # print(kin_terms)
+  prot_terms <- gene_score[prot_inds]
+  names(prot_terms) <- gene_name[prot_inds]
+  
+
+  rna_terms <- gene_score[rna_inds]
+  names(rna_terms) <- gene_name[rna_inds]
+  if(length(gene_name)<10)
+    x=100
+  else if(length(gene_name)>400)
+    x=.1
+  else
+    x=1
+  
+  netlist = amlresistancenetworks::computePhosphoNetwork(phos.vals=kin_terms,
+                                                     prot.vals=prot_terms,
+                                                     gene.vals=wes_terms,
+                                                     rna.vals=rna_terms,
+                                                     beta=x,
+                                                     nrand=rands,
+                                                     fname=netname)
+  graph =netlist$graph
+  fname = netlist$fname[1]
+  print(fname)
+  if(store){
+    synapseStore(fname,'syn26997954')
+  }  
+  return(graph)
+}
+
+```
+
+Now we can run the analysis
+
+
+```{r k4 cluster analysis, message=FALSE, warning=FALSE}
+library(dplyr)
+
+
+##compute jaccard distance between sets of proteins
+
+drugs <- unique(reg_sigs$drug)
+
+#ggplot(reg_sigs,aes(x=drug,fill=data_type))+geom_bar(position='dodge')+
+#    coord_flip()+ggtitle("number of nodes in each model")
+
+ if(!file.exists('regressionDrugSigNets.Rds')){
+ reg_nets <- reg_sigs %>%
+   #subset(drug%in%drugas)%>%
+     mutate(weight=10,nrand=10)%>%
+ #  subset(Cluster==4)%>%
+     group_by(drug)%>%
+   #mutate(weight=10)%>%
+   dplyr::rename(feature='gene')%>%
+     dplyr::summarize(net=list(build_run_network(feature,
+                                              weight,
+                                              data_type,
+                                              drug,
+                                              nrand,store=TRUE)))
+  saveRDS(reg_nets,file='regressionDrugSigNets.Rds')
+ }else
+   reg_nets<-readRDS('regressionDrugSigNets.Rds')
+
+ 
+  net_nodes<-reg_nets%>%
+    rowwise()%>%
+    mutate(proteins=list(vertex.attributes(net)$name),
+                            dataType=list(vertex.attributes(net)$nodeType),
+                            nodeType=list(vertex.attributes(net)$type))%>%
+    tidyr::unnest(cols=c(proteins,dataType,nodeType))
+  
+  net_nodes$data_type=sapply(net_nodes$dataType,function(x) ifelse(x=='proteins','Global','Phospho'))
+  
+  write.table(select(net_nodes,-net),file='regressioNetworkNodes.tsv',sep='\t')
+  
+  ggplot(net_nodes,aes(x=drug,fill=data_type))+geom_bar(position='dodge')+
+    facet_grid(~nodeType)+
+    coord_flip()+scale_fill_manual(values=cols)+
+    ggtitle("number of nodes in each network")
+  ggsave('gbt_pcsf_net_nodes.pdf')
+```
+
+
+Compare networks to original sets, by looking at distance between the various signatures.
+```{r compare drug signatures}
+
+jaccard <- function(lista,listb){
+  return(length(intersect(lista,listb))/length(union(lista,listb)))
+}
+
+
+##compute jaccard distance between networks
+resmat<-sapply(drugs,function(x){
+  sapply(drugs,function(y) { jaccard(subset(reg_sigs,drug==x)$gene,subset(reg_sigs,drug==y)$gene)})})
+
+
+pred_dist<-resmat%>%as.data.frame()%>%
+  tibble::rownames_to_column('drug2')%>%
+  tidyr::pivot_longer(c(2:(ncol(netmat)+1)),names_to='drug1',values_to='Jaccard Regression')%>%
+  subset(`Jaccard Regression`!=1)%>%
+  arrange(desc(`Jaccard Regression`))
+
+write.table(pred_dist,file='predictorJaccardDists.tsv',sep='\t')
+
+
+##create table to plot
+library(pheatmap)
+pheatmap(resmat,filename='predictorJaccardHeatmap.pdf')
+library(ggrepel)
+
+##multidimensional scale
+toplot<-cmdscale(as.dist(1-resmat))
+
+colnames(toplot)=c('dim1','dim2')
+toplot%>%as.data.frame()%>%
+  tibble::rownames_to_column('Drug')%>%
+  ggplot(aes(x=dim1,y=dim2,label=Drug,alpha=0.5))+geom_point()+geom_text_repel()+ggtitle('Jaccard-based distance between proteins')
+
+ggsave('predictorJaccard_cmdScale.pdf')
+
+
+
+
+```
+
+We can see that panobinostat and venetoclax are very similar compared to the other drugs. what happens when we compare the nodes in the network?
+
+```{r compare drug networks}
+
+netmat<-sapply(drugs,function(x){
+  sapply(drugs,function(y){
+    jaccard(unlist(subset(net_nodes,drug==x)$proteins),
+            unlist(subset(net_nodes,drug==y)$proteins))
+  })
+})
+
+pheatmap(netmat,filename='predcitorNetworkHeatmap.pdf')
+
+net_dist<-netmat%>%as.data.frame()%>%
+  tibble::rownames_to_column('drug2')%>%
+  tidyr::pivot_longer(c(2:(ncol(netmat)+1)),names_to='drug1',values_to='Jaccard Network')%>%
+  subset(`Jaccard Network`!=1)%>%
+  arrange(desc(`Jaccard Network`))
+
+write.table(net_dist,file='networkJaccardDists.tsv',sep='\t')
+
+
+full_dist <- net_dist%>%full_join(pred_dist,on=c('drug2','drug1'))
+
+p<-full_dist%>%subset(drug2=='Venetoclax')%>%
+    ggplot(aes(x=`Jaccard Network`,
+             y=`Jaccard Regression`,col=drug1))+geom_point()
+  
+ # tidyr::unite(drug1,drug2,col='combo')
+
+toplot<-cmdscale(as.dist(1-netmat))
+colnames(toplot)=c('dim1','dim2')
+toplot%>%as.data.frame()%>%
+  tibble::rownames_to_column('Drug')%>%
+  ggplot(aes(x=dim1,y=dim2,label=Drug,alpha=0.5))+
+  geom_point()+geom_text_repel()+
+  ggtitle('Jaccard-based distance between networks')
+
+```
