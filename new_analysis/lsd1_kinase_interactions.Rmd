@@ -1,0 +1,64 @@
+---
+title: "LSDi Analysis"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+This document does supplemental analysis outside the paper evaluating the role of LSD1 inhibition on FLT3 and RAS mutants. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("../util/synapseUtil.R")
+library(dplyr)
+syn<-synapseLogin()
+
+if(!exists('dataLoaded')){
+  source("../load_beatAML_data.R")
+  dataLoaded=TRUE
+  phos<-load_beataml_phospho_data()
+  prot<-load_beataml_global_data()
+  trans<-load_beat_aml_transcript_data()
+  gene<-load_beataml_genomic_data()
+  
+}
+
+clin <- read.table(syn$get('syn26642974')$path,quote='"',header=T)%>%
+  select(labId,FLT3_ITDCall)%>%
+  distinct()
+
+funcData <- querySynapseTable("syn25830473")
+
+```
+
+## Identify LDSi AUC
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+
+redData<-funcData%>%
+  dplyr::select(labId='lab_id',auc,inhibitor)%>%
+  mutate(auc=as.numeric(auc))
+
+redData<-redData[grep('GSK2879552',redData$inhibitor),]%>%
+  left_join(clin)
+
+pvals<-grep('Positive',redData$FLT3_ITDCall)
+redData[pvals,'FLT3_ITDCall']<-rep('Positive',length(pvals))
+redData%>%ggplot(aes(x=FLT3_ITDCall,y=as.numeric(auc),col=inhibitor,fill=inhibitor))+geom_boxplot()
+
+ggsave("AUCofLSDicombos.pdf")
+```
+
+##  Now do RAS
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
