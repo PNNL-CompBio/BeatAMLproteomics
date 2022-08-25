@@ -1,0 +1,58 @@
+---
+title: "Compare KSEA Results"
+author: "Sara Gosline"
+date: "3/18/2022"
+output: html_document
+---
+
+Given the KSEA results, we want to visualize the kinases showing up in every genetic subtypes.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Pull code
+
+```{r pull code and get libraries}
+
+library(dplyr)
+
+library(amlresistancenetworks)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+syn = synapseLogin()
+
+tab <- read.table(syn$get('syn27852574')$path,sep='\t',header=T)
+
+tab%>%subset(adj_p_val<0.05)%>%
+  ggplot(aes(x=pathway,y=enrichment,fill=mutation))+geom_bar(stat='identity')
+        
+ggsave('sigKinEnrichment0.05.pdf')
+
+
+```
+
+We dont have that many kinases enriched. Let's look at the peptides that are changing!!!
+
+```{r peptides}
+
+ptab<- read.table(syn$get('syn27842983')$path,header=T,sep='\t')
+
+##first let's visualize all the peptides that are coming up
+subset(ptab,adj_pval<0.05)%>%
+  mutate(log10Pval=-log10(adj_pval))%>%
+    ggplot(aes(x=reorder(feature,log10Pval),y=log10Pval,col=mutation))+
+    geom_point(aes(alpha=0.5))+ 
+                  theme(axis.text.x=element_blank())
+
+ggsave('allPecoraResults.pdf')
+
+##now let's plot specific proteins
+ptab%>%subset(adj_pval<10e-8)%>%
+  ggplot(aes(x=Protein,fill=mutation,y=n_peptides))+geom_bar(stat='identity',position='dodge')+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggsave('sigPecoraResults.pdf')
+
+```
