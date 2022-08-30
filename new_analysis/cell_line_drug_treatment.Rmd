@@ -48,7 +48,7 @@ plotVals<-function(ddf, geneCol='Gene',title){
 
     p3<-cowplot::plot_grid(p1,p2,labels=(c(paste0(title,' by  time'),paste0(title,' by treatment'))))
     
-  ggsave(p3,paste0(stringr::str_replace_all(title,' ',''),'.png'),width=10,height=5)
+  ggsave(paste0(stringr::str_replace_all(title,' ',''),'.png'),plot=p3,width=10,height=5)
   p3
 }
 
