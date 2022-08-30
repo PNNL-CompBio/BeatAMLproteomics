@@ -242,3 +242,30 @@ hl60.kins<-do.call(rbind,lapply(conds,function(cv){
 Now we can do just individual analysis of a specific drug or drug/combo across cell lines.
 
 ## Gilteritinib
+
+```{r gilt}
+
+full.kin<-rbind(molm.kins,hl60.kins)%>%
+      select(Kinase,zscore,cond,cellLine,BH_pvalue)
+
+gilt<-full.kin%>%subset(cond%in%c('G_16','G_30'))
+
+ggplot(gilt,aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='identity')+facet_grid(~cellLine)+coord_flip()+ggtitle("Gilteritinib at 30 min 16 hrs")
+
+ggsave('giltKinases.png')
+
+tram<-full.kin%>%subset(cond%in%c('T_16','T_30'))
+
+ggplot(tram,aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='identity')+facet_grid(~cellLine)+coord_flip()+ggtitle("Trametinib at 30 min 16 hrs")
+
+ggsave('tramKinases.png',height=8)
+
+rux<-full.kin%>%subset(cond%in%c('R_16','R_30'))
+
+ggplot(rux,aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='identity')+facet_grid(~cellLine)+coord_flip()+ggtitle("Ruxolitinib at 30 min 16 hrs")
+
+ggsave('ruxKinases.png',height=8)
+
+
+
+```
