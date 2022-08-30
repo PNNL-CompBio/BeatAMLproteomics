@@ -19,7 +19,7 @@ load_beat_aml_transcript_data <- function(){
   library(amlresistancenetworks)
   syn <- reticulate::import('synapseclient')
   syn$login()
-  amlresistancenetworks::querySynapseTable('syn26428813')
+  amlresistancenetworks::querySynapseTable('syn26545877')
   
 }
 

@@ -39,26 +39,90 @@ When you click the **Knit** button a document will be generated that includes bo
 
 ```{r cars}
 
+library(ggplot2)
+
 redData<-funcData%>%
   dplyr::select(labId='lab_id',auc,inhibitor)%>%
   mutate(auc=as.numeric(auc))
 
-redData<-redData[grep('GSK2879552',redData$inhibitor),]%>%
-  left_join(clin)
+single.agent<-redData%>%
+  subset(inhibitor%in%c('Trametinib (GSK1120212)','Quizartinib (AC220)','GSK-2879552'))
+
+
+redData<-single.agent%>%
+  left_join(clin)%>%
+  tidyr::replace_na(list(FLT3_ITDCall='Negative'))
 
 pvals<-grep('Positive',redData$FLT3_ITDCall)
 redData[pvals,'FLT3_ITDCall']<-rep('Positive',length(pvals))
-redData%>%ggplot(aes(x=FLT3_ITDCall,y=as.numeric(auc),col=inhibitor,fill=inhibitor))+geom_boxplot()
+redData%>%ggplot(aes(x=FLT3_ITDCall,y=auc,col=inhibitor,fill=inhibitor))+geom_boxplot()
 
-ggsave("AUCofLSDicombos.pdf")
+redData%>%
+ subset(inhibitor%in%c('Quizartinib (AC220)','GSK-2879552'))%>%
+  ggplot(aes(y=auc,x=labId,col=inhibitor))+geom_point()
+
+
+
+redData%>%
+ subset(inhibitor%in%c('Trametinib (GSK1120212)','GSK-2879552'))%>%
+  ggplot(aes(y=auc,x=labId,col=inhibitor))+geom_point()
+```
+
+
+
+We can evaluate teh signle agents
+
+
+```{r double agent}
+quiz.double.agent<-intersect(grep('GSK2879552',redData$inhibitor),grep('Quizartinib',redData$inhibitor))
+                             
+tram.double.agent<-intersect(grep('GSK2879552',redData$inhibitor),grep('Trametinib',redData$inhibitor))
+
+double.agent<-redData[c(quiz.double.agent,tram.double.agent),]
+
+
+dredData<-double.agent%>%
+  left_join(clin)%>%
+  tidyr::replace_na(list(FLT3_ITDCall='Negative'))
+
+pvals<-grep('Positive',dredData$FLT3_ITDCall)
+dredData[pvals,'FLT3_ITDCall']<-rep('Positive',length(pvals))
+dredData%>%ggplot(aes(x=FLT3_ITDCall,y=auc,col=inhibitor,fill=inhibitor))+geom_boxplot()
+
+
+fredData<-rbind(single.agent,double.agent)%>%
+  left_join(clin)%>%
+  tidyr::replace_na(list(FLT3_ITDCall='Negative'))
+
+pvals<-grep('Positive',fredData$FLT3_ITDCall)
+fredData[pvals,'FLT3_ITDCall']<-rep('Positive',length(pvals))
+
+
+fredData%>%subset(inhibitor%in%c('GSK-2879552','Quizartinib (AC220)','Quizartinib - GSK2879552'))%>%
+  ggplot(aes(x=FLT3_ITDCall,y=auc,col=inhibitor,fill=inhibitor))+geom_boxplot()
+
+ggsave('flt3_combo_LSDi.pdf')
+
 ```
 
 ##  Now do RAS
 
-You can also embed plots, for example:
+How does the AUC vary for RAS treatment
 
 ```{r pressure, echo=FALSE}
-plot(pressure)
-```
+ras.mut<-subset(gene,symbol%in%c("KRAS",'NRAS'))%>%
+  dplyr::select(symbol,labId)%>%
+  right_join(fredData)%>%
+  subset(inhibitor%in%c('GSK-2879552','Trametinib - GSK2879552','Trametinib (GSK1120212)'))%>%
+  tidyr::replace_na(list(symbol='WT'))
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+ras.mut%>%ggplot(aes(x=symbol,y=auc,col=inhibitor,fill=inhibitor))+geom_boxplot()
+
+ggsave("AUCof_RAS_LSDicombos.pdf")
+
+```
+Not really a lot of difference in trametinib.
+
+## Predictors of drug response in FLT3 wt vs mutant
+
+IF we break down the patients by 

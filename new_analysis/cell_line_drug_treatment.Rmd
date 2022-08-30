@@ -1,0 +1,244 @@
+---
+title: "Quick cell line tests"
+author: "Sara Gosline"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+The goal of this document is to do some quick sanity checks on drug response data in two cell lines so that we can evaluate the pathways activated upon drug treatment. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("../util/synapseUtil.R")
+library(dplyr)
+syn<-synapseLogin()
+
+```
+
+## Grab data and plot
+
+We have numerous cell lines here, and treatments. Let's plot. 
+
+```{r data query}
+mprot <- syn$tableQuery('select * from syn25813133')$asDataFrame()
+
+hprot <- syn$tableQuery('select * from syn25813233')$asDataFrame()
+
+mphos <- syn$tableQuery('select * from syn25813172')$asDataFrame()
+
+hphos <- syn$tableQuery('select * from syn25813243')$asDataFrame()
+
+
+library(ggplot2)
+
+plotVals<-function(ddf, geneCol='Gene',title){
+  
+  library(ggfortify)
+  library(cowplot)
+  res<-ddf%>%dplyr::select(geneCol,'SampleID','LogRatio')%>%
+    #tidyr::replace_na(list(LogRatio=0.0))%>%
+    tidyr::pivot_wider(names_from= geneCol,values_from='LogRatio',values_fill=list(LogRatio=0.0))%>%
+    tibble::column_to_rownames('SampleID')%>%
+    as.matrix()%>%
+    prcomp(.,scale=TRUE)
+
+  
+    p1<-autoplot(res,data=dplyr::select(ddf,c(SampleID,Time))%>%mutate(Time=as.factor(Time))%>%distinct(),colour='Time')
+    p2<-autoplot(res,data=dplyr::select(ddf,c(SampleID,Treatment))%>%distinct(),colour='Treatment')
+
+    p3<-cowplot::plot_grid(p1,p2,labels=(c(paste0(title,' by  time'),paste0(title,' by treatment'))))
+    
+  ggsave(p3,paste0(stringr::str_replace_all(title,' ',''),'.png'),width=10,height=5)
+  p3
+}
+
+plotVals(mprot,'Gene','Molm14 Proteomics')
+plotVals(mphos,'SiteID','Molm14 Phosphoproteomics')
+
+
+plotVals(hprot,'Gene','HL60 Proteomics')
+plotVals(hphos,'SiteID','HL60 Phosphoproteomics')
+
+```
+
+Now we can see the time and treatment distribution of all the samples and investigate specific differences, starting with enrichment at the single course agents.
+
+## Differential expression of proteins and kinases
+
+We also need to define a function to run limma
+
+```{r pressure, echo=FALSE}
+library(amlresistancenetworks)
+
+##create function that puts data into matrix and merges names by treatment/time
+
+doDiffEx<-function(ddf,geneid='Gene',conds=c('G30','G16')){
+  
+  new.df<-ddf%>%
+    dplyr::select(geneid,'SampleID','LogRatio','Treatment','Time')%>%
+    mutate(Condition=paste0(Treatment,'_',Time))
+  
+  ##need a matrix for diffex
+  dat<-new.df%>%
+    dplyr::select('SampleID',geneid,'LogRatio')%>%
+    tidyr::pivot_wider(names_from='SampleID',values_from='LogRatio',values_fill=list(LogRatio=0.0))%>%
+    tibble::column_to_rownames(geneid)
+  
+  controls=subset(new.df,Condition=='C_0')$SampleID%>%
+    unique()
+  
+  full.res<-do.call(rbind,lapply(conds,function(cv){
+    samps<-subset(new.df,Condition==cv)$SampleID%>%
+      unique()
+    
+    res<-amlresistancenetworks::limmaTwoFactorDEAnalysis(dat,as.character(samps),as.character(controls))%>%
+      #subset(adj.P.Val<0.05)%>%
+    mutate(Condition=cv)
+    
+    return(res)
+  }))
+  
+  full.res
+}
+
+conds<-c('G_16','G_30','GT_16','GT_30','T_16','T_30','TR_16','TR_30','R_16','R_30','RG_16','RG_30')
+
+
+mpD<-doDiffEx(mprot,'Gene',conds)
+mphD<-doDiffEx(mphos,'SiteID',conds)
+
+hpD<-doDiffEx(hprot,'Gene',conds)
+hphD<-doDiffEx(hphos,'SiteID',conds)
+
+##now we can visualize the number of differentially expressed features in each dataset
+sum1<-mpD%>%
+  subset(adj.P.Val<0.05)%>%
+  group_by(Condition)%>%
+  summarize(features=n_distinct(featureID))%>%
+  mutate(cellLine='Molm14',data='Proteomics')%>%
+  tidyr::separate(Condition,into=c('Treatment','Time'),sep='_')
+
+sum2<-hpD%>%
+    subset(adj.P.Val<0.05)%>%
+  group_by(Condition)%>%
+  summarize(features=n_distinct(featureID))%>%
+  mutate(cellLine='HL60',data='Proteomics')%>%
+  tidyr::separate(Condition,into=c('Treatment','Time'),sep='_')
+
+sum3<-mphD%>%
+  subset(adj.P.Val<0.05)%>%
+  group_by(Condition)%>%
+  summarize(features=n_distinct(featureID))%>%
+  mutate(cellLine='Molm14',data='Phosphoroteomics')%>%
+  tidyr::separate(Condition,into=c('Treatment','Time'),sep='_')
+
+sum4<-hphD%>%
+    subset(adj.P.Val<0.05)%>%
+  group_by(Condition)%>%
+  summarize(features=n_distinct(featureID))%>%
+  mutate(cellLine='HL60',data='Phosphoroteomics')%>%
+  tidyr::separate(Condition,into=c('Treatment','Time'),sep='_')
+
+summary.tab<-rbind(sum1,sum2,sum3,sum4)
+
+ggplot(summary.tab,aes(x=Treatment,y=features,fill=Time))+
+  geom_bar(stat='identity',position='dodge')+
+  facet_grid(data~cellLine)+
+  ggtitle('Differentially expressed features upon drug treatment')
+
+ggsave('dataSummary.png')
+
+```
+
+Using an adjusted p-value of 0.05 we get no differentially expressed proteins at the 30 minute time point, and limited numbers at the 16 hour time point. That being said we can still use KSEA to get a ranking. 
+
+## Kinase enrichment at each time point/condition
+
+What kinases are enriched?  We can rank for each condition
+
+```{r kinase enrichment}
+library(leapR)
+
+phMat<-mphD%>%
+  dplyr::select(featureID,logFC,Condition)%>%
+  tidyr::pivot_wider(names_from='Condition',values_from='logFC')%>%
+  mutate(updatedFeat=stringr::str_replace(featureID,'s$|t$|$y',''))%>%
+  tibble::column_to_rownames('updatedFeat')
+
+data('kinasesubstrates')
+
+molm.kins<-do.call(rbind,lapply(conds,function(cv){
+  res<-leapR(geneset=kinasesubstrates,
+           enrichment_method='enrichment_in_order',
+        datamatrix=phMat,primary_columns=cv)%>%
+    subset(BH_pvalue<0.05)%>%
+    mutate(cond=cv)%>%
+    tibble::rownames_to_column('Kinase')%>%
+    mutate(cellLine='MOLM14')
+ #   tidyr::separate(cond,into=c('Treatment','Time'),sep='_')
+  return(res)}))
+  
+
+
+phMat<-hphD%>%
+  dplyr::select(featureID,logFC,Condition)%>%
+  tidyr::pivot_wider(names_from='Condition',values_from='logFC')%>%
+  mutate(updatedFeat=stringr::str_replace(featureID,'s$|t$|$y',''))%>%
+  tibble::column_to_rownames('updatedFeat')
+
+hl60.kins<-do.call(rbind,lapply(conds,function(cv){
+  res<-leapR(geneset=kinasesubstrates,
+           enrichment_method='enrichment_in_order',
+        datamatrix=phMat,primary_columns=cv)%>%
+    subset(BH_pvalue<0.05)%>%
+    mutate(cond=cv)%>%
+    tibble::rownames_to_column('Kinase')%>%
+    mutate(cellLine='HL60')
+   # tidyr::separate(cond,into=c('Treatment','Time'),sep='_')
+  return(res)}))
+
+##can we plot?
+
+
+  p1<-hl60.kins%>%
+    select(c(Kinase,zscore,cond,cellLine))%>%
+    group_by(cond)%>%
+    summarize(kinases=n_distinct(Kinase))%>%
+    tidyr::separate(cond,into=c('Treatment','Time'),sep='_')%>%
+    ggplot(aes(x=Treatment,y=kinases,fill=Time))+geom_bar(stat='identity',position='dodge')
+  
+  p2<-molm.kins%>%
+    select(c(Kinase,zscore,cond,cellLine))%>%
+    group_by(cond)%>%
+    summarize(kinases=n_distinct(Kinase))%>%
+    tidyr::separate(cond,into=c('Treatment','Time'),sep='_')%>%
+    ggplot(aes(x=Treatment,y=kinases,fill=Time))+geom_bar(stat='identity',position='dodge')
+  
+
+  cowplot::plot_grid(p1,p2)
+  
+  library(pheatmap)
+  
+  p3<-hl60.kins%>%
+    select(Kinase,zscore,cond)%>%
+    tidyr::pivot_wider(names_from='cond',values_from='zscore',
+                       values_fill=list(zscore=0))%>%
+    tibble::column_to_rownames('Kinase')%>%
+    pheatmap(cellheight=10,cellwidth=10,filename='hl60Kin.png')
+  
+  ##can we do some sort of heatmap?
+  
+  
+  p4<-molm.kins%>%
+    select(Kinase,zscore,cond)%>%
+    tidyr::pivot_wider(names_from='cond',values_from='zscore',
+                       values_fill=list(zscore=0))%>%
+    tibble::column_to_rownames('Kinase')%>%
+    pheatmap(cellheight=10,cellwidth=10,filename='molm14Kin.png')
+  
+  
+```
+
+Now we can do just individual analysis of a specific drug or drug/combo across cell lines.
+
+## Gilteritinib
