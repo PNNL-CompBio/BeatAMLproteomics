@@ -91,7 +91,7 @@ doDiffEx<-function(ddf,geneid='Gene',conds=c('G30','G16')){
     samps<-subset(new.df,Condition==cv)$SampleID%>%
       unique()
     
-    res<-amlresistancenetworks::limmaTwoFactorDEAnalysis(dat,as.character(samps),as.character(controls))%>%
+    res<-amlresistancenetworks::limmaTwoFactorDEAnalysis(dat,as.character(controls),as.character(samps))%>%
       #subset(adj.P.Val<0.05)%>%
     mutate(Condition=cv)
     
@@ -239,6 +239,27 @@ hl60.kins<-do.call(rbind,lapply(conds,function(cv){
   
 ```
 
+Can we map these data to the kinases as well to visualize?
+
+```{r kinase mapping}
+
+mres<-mphos%>%
+    dplyr::rename(Sample='SampleID',site='SiteID',LogFoldChange='LogRatio')%>%mutate(Peptide=rep('',nrow(mphos)))%>%
+    amlresistancenetworks::mapPhosphoToKinase(.)
+
+sig.kins <- subset(molm.kins,BH_pvalue<0.05)
+
+mres<-mphos%>%
+  dplyr::select(Sample='SampleID',Treatment,Time)%>%distinct()%>%
+  right_join(mres)%>%
+  right_join(sig.kins)
+
+
+
+
+
+```
+
 Now we can do just individual analysis of a specific drug or drug/combo across cell lines.
 
 ## Gilteritinib
@@ -252,19 +273,25 @@ gilt<-full.kin%>%subset(cond%in%c('G_16','G_30'))
 
 ggplot(gilt,aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='identity')+facet_grid(~cellLine)+coord_flip()+ggtitle("Gilteritinib at 30 min 16 hrs")
 
-ggsave('giltKinases.png')
+ggplot(subset(gilt,cellLine=='MOLM14'),aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='identity')+facet_grid(~cellLine)+coord_flip()+ggtitle("Kinases with significant substrate changes upon Gilteritinib treatment")
+                                                                                                                                    
+ggsave('giltKinasesMolm14.pdf',height=5,width=5)
 
-tram<-full.kin%>%subset(cond%in%c('T_16','T_30'))
+tram<-full.kin%>%
+  subset(cond%in%c('T_16','T_30'))#%>%
+#  mutate(Time=stringr::str_replace_all(cond,'T_',' '))
 
 ggplot(tram,aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='identity')+facet_grid(~cellLine)+coord_flip()+ggtitle("Trametinib at 30 min 16 hrs")
 
-ggsave('tramKinases.png',height=8)
+ggplot(subset(tram,cellLine=='HL60'),aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='identity')+facet_grid(~cellLine)+coord_flip()+ggtitle("Kinases with significant substrate changes upon Trametinib treatment")
+
+ggsave('tramKinasesHl60.pdf',height=5,width=5)
 
 rux<-full.kin%>%subset(cond%in%c('R_16','R_30'))
 
 ggplot(rux,aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='identity')+facet_grid(~cellLine)+coord_flip()+ggtitle("Ruxolitinib at 30 min 16 hrs")
 
-ggsave('ruxKinases.png',height=8)
+ggsave('ruxKinases.pdf',height=8)
 
 
 
