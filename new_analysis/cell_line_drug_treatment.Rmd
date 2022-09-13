@@ -160,10 +160,16 @@ What kinases are enriched?  We can rank for each condition
 library(leapR)
 
 phMat<-mphD%>%
-  dplyr::select(featureID,logFC,Condition)%>%
-  tidyr::pivot_wider(names_from='Condition',values_from='logFC')%>%
-  mutate(updatedFeat=stringr::str_replace(featureID,'s$|t$|$y',''))%>%
-  tibble::column_to_rownames('updatedFeat')
+  tidyr::separate(featureID, into=c('gene','mod'),sep='-')%>%
+  mutate(modlist=strsplit(mod,split='s|t|y'))%>%
+  tidyr::unnest(cols=c(modlist))%>%
+  rowwise()%>%
+  mutate(updatedFeat=paste(gene,modlist,sep='-'))%>%
+  dplyr::select(updatedFeat,logFC,Condition)%>%
+  distinct()%>%
+  tidyr::pivot_wider(names_from='Condition',values_from='logFC',values_fn=list(logFC=median))%>%
+#  mutate(updatedFeat=stringr::str_replace(featureID,'s$|t$|$y',''))%>%
+ tibble::column_to_rownames('updatedFeat')
 
 data('kinasesubstrates')
 
@@ -181,10 +187,16 @@ molm.kins<-do.call(rbind,lapply(conds,function(cv){
 
 
 phMat<-hphD%>%
-  dplyr::select(featureID,logFC,Condition)%>%
-  tidyr::pivot_wider(names_from='Condition',values_from='logFC')%>%
-  mutate(updatedFeat=stringr::str_replace(featureID,'s$|t$|$y',''))%>%
-  tibble::column_to_rownames('updatedFeat')
+tidyr::separate(featureID, into=c('gene','mod'),sep='-')%>%
+  mutate(modlist=strsplit(mod,split='s|t|y'))%>%
+  tidyr::unnest(cols=c(modlist))%>%
+  rowwise()%>%
+  mutate(updatedFeat=paste(gene,modlist,sep='-'))%>%
+  dplyr::select(updatedFeat,logFC,Condition)%>%
+  distinct()%>%
+  tidyr::pivot_wider(names_from='Condition',values_from='logFC',values_fn=list(logFC=median))%>%
+#  mutate(updatedFeat=stringr::str_replace(featureID,'s$|t$|$y',''))%>%
+ tibble::column_to_rownames('updatedFeat')
 
 hl60.kins<-do.call(rbind,lapply(conds,function(cv){
   res<-leapR(geneset=kinasesubstrates,
@@ -275,7 +287,7 @@ ggplot(gilt,aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='id
 
 ggplot(subset(gilt,cellLine=='MOLM14'),aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='identity')+facet_grid(~cellLine)+coord_flip()+ggtitle("Kinases with significant substrate changes upon Gilteritinib treatment")
                                                                                                                                     
-ggsave('giltKinasesMolm14.pdf',height=5,width=5)
+ggsave('giltKinasesMolm14.pdf',height=10,width=5)
 
 tram<-full.kin%>%
   subset(cond%in%c('T_16','T_30'))#%>%
@@ -285,13 +297,13 @@ ggplot(tram,aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='id
 
 ggplot(subset(tram,cellLine=='HL60'),aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='identity')+facet_grid(~cellLine)+coord_flip()+ggtitle("Kinases with significant substrate changes upon Trametinib treatment")
 
-ggsave('tramKinasesHl60.pdf',height=5,width=5)
+ggsave('tramKinasesHl60.pdf',height=10,width=5)
 
 rux<-full.kin%>%subset(cond%in%c('R_16','R_30'))
 
 ggplot(rux,aes(x=Kinase,y=zscore,fill=cond))+geom_bar(position='dodge',stat='identity')+facet_grid(~cellLine)+coord_flip()+ggtitle("Ruxolitinib at 30 min 16 hrs")
 
-ggsave('ruxKinases.pdf',height=8)
+ggsave('ruxKinases.pdf',height=10)
 
 
 
