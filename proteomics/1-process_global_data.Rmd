@@ -17,6 +17,7 @@ t0 <- Sys.time(); print(t0)
 
 ```{r setup}
 library(PlexedPiper)
+library(PNNL.DMS.utils)
 library(dplyr)
 data_package_num <- 3676
 data_folder <- "data/Ex10_global_data/"
@@ -49,7 +50,7 @@ msgf_data_path <- file.path(data_folder, "msgfData_original.RData")
 if (file.exists(msgf_data_path)) {
   load(msgf_data_path)
 } else {
-  msnid <- read_msms_data_from_DMS(data_package_num)
+  msnid <- read_msgf_data_from_DMS(data_package_num)
   save(msnid, file=msgf_data_path)
 }
 show(msnid)

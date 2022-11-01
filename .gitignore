@@ -91,3 +91,9 @@ cohort_summary/NMF/multinomial_models_k_4_elastic_net/cell_line_data_notes.txt
 cohort_summary/NMF/peptide_subtype_interaction/Protein peptide deviation Vlad.pptx
 cohort_summary/NMF/peptide_subtype_interaction/Protein Peptide Deviation PTRC tuesday.pptx
 cohort_summary/supplemental_table_1.txt
+cohort_summary/NMF/cophenetic_correlation.txt
+cohort_summary/NMF/logFC.txt
+cohort_summary/NMF/subtype_mutation_AUC/drug_response.csv
+cohort_summary/NMF/subtype_mutation_AUC/Figures
+Figures
+cohort_summary/NMF/diving_into_subtype_drivers.Rmd

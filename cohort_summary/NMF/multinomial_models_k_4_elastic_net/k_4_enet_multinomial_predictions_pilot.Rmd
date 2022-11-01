@@ -275,6 +275,19 @@ drug_data <- auc.dat %>%
 
 ```
 
+
+```{r}
+table_df <- pilot_meta %>%
+  filter(exp_3_new) %>%
+  select(Sample = sample, Subtype, `New to 210-patient cohort` = exp_3_new)
+write.table(table_df, "enet_multinomial_data/experiment_3_new_samples.txt", sep = "\t", 
+            col.names = TRUE, row.names = FALSE, quote = F)
+
+
+```
+
+
+
 ```{r}
 cohort_subtypes <- read.table(syn$get("syn30030154")$path) %>%
   dplyr::rename(Subtype = Cluster) %>%

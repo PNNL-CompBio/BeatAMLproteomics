@@ -1,0 +1,452 @@
+---
+title: "Subtype drivers"
+author: "Camilo Posso"
+date: "08/29/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Goal
+
+
+The goal of this markdown is to find biological identifiers for the subtypes.
+
+
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(broom)
+
+source("../../../util/synapseUtil.R")
+source("../../../util/loading_data.R")
+source("../../../util/mutational_analysis_helper.R")
+source("../../../util/make_plots_util.R")
+
+syn <- synapseLogin()
+
+load("../../../Misc/load.combined.data 3-09-2022.RData")
+# load.combined.data()
+metadata <- load.metadata()
+clusters <- read.table(syn$get("syn30030154")$path, sep = "\t")
+rownames(clusters) <- clusters$Barcode.ID
+metadata$Cluster <- clusters[rownames(metadata), "Cluster"]
+
+global_mat <- pivot_wider(global.data, names_from = "Barcode.ID", 
+                          values_from = "LogRatio") %>%
+  column_to_rownames("Gene")
+m_global <- MSnSet(exprs = global_mat %>% as.matrix(), 
+                   pData = metadata[colnames(global_mat), ])
+
+rna_mat <- pivot_wider(RNA.data, names_from = "Barcode.ID", 
+                          values_from = "RNA counts") %>%
+  column_to_rownames("Gene")
+m_rna <- MSnSet(exprs = rna_mat %>% as.matrix(), 
+                pData = metadata[colnames(rna_mat), ])
+
+phospho_mat <- pivot_wider(phospho.data %>% select(-Gene), names_from = "Barcode.ID", 
+                           values_from = "LogRatio") %>%
+  column_to_rownames("SiteID")
+m_phospho <- MSnSet(exprs = phospho_mat %>% as.matrix(), 
+                    pData = metadata[colnames(phospho_mat), ])
+
+mutation_data <- load_mutational_sample_data()
+
+NPM1_samples <- mutation_data %>%
+  filter(Gene == "NPM1_clinical") %>%
+  pull(Barcode.ID) %>% unique()
+
+DNMT3A_samples <- mutation_data %>%
+  filter(Gene == "DNMT3A") %>%
+  pull(Barcode.ID) %>% unique()
+
+metadata <- metadata %>%
+  mutate(NPM1 = case_when(Barcode.ID %in% NPM1_samples ~ "TRUE",
+                          TRUE ~ "FALSE"),
+         DNMT3A = case_when(Barcode.ID %in% DNMT3A_samples ~ "TRUE",
+                          TRUE ~ "FALSE"),
+         #mut_col = paste(FLT3.ITD, NPM1),
+         mut_col = FLT3.ITD, 
+         shuffle = sample(Cluster),
+         Cluster = sub("Cluster ", "", Cluster),
+         Cluster_1 = case_when(Cluster == "1" ~ TRUE,
+                               TRUE ~ FALSE),
+         Cluster_2 = case_when(Cluster == "2" ~ TRUE,
+                               TRUE ~ FALSE),
+         Cluster_3 = case_when(Cluster == "3" ~ TRUE,
+                               TRUE ~ FALSE),
+         Cluster_4 = case_when(Cluster == "4" ~ TRUE,
+                               TRUE ~ FALSE))
+
+latest_AUC <- read.table("drug_response.csv", sep = ",")
+latest_AUC <- latest_AUC[-1, -1]
+
+colnames(latest_AUC) <- c("Barcode.ID", "Inhibitor", "AUC")
+latest_AUC$AUC <- as.numeric(latest_AUC$AUC)
+
+
+```
+
+
+
+```{r}
+## Setting up matrices
+AUC_mat_old <- pivot_wider(functional.data.sensitive.family %>% select(Inhibitor, Barcode.ID, AUC), names_from = "Barcode.ID",
+                       values_from = "AUC", values_fn = mean) %>%
+  column_to_rownames("Inhibitor")
+
+## Using drugs from James table
+AUC_mat <- pivot_wider(latest_AUC %>% select(Inhibitor, Barcode.ID, AUC), names_from = "Barcode.ID",
+                       values_from = "AUC", values_fn = mean) %>%
+  column_to_rownames("Inhibitor")
+
+chosen_drugs <- c('Venetoclax', 'Vargetef', 'Trametinib (GSK1120212)',
+       'Tivozanib (AV-951)', 'Sorafenib', 'Selumetinib (AZD6244)',
+       'Selinexor', 'SNS-032 (BMS-387032)', 'Rapamycin',
+       'RAF265 (CHIR-265)', 'Quizartinib (AC220)', 'Ponatinib (AP24534)',
+       'Pelitinib (EKB-569)', 'Panobinostat', 'PP242', 'PI-103',
+       'PD173955', 'OTX-015', 'Neratinib (HKI-272)', 'NVP-TAE684',
+       'NF-kB Activation Inhibitor', 'Midostaurin', 'KW-2449', 'KI20227',
+       'JQ1', 'JNJ-28312141', 'JAK Inhibitor I', 'INK-128',
+       'Gilteritinib', 'GDC-0941', 'Foretinib (XL880)', 'Flavopiridol',
+       'Entospletinib (GS-9973)', 'Elesclomol', 'Dovitinib (CHIR-258)',
+       'Doramapimod (BIRB 796)', 'Dasatinib', 'Cabozantinib', 'CYT387',
+       'CI-1040 (PD184352)', 'Bortezomib (Velcade)', 'BEZ235',
+       'Afatinib (BIBW-2992)', 'AT7519', 'A-674563',
+       '17-AAG (Tanespimycin)')
+
+## Subset to those drugs which we have used before. Can change later.
+AUC_mat <- AUC_mat[chosen_drugs, ]
+
+m_auc <- MSnSet(exprs = AUC_mat %>% as.matrix(), 
+                pData = metadata[colnames(AUC_mat), ])
+
+```
+
+
+## Using limma and F test
+```{r eval=FALSE, include=FALSE}
+## Using limma and F test
+mut_cluster <- limma_gen(m_auc, "~ mut_col + Cluster", "Cluster")
+
+mut_shuffle <- limma_gen(m_auc, "~ mut_col + shuffle", "shuffle")
+
+limma_cluster <- limma_gen(m_auc, "~ Cluster", "Cluster")
+limma_shuffle <- limma_gen(m_auc, "~ shuffle", "shuffle")
+
+limma_mut <- limma_gen(m_auc, "~mut_col", "mut_col")
+
+cluster_mut <- limma_gen(m_auc, "~mut_col + Cluster", "mut_col")
+
+summary_df <- mut_cluster %>%
+  select(adj.P.Val3 = adj.P.Val)
+summary_df$Inhibitor <- rownames(summary_df)
+
+summary_df <- limma_cluster %>%
+  select(adj.P.Val2 = adj.P.Val) %>%
+  mutate(Inhibitor = rownames(.)) %>%
+  merge(summary_df, by = "Inhibitor")
+summary_df <- limma_mut %>%
+  select(adj.P.Val1 = adj.P.Val) %>%
+  mutate(Inhibitor = rownames(.)) %>%
+  merge(summary_df, by = "Inhibitor")
+
+colnames(summary_df) <- c("Inhibitor",
+                          "FLT3.ITD significant", 
+                          "Subtype significant", 
+                          "Subtype improves FLT3 model")
+
+summary_df <- cluster_mut %>%
+  select(adj.P.Val_flt3 = adj.P.Val) %>%
+  mutate(Inhibitor = rownames(.)) %>%
+  merge(summary_df, by = "Inhibitor")
+
+colnames(summary_df)[2] <- "FLT3 improves subtype model"
+rownames(summary_df) <- summary_df$Inhibitor
+
+pheatmap(summary_df[, c(3,5)], color = colorRampPalette(brewer.pal(n = 7, name = "RdBu"))(2),
+         breaks = c(0, 0.05, 1), legend = FALSE, filename = "subtype_auc_model_summary.png", height = 10, 
+         treeheight_row = 0, treeheight_col = 0, angle_col = 45)
+
+pheatmap(summary_df[, c(4,2)], color = colorRampPalette(brewer.pal(n = 7, name = "RdBu"))(2),
+         breaks = c(0, 0.05, 1), legend = FALSE, filename = "subtype_auc_model_summary_2.png", height = 10, 
+         treeheight_row = 0, treeheight_col = 0, angle_col = 45)
+
+pheatmap(summary_df[, c(3,5)], color = colorRampPalette(brewer.pal(n = 7, name = "RdBu"))(2),
+         breaks = c(0, 0.05, 1), legend = FALSE, filename = "subtype_auc_model_summary_3.png", height = 10, 
+         treeheight_row = 0, treeheight_col = 0, angle_col = 45)
+
+```
+
+
+
+
+```{r eval=FALSE, include=FALSE}
+## scratch work
+lm_df <- data_df_cluster %>%
+  filter(Inhibitor == chosen_drug)
+model_og <- lm("value ~ Cluster + FLT3.ITD + FLT3.ITD:Cluster", data = lm_df)
+
+auc_mean <- mean(lm_df[lm_df$FLT3.ITD == "FALSE", "value"], na.rm = T)
+lm_df_std <- lm_df %>%
+  mutate(value = value - auc_mean)
+model <- lm("value ~ Cluster + FLT3.ITD + FLT3.ITD:Cluster", data = lm_df_std)
+model1 <- lm("value ~ -1 + Cluster + FLT3.ITD + FLT3.ITD:Cluster", data = lm_df_std)
+
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+## Little interaction, subtype important
+# chosen_drug <- "Selumetinib (AZD6244)"  # subtype predicts AUC response, little interaction.
+
+## Interaction present, subtype important
+# chosen_drug <- "Venetoclax"    ## affected little by FLT3, subtype interaction with FLT3 seen in cluster 3. 
+
+## Purely FLT3 effect, harder to discern for sure
+# chosen_drug <- "KW-2449"
+# chosen_drug <- "Crenolanib"
+chosen_drug <- "Elesclomol"  ## affected a lot by FLT3, maybe negative subtype interaction? in the sense that 
+                                 ## subtype 1 FLT3.ITD is not lower, but higher                                     
+                                 ## than FLT3.ITD false. This is a FLT3 inhibitor
+
+
+lm_df <- data_df_cluster %>%
+  filter(Inhibitor == chosen_drug)
+model_og <- lm("value ~ Cluster + FLT3.ITD:Cluster", data = lm_df)
+
+auc_mean <- mean(lm_df[lm_df$FLT3.ITD == "FALSE", "value"], na.rm = T)
+lm_df_std <- lm_df %>%
+  mutate(value = value - auc_mean)
+model <- lm("value ~ Cluster + FLT3.ITD:Cluster", data = lm_df_std)
+model1 <- lm("value ~ -1 + Cluster + FLT3.ITD:Cluster", data = lm_df_std)
+
+plot_df <- data.frame(AUC = AUC_mat[chosen_drug, ] %>% as.numeric(), Barcode.ID = colnames(AUC_mat)) %>%
+  merge(metadata %>% select(Barcode.ID, FLT3.ITD, Cluster), by = "Barcode.ID")
+AUC_mean = mean(plot_df[plot_df$FLT3.ITD == "FALSE", "AUC"], na.rm = T)
+
+ggplot(plot_df, aes(x = FLT3.ITD, y = AUC, color = FLT3.ITD)) + geom_boxplot() + 
+  geom_jitter(position = position_jitter()) +
+  geom_hline(aes(yintercept = AUC_mean)) + ggtitle(chosen_drug)
+
+ggplot(plot_df, aes(x = Cluster, y = AUC, color = Cluster)) + geom_boxplot() + 
+  geom_jitter(position = position_jitter()) +
+  geom_hline(aes(yintercept = AUC_mean)) + ggtitle(chosen_drug)
+
+ggplot(plot_df, aes(x = paste(Cluster, FLT3.ITD), y = AUC, color = FLT3.ITD)) + geom_boxplot() + 
+  geom_jitter(position = position_jitter()) +
+  geom_hline(aes(yintercept = AUC_mean)) + ggtitle(chosen_drug)
+
+
+```
+
+
+### Trying with boolean variables, gives the same behavior, and same coefficients and p-values
+
+```{r eval=FALSE, include=FALSE}
+data_df_cluster <- exprs(m_auc) %>% as.data.frame()
+data_df_cluster$Inhibitor <- rownames(data_df_cluster)
+data_df_cluster <- data_df_cluster %>%
+  pivot_longer(-Inhibitor) %>%
+  merge(metadata %>% select(name = Barcode.ID, FLT3.ITD, Cluster_1, Cluster_2, Cluster_3, Cluster_4))
+
+set.seed(117)
+data_df_shuffle <- exprs(m_auc) %>% as.data.frame()
+data_df_shuffle$Inhibitor <- rownames(data_df_shuffle)
+data_df_shuffle <- data_df_shuffle %>%
+  pivot_longer(-Inhibitor) %>%
+  merge(metadata %>% select(name = Barcode.ID, FLT3.ITD, Cluster = shuffle))
+
+auc_model_v2 <- function(chosen_drug, data_df){
+  lm_df <- data_df %>%
+    filter(Inhibitor == chosen_drug)
+  auc_mean <- mean(lm_df$value, na.rm = T)
+  # lm_df <- lm_df %>%
+  #   mutate(value = value - auc_mean)
+  model <- lm("value ~ FLT3.ITD + Cluster_1 + Cluster_2 + Cluster_3 + Cluster_4 + 
+              Cluster_1:FLT3.ITD + Cluster_2:FLT3.ITD +
+              Cluster_3:FLT3.ITD + Cluster_4:FLT3.ITD", data = lm_df)
+  out_df <- data.frame(Inhibitor = chosen_drug,
+                       term = tidy(summary(model))[, 1],
+                       p.value = tidy(summary(model))[, 5]) %>%
+    rbind(data.frame(Inhibitor = chosen_drug,
+                     term = "F_stat", 
+                     p.value = pf(summary(model)$fstatistic[[1]], summary(model)$fstatistic[[2]], 
+                                  summary(model)$fstatistic[[3]], lower.tail = FALSE)))
+  return(out_df)
+}
+
+
+```
+
+
+
+
+```{r}
+data_df_cluster <- exprs(m_auc) %>% as.data.frame()
+data_df_cluster$Inhibitor <- rownames(data_df_cluster)
+data_df_cluster <- data_df_cluster %>%
+  pivot_longer(-Inhibitor) %>%
+  merge(metadata %>% select(name = Barcode.ID, FLT3.ITD, Cluster))
+data_df_cluster$Cluster <- factor(data_df_cluster$Cluster, levels = c("1", "2", "3", "4"))
+
+data_df_shuffle <- exprs(m_auc) %>% as.data.frame()
+data_df_shuffle$Inhibitor <- rownames(data_df_shuffle)
+data_df_shuffle <- data_df_shuffle %>%
+  pivot_longer(-Inhibitor) %>%
+  merge(metadata %>% select(name = Barcode.ID, FLT3.ITD, Cluster = shuffle))
+
+auc_model <- function(chosen_drug, data_df){
+  lm_df <- data_df %>%
+    filter(Inhibitor == chosen_drug)
+  ## Normalize using FLT3.ITD = FALSE as the control group. 
+  ## Basically, we take away the mean of the FLT3.ITD = FALSE group
+  auc_mean <- mean(lm_df[lm_df$FLT3.ITD == "FALSE", "value"], na.rm = T)
+  lm_df <- lm_df %>%
+    mutate(value = value - auc_mean)
+  model <- lm("value ~ -1 + Cluster + Cluster:FLT3.ITD", data = lm_df)
+  out_df <- data.frame(Inhibitor = chosen_drug,
+                       term = tidy(summary(model))[, 1],
+                       p.value = tidy(summary(model))[, 5],
+                       coeff = model$coefficients %>% as.numeric()) %>%
+    rbind(data.frame(Inhibitor = chosen_drug,
+                     term = "F_stat", 
+                     p.value = pf(summary(model)$fstatistic[[1]], summary(model)$fstatistic[[2]], 
+                                  summary(model)$fstatistic[[3]], lower.tail = FALSE),
+                     coeff = NA))
+  return(out_df)
+}
+
+
+```
+
+
+
+```{r}
+epsi <- 0.0000001
+all_results <- lapply(rownames(m_auc), auc_model, data_df_cluster) %>% do.call("rbind", .) %>%
+  mutate(adj_p_val = p.adjust(p.value, method = "BH"),
+         xx = case_when(term != "F_stat" ~ (p.value < 0.05) * coeff,
+                        term == "F_stat" & p.value > 0.05 ~ 0)) %>%
+  select(-adj_p_val, -p.value, -coeff)
+
+mat_results <- pivot_wider(all_results, values_from = "xx", names_from = "term") %>%
+  select(Inhibitor, everything()) %>%
+  column_to_rownames("Inhibitor") %>% as.data.frame()
+
+colnames(mat_results) <- c("Subtype 1", "Subtype 2", "Subtype 3", "Subtype 4",
+                           "Subtype 1 and FLT3", "Subtype 2 and FLT3", 
+                           "Subtype 3 and FLT3", "Subtype 4 and FLT3", "F tatistic")
+
+
+color_pal <- c(rev(colorRampPalette(brewer.pal(n = 8, name = "Blues"))(15)), 
+               "grey", 
+               colorRampPalette(brewer.pal(n = 8, name = "Reds"))(15))
+
+breaks_buddy <- c(seq(min(mat_results, na.rm = T), -2*epsi, length = 15), 
+                  -epsi, epsi,
+                  seq(2*epsi, max(mat_results, na.rm = T), length = 15))
+
+pheatmap(mat_results, color = color_pal, breaks = breaks_buddy, na_col = "#815F8A",
+         legend = TRUE, filename = "subtype_auc_model_summary_interaction_v2.png", fontsize = 13,
+         treeheight_col = 0, angle_col = 315, cluster_cols = F, width = 8.5, height = 15)
+
+pheatmap(mat_results, color = color_pal, breaks = breaks_buddy, na_col = "#815F8A",
+         legend = TRUE, filename = "subtype_auc_model_summary_interaction_v2.pdf", fontsize = 13,
+         treeheight_col = 0, angle_col = 315, cluster_cols = F, width = 8.5, height = 15)
+
+```
+
+
+
+```{r}
+
+
+
+
+```
+
+
+
+```{r}
+
+all_results <- lapply(rownames(m_auc), auc_model, data_df_shuffle) %>% do.call("rbind", .) %>%
+  mutate(adj_p_val = p.adjust(p.value, method = "BH")) %>%
+  select(-p.value)
+
+mat_results <- pivot_wider(all_results, values_from = "adj_p_val", names_from = "term") %>%
+  select(Inhibitor, everything()) %>%
+  column_to_rownames("Inhibitor") %>% as.data.frame()
+
+
+pheatmap(t(mat_results), color = colorRampPalette(brewer.pal(n = 7, name = "RdBu"))(2),
+         breaks = c(0, 0.05, 1), legend = FALSE, filename = "subtype_auc_model_summary_interaction_shuffled.png", 
+         treeheight_row = 0, treeheight_col = 0, angle_col = 315, cluster_rows = F, width = 20, height = 7)
+
+pheatmap(t(mat_results), color = colorRampPalette(brewer.pal(n = 7, name = "RdBu"))(2),
+         breaks = c(0, 0.05, 1), legend = FALSE, filename = "subtype_auc_model_summary_interaction_shuffled.pdf", 
+         treeheight_row = 0, treeheight_col = 0, angle_col = 315, cluster_rows = F, width = 20, height = 7)
+
+```
+
+
+
+```{r}
+chosen_drug <- "JAK Inhibitor"
+plot_df <- data.frame(AUC = AUC_mat[chosen_drug, ] %>% as.numeric(), Barcode.ID = colnames(AUC_mat)) %>%
+  merge(metadata %>% select(Barcode.ID, FLT3.ITD, Cluster), by = "Barcode.ID")
+AUC_mean = mean(plot_df[plot_df$FLT3.ITD == "FALSE", "AUC"], na.rm = T)
+
+meta_shuffled <- data_df_shuffle %>%
+  select(Barcode.ID = name, FLT3.ITD, Cluster) %>%
+  unique()
+
+plot_df_shuffled <- plot_df %>% select(-Cluster, -FLT3.ITD) %>%
+  merge(meta_shuffled, by = "Barcode.ID")
+
+## Original cluster
+ggplot(plot_df, aes(x = FLT3.ITD, y = AUC, color = FLT3.ITD)) + geom_boxplot() + 
+  geom_jitter(position = position_jitter()) +
+  geom_hline(aes(yintercept = AUC_mean)) + ggtitle("original")
+
+ggplot(plot_df, aes(x = Cluster, y = AUC, color = Cluster)) + geom_boxplot() + 
+  geom_jitter(position = position_jitter()) +
+  geom_hline(aes(yintercept = AUC_mean)) + ggtitle("original")
+
+ggplot(plot_df, aes(x = paste(Cluster, FLT3.ITD), 
+                    y = AUC, color = FLT3.ITD)) + geom_boxplot() + 
+  geom_jitter(position = position_jitter()) +
+  geom_hline(aes(yintercept = AUC_mean)) + ggtitle("original")
+
+## Shuffled cluster labels
+ggplot(plot_df_shuffled, aes(x = FLT3.ITD, y = AUC, color = FLT3.ITD)) + geom_boxplot() + 
+  geom_jitter(position = position_jitter()) +
+  geom_hline(aes(yintercept = AUC_mean)) + ggtitle("shuffled")
+
+ggplot(plot_df_shuffled, aes(x = Cluster, y = AUC, color = Cluster)) + geom_boxplot() + 
+  geom_jitter(position = position_jitter()) +
+  geom_hline(aes(yintercept = AUC_mean)) + ggtitle("shuffled")
+
+ggplot(plot_df_shuffled, aes(x = paste(Cluster, FLT3.ITD), 
+                             y = AUC, color = FLT3.ITD)) + geom_boxplot() + 
+  geom_jitter(position = position_jitter()) +
+  geom_hline(aes(yintercept = AUC_mean)) + ggtitle("shuffled")
+
+```
+
+
+
+```{r}
+pheatmap(exprs(m_auc), na_col = "white", cluster_rows = FALSE, cluster_cols = FALSE,
+         show_colnames = FALSE, height = 10, filename = "auc_data_updated.pdf")
+
+```
+
+
+
+
+
