@@ -39,6 +39,13 @@ clusters <- read.table(syn$get("syn30030154")$path, sep = "\t")
 rownames(clusters) <- clusters$Barcode.ID
 metadata$Cluster <- clusters[rownames(metadata), "Cluster"]
 
+## Restricting to 159 RNA samples here
+rna_samples <- unique(RNA.data$Barcode.ID) 
+global.data <- global.data %>%
+  filter(Barcode.ID %in% rna_samples)
+phospho.data <- phospho.data %>%
+  filter(Barcode.ID %in% rna_samples)
+
 global_mat <- pivot_wider(global.data, names_from = "Barcode.ID", 
                           values_from = "LogRatio") %>%
   column_to_rownames("Gene")
@@ -132,7 +139,7 @@ ksea_wrap <- function(m, var_name, top_n = 7, font_size = 7, ending = "", ...){
   combined_ksea$pathway_subtype_id <- paste(combined_ksea$pathway, 
                                             combined_ksea$var_name, sep = " -- ")
   rownames(combined_ksea) <- combined_ksea$pathway_subtype_id
-  write.table(combined_ksea, paste0("Data/subtype_drivers/ksea_", var_name, "_", 
+  write.table(combined_ksea, paste0("Data/subtype_drivers/ksea_159_", var_name, "_", 
                                     ending, "_results.txt"), sep = "\t")
   
   chosen_pathways <- combined_ksea %>%
@@ -170,10 +177,10 @@ ksea_wrap <- function(m, var_name, top_n = 7, font_size = 7, ending = "", ...){
   if (nchar(ending) > 0){
     ending <- tolower(ending)
     var_name <- tolower(var_name)
-    plot_path <- paste0("Data/subtype_drivers/ksea_", var_name, "_", ending, ".pdf") %>%
+    plot_path <- paste0("Data/subtype_drivers/ksea_159_", var_name, "_", ending, ".pdf") %>%
       gsub(" ", "_", .)
   } else {
-    plot_path <- paste0("Data/subtype_drivers/ksea_", var_name, ".pdf")
+    plot_path <- paste0("Data/subtype_drivers/ksea_159_", var_name, ".pdf")
   }
   
   colnames(ksea_mat) <- sub("^Cluster", "Subtype", colnames(ksea_mat))
@@ -199,10 +206,10 @@ rank_gsea <- function(m, var_name, t2g, wrap_width = 40, font_size = 7,
   combined_gsea <- data.frame()
   exprs(m) <- sweep(exprs(m), 1, apply(exprs(m), 1, mean, na.rm = T), FUN = '-')
   
-  if (file.exists(paste0("Data/subtype_drivers/rank_gsea_", var_name, "_", 
+  if (file.exists(paste0("Data/subtype_drivers/rank_gsea_159_", var_name, "_", 
                          ending, "_results.txt"))){
     print("Found GSEA results table.")
-    combined_gsea <- read.table(paste0("Data/subtype_drivers/rank_gsea_", var_name, "_", 
+    combined_gsea <- read.table(paste0("Data/subtype_drivers/rank_gsea_159_", var_name, "_", 
                                        ending, "_results.txt"))
   } else {
     for (level in var_levels){
@@ -224,7 +231,7 @@ rank_gsea <- function(m, var_name, t2g, wrap_width = 40, font_size = 7,
     combined_gsea$pathway_subtype_id <- paste(combined_gsea$Description, 
                                               combined_gsea$var_name, sep = " -- ")
     rownames(combined_gsea) <- combined_gsea$pathway_subtype_id
-    write.table(combined_gsea, paste0("Data/subtype_drivers/rank_gsea_", var_name, "_",
+    write.table(combined_gsea, paste0("Data/subtype_drivers/rank_gsea_159_", var_name, "_",
                                       ending, "_results.txt"), sep = "\t")
   }
   
@@ -269,10 +276,10 @@ rank_gsea <- function(m, var_name, t2g, wrap_width = 40, font_size = 7,
   if (nchar(ending) > 0){
     ending <- tolower(ending)
     var_name <- tolower(var_name)
-    plot_path <- paste0("Data/subtype_drivers/rank_gsea_", var_name, "_", ending, ".pdf") %>%
+    plot_path <- paste0("Data/subtype_drivers/rank_gsea_159_", var_name, "_", ending, ".pdf") %>%
       gsub(" ", "_", .)
   } else {
-    plot_path <- paste0("Data/subtype_drivers/rank_gsea_", var_name, ".pdf")
+    plot_path <- paste0("Data/subtype_drivers/rank_gsea_159_", var_name, ".pdf")
   }
   
   colnames(gsea_mat) <- sub("^Cluster", "Subtype", colnames(gsea_mat))
@@ -297,8 +304,8 @@ p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_hallmark, top_n = 7, ending = "RNA -
 p3 <- ksea_wrap(m_phospho, var_name = "Cluster", top_n = 6, ending = "Phospho - PhosphoSitePlus & NetworKIN")
 
 p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_hallmarks.pdf", width = 16, height = 6)
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_hallmarks.png", width = 16, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_hallmarks.pdf", width = 16, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_hallmarks.png", width = 16, height = 6)
                        
 ```
 
@@ -311,8 +318,8 @@ p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_gobp, top_n = 7,
                 ending = "RNA - GO Biological Process", font_size = 6, wrap_width = 50)
 
 p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_gsea_gobp.pdf", width = 19, height = 5.5)
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_gsea_gobp.png", width = 19, height = 5.5)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_gsea_gobp.pdf", width = 19, height = 5.5)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_gsea_gobp.png", width = 19, height = 5.5)
                        
 ```
 
@@ -325,8 +332,8 @@ p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_reactome, top_n = 7, ending = "RNA -
                 font_size = 6, wrap_width = 50)
 
 p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_reactome.pdf", width = 18, height = 6)
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_reactome.png", width = 18, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_reactome.pdf", width = 18, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_reactome.png", width = 18, height = 6)
                        
 ```
 
@@ -337,8 +344,8 @@ p1 <- rank_gsea(m_global, "Cluster", t2g = t2g_biocarta, top_n = 7, ending = "Gl
 p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_biocarta, top_n = 7, ending = "RNA - Biocarta")
 
 p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_biocarta.pdf", width = 16, height = 6)
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_biocarta.png", width = 16, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_biocarta.pdf", width = 16, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_biocarta.png", width = 16, height = 6)
                        
 ```
 
@@ -349,8 +356,8 @@ p1 <- rank_gsea(m_global, "Cluster", t2g = t2g_kegg, top_n = 7, ending = "Global
 p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_kegg, top_n = 7, ending = "RNA - KEGG")
 
 p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_kegg.pdf", width = 17, height = 6)
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_kegg.png", width = 17, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_kegg.pdf", width = 17, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_kegg.png", width = 17, height = 6)
                        
 ```
 
@@ -361,8 +368,8 @@ p1 <- rank_gsea(m_global, "Cluster", t2g = t2g_wikipathways, top_n = 7, ending =
 p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_wikipathways, top_n = 7, ending = "RNA - Wiki Pathways")
 
 p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_wikipathways.pdf", width = 16, height = 6)
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_wikipathways.png", width = 16, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_wikipathways.pdf", width = 16, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_wikipathways.png", width = 16, height = 6)
                        
 ```
 
@@ -373,14 +380,16 @@ p1 <- rank_gsea(m_global, "Cluster", t2g = t2g_PathwayInteractionDB, top_n = 7, 
 p2 <- rank_gsea(m_rna, "Cluster", t2g = t2g_PathwayInteractionDB, top_n = 7, ending = "RNA - PID")
 
 p <- arrangeGrob(p1[[4]], p2[[4]], p3[[4]], ncol = 3) 
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_pathway_interaction_db.pdf", width = 16, height = 6)
-ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_pathway_interaction_db.png", width = 16, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_pathway_interaction_db.pdf", width = 16, height = 6)
+ggsave(plot = p, "Data/subtype_drivers/combined_gsea_ksea_159_pathway_interaction_db.png", width = 16, height = 6)
                        
 ```
 
+
+
 ```{r}
-ggsave(plot = p3[[4]], filename = "Data/subtype_drivers/ksea_by_cluster.pdf", height = 6, width = 6)
-ggsave(plot = p3[[4]], filename = "Data/subtype_drivers/ksea_by_cluster.png", height = 6, width = 6)
+ggsave(plot = p3[[4]], filename = "Data/subtype_drivers/ksea_159_by_cluster.pdf", height = 6, width = 6)
+ggsave(plot = p3[[4]], filename = "Data/subtype_drivers/ksea_159_by_cluster.png", height = 6, width = 6)
 
 ```
 

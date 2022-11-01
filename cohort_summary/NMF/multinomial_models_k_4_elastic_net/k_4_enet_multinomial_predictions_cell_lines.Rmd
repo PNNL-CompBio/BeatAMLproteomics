@@ -269,6 +269,7 @@ combined <- get_probabilities(tram$`Global msnset`, tram_comp$`Global msnset`) %
 
 
 ```{r Quizartinib Resistance setup}
+##Updating for paper
 
 ## Quizartinib Resistance Proteomics Data
 quizProtData <- querySynapseTable('syn23595222') %>%
@@ -621,6 +622,7 @@ ggsave(plot = p, filename = path_str, height = 5, width = 7)
 
 
 ```{r Quizartinib Resistance}
+##Updating for paper
 m <- quiz$`Global msnset`
 plot_title <- "Quizartinib Resistance"
 path_str <- tolower(plot_title) %>% gsub(" ", "_", .)
@@ -680,10 +682,9 @@ alluvial_df <- quiz_meta %>%
 p3 <- ggplot(alluvial_df, 
              aes(x = CellLine, y = Proportion, alluvium = Subtype)) +
   geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) +
-  scale_x_discrete(expand = c(0.15, 0)) +
-  ggtitle(plot_title) + scale_x_discrete(expand = c(0.3, 0)) + 
+  ggtitle(plot_title) +
   theme(axis.title.x = element_blank(),
-        axis.text.x = element_text(size = 7))
+        axis.text.x = element_text(size = 9, angle = 45, vjust = .65))
 
 path_str <- sub(".pdf$", "_no_ligand.pdf", path_str)
 ggsave(plot = p3, filename = path_str, height = 5.2, width = 10)
@@ -708,13 +709,12 @@ alluvial_df <- quiz_meta %>%
 p4 <- ggplot(alluvial_df, 
              aes(x = CellLine, y = Proportion, alluvium = Subtype)) +
   geom_alluvium(aes(fill = Subtype)) + scale_fill_manual(values = subtype_colors) +
-  scale_x_discrete(expand = c(0.3, 0)) +
-  ggtitle(plot_title) + scale_x_discrete(expand = c(0.3, 0)) + 
+  ggtitle(plot_title) +
   theme(axis.title.x = element_blank(),
-        axis.text.x = element_text(size = 7))
+        axis.text.x = element_text(size = 9, angle = 45, vjust = .65))
 
 path_str <- sub(".pdf$", "_v2.pdf", path_str)
-ggsave(plot = p4, filename = path_str, height = 5.2, width = 7)
+ggsave(plot = p4, filename = path_str, height = 5.2, width = 8)
 
 
 ```

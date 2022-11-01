@@ -120,6 +120,9 @@ coph.correlation <- sapply(results, cophcor) %>%
   data.frame(coph.cor = ., k = 2:8) %>%
   filter(k <= 8)
 
+write.table(coph.correlation, file = "cophenetic_correlation.txt", 
+            sep = "\t", quote = F, row.names = F)
+
 p <- ggplot(coph.correlation, aes(x = k, y = coph.cor)) + geom_line() + 
   ylab("Cophenetic correlation") + scale_x_continuous(breaks = 2:8)
 
@@ -229,7 +232,7 @@ fab_annotations <- summary.table %>%
 ## pheatmap column labels
 ann.labels <- meta %>%
   filter(Barcode.ID %in% samples.common) %>%
-  select(FLT3.ITD, PostChemotherapy, vitalStatus) %>%
+  select(FLT3.ITD, PostChemotherapy) %>%
   mutate(FLT3.ITD = as.factor(FLT3.ITD),
          PostChemotherapy = as.factor(PostChemotherapy),
          Barcode.ID = rownames(.))
@@ -260,12 +263,12 @@ ann.labels <- ann.labels %>%
   mutate(FAB = factor(FAB, levels = c("M0", "M1", "M2", "M3", "M4", "M5", "None"))) %>%
   column_to_rownames("Barcode.ID") %>%
   as.data.frame() %>%
-  select(PostChemotherapy, NPM1, NPM1_clinical, RAS, vitalStatus, FLT3.ITD, FLT3_MAF, FLT3_AR, FAB) %>%
+  select(PostChemotherapy, NPM1, NPM1_clinical, RAS, FLT3.ITD, FLT3_MAF, FLT3_AR, FAB) %>%
   dplyr::rename(`FLT3_MAF (percentage)` = FLT3_MAF,
                 `RAS vaf` = RAS)
 
 ## Slimming down annotations
-ann.labels <- ann.labels[, c("RAS vaf", "FLT3.ITD", "NPM1_clinical", "FAB",  "vitalStatus")]
+ann.labels <- ann.labels[, c("RAS vaf", "FLT3.ITD", "NPM1_clinical", "FAB")] #,  "vitalStatus")]
 
 ## White to dark purple (like the snow storms on weather maps)
 colors.wp <- scales::seq_gradient_pal("#FFFFFF", "#4A0078", "Lab")(seq(0,1,length.out = p.celing*10 + 1))
@@ -282,9 +285,10 @@ ann.colors <- lapply(names(ann.labels), function(x){
       "None" = "white")
   } else if (length(levels(ann.labels[[x]])) == 2) {
     c(`FALSE` = "white", `TRUE` = "darkgrey")
-  } else {
-    c("Alive" = "white", "Dead" = "darkgrey", "Unknown" = "brown")
   }
+  # } else {
+  #   c("Alive" = "white", "Dead" = "darkgrey", "Unknown" = "brown")
+  # }
   })
 names(ann.colors) <- names(ann.labels)
 

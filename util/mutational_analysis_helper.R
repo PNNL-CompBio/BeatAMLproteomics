@@ -185,7 +185,7 @@ compress_enrichment <- function(enrichment_array, threshold = .75, colname='Coun
   
   # sort enrichment array by attribute of choice
   enrichment_array <- enrichment_array%>%
-    dplyr::mutate(sortval=colname)
+    dplyr::mutate(sortval := !! sym(colname))
   
   if (descending){
     enrichment_array <- enrichment_array %>%
