@@ -21,9 +21,10 @@ def load_file(file_id, delimiter='\t'):
     return table
 
 
-def load_excel(file_id):
+def load_excel(file_id, sheet_name=0):
     table = pd.read_excel(
         syn.get(file_id).path,
+        sheet_name,
         engine='openpyxl'
     )
     return table
