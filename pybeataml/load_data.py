@@ -103,48 +103,66 @@ def prep_metabolomics():
     return subset
 
 def prep_lipidomics():
-    cols = ['Name', 'labId',
+    cols = ['Metabolite name', 'labId',
             'area']
 
     mapper = {
-        'display_label': 'Name',
+        'display_label': 'Metabolite name',
         'area': 'area',
         'labId': 'labId',
     }
 
-    # import HILIC pos & neg and drop extra rows & columns
+    # import pos & neg and drop extra columns
     data_pos = load_excel(metabolomics_id, 0)
-    data_pos = data_pos.iloc[:-135] # drop unknowns
-    data_pos = data_pos.drop(columns=['Blank_BEAT_AML_01_HILIC_POS',
-                                      'Blank_BEAT_AML_02_HILIC_POS',
-                                      'Blank_BEAT_AML_03_HILIC_POS',
-                                      'Blank_BEAT_AML_04_HILIC_POS',
-                                      'Blank_BEAT_AML_05_HILIC_POS']) # drop blanks
+    data_pos = data_pos.drop(columns=['CPTAC4_AML_BM_L_QC_01_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_02_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_03_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_04_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_05_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_06_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_07_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_01_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_02_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_03_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_04_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_05_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_06_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_07_Lumos_Pos_18Feb23_Crater-WCSH315305']) # drop CPTAC4
     data_pos = data_pos.drop(columns=['Alignment', 'Average Rt(min)',
-                                      'Average Mz'])
+                                      'Average Mz', 'Adduct type',
+                                      'Reference m/z', 'Formula', 
+                                      'Ontology', 'MS/MS spectrum'])
 
     data_neg = load_excel(metabolomics_id, 1)
-    data_neg = data_neg.iloc[:-98] # drop unknowns
-    data_neg = data_neg.drop(columns=['Blank_BEAT_AML_01_HILIC_NEG_2uL_18Apr23_Olympic_WBEH-8588_r1.raw (F169)',
-                                      'Blank_BEAT_AML_02_HILIC_NEG_2uL_18Apr23_Olympic_WBEH-8588_r1_20230418144054.raw (F170)',
-                                      'Blank_BEAT_AML_02_HILIC_NEG',
-                                      'Blank_BEAT_AML_02_HILIC_NEG2',
-                                      'Blank_BEAT_AML_02_HILIC_NEG3',
-                                      'Blank_BEAT_AML_03_HILIC_NEG',
-                                      'Blank_BEAT_AML_04_HILIC_NEG',
-                                      'Blank_BEAT_AML_05_HILIC_NEG']) # drop blanks
-    data_neg = data.drop(columns=['m/z', 'RT [min]', 'Tags',
-                              'Standardized name', 'Super class',
-                              'Main class', 'Sub class', 'Formula',
-                              'Annot.DeltaMass[ppm]',
-                              'Annotation MW', 'Reference Ion'])
+    data_neg = data_neg.drop(columns=['CPTAC4_AML_BM_L_QC_01_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_02_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_03_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_04_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_05_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_06_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_07_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_01_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_02_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_03_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_04_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_05_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_06_Lumos_Pos_18Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_07_Lumos_Pos_18Feb23_Crater-WCSH315305']) # drop CPTAC4
+    data_neg = data_neg.drop(columns=['Alignment', 'Average Rt(min)',
+                                      'Average Mz', 'Adduct type',
+                                      'Reference m/z', 'Formula', 
+                                      'Ontology', 'MS/MS spectrum'])
+    
+    # average across duplicate compound names
+    data_pos = data_pos.groupby(['Metabolite name']).mean()
+    data_neg = data_neg.groupby(['Metabolite name']).mean()
 
     # reformat to long format, normalize, and combine pos & neg data
-    data_pos = pd.melt(data_pos, id_vars=['Name'], 
+    data_pos = pd.melt(data_pos, id_vars=['Metabolite name'], 
                         var_name = 'labId', value_name='area')
     data_pos['area'] = data_pos['area'] / data_pos['area'].abs().max()
 
-    data_neg = pd.melt(data_neg, id_vars=['Name'], 
+    data_neg = pd.melt(data_neg, id_vars=['Metabolite name'], 
                         var_name = 'labId', value_name='area')
     data_neg['area'] = data_neg['area'] / data_neg['area'].abs().max()
 
@@ -152,7 +170,7 @@ def prep_lipidomics():
 
     # extract sample IDs from labID column
     data['labId_og'] = data['labId']
-    data['labId'] = data['labId_og'].apply(lambda st: st[st.find("BEAT_AML_PNL_") + 1:st.find("_M")])
+    data['labId'] = data['labId_og'].apply(lambda st: st[st.find("BEAT_AML_PNL_") + 1:st.find("_L")])
     data['labId'] = pd.to_numeric(data['labId'], errors = 'coerce').astype(pd.Int16Dtype())
     
     # reformat data
