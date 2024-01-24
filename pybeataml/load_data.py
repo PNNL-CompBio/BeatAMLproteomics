@@ -288,10 +288,13 @@ class AMLData(object):
         self.proteomics = prep_proteomics()
         self.phospho = prep_phosph()
         self.rna = prep_rnaseq()
+        self.metabolomics = prep_metabolomics()
+        self.lipidomics = prep_lipidomics()
         self.functional = load_drug_response()
         self.wes = load_mutations()
         self.flat_data = pd.concat(
-            [self.phospho, self.proteomics, self.rna, self.wes]
+            [self.phospho, self.proteomics, self.rna, 
+             self.metabolomics, self.lipidomics, self.wes]
         )
 
         # Until i find the tables, commenting this
