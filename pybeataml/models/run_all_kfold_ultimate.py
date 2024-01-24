@@ -2,6 +2,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 import sklearn.linear_model as LM
+import itertools as it
 from scipy.stats import pearsonr
 from sklearn import metrics
 from sklearn import svm
@@ -207,23 +208,15 @@ if __name__ == '__main__':
     drugs = counts[counts > 20].index.values
     # only run single drugs for now
     drug_solo = [i for i in drugs if ' - ' not in i]
-    data_sources = [
-        'rna_seq',
-        'proteomics',
-        'phospho',
-        'wes',
-        ['proteomics', 'phospho'],
-        ['proteomics', 'rna_seq', ],
-        ['proteomics', 'wes'],
-        ['phospho', 'rna_seq', ],
-        ['phospho', 'wes'],
-        ['rna_seq', 'wes'],
-        ['phospho', 'rna_seq', 'wes'],
-        ['proteomics', 'rna_seq', 'wes'],
-        ['proteomics', 'phospho', 'wes'],
-        ['proteomics', 'phospho', 'rna_seq', 'wes'],
-    ]
 
+    # generate all possible combinations of input data
+    all_sources = ['wes', 'rna_seq', 'proteomics', 'phospho', 'metabolomics', 'lipidomics']
+    data_sources = []
+    for l in range(len(all_sources) + 1):
+        for subset in it.combinations(all_sources, l):
+            data_sources = [data_sources, subset]
+
+    # run model for each possible combination
     models = []
     for i in drug_solo:
         print(f"Working on {i}")
