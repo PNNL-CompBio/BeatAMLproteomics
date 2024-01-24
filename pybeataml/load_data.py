@@ -9,7 +9,7 @@ TODO
 import pandas as pd
 
 from pybeataml.data import ExperimentalData
-from pybeataml.load_data_from_synpase import load_table, load_file
+from pybeataml.load_data_from_synpase import load_table, load_file, load_excel
 
 # current synapse ids, check with Camilo to see if these are the final (
 # I know there are some other corrected/v2/uncorrected in the R code)
@@ -19,6 +19,8 @@ rnaseq_id = 'syn26545877'
 drug_response_id = 'syn25830473'
 meta_file_id = 'syn26534982'
 wes_id = 'syn26428827'
+metabolomics_id = 'syn52224584'
+lipidomics_id = 'syn52121001'
 
 
 def prep_rnaseq():
@@ -37,6 +39,128 @@ def prep_rnaseq():
     subset['label'] = subset.gene_symbol + '_rna'
     return subset
 
+def prep_metabolomics():
+    cols = ['Name', 'labId',
+            'area']
+
+    mapper = {
+        'display_label': 'Name',
+        'area': 'area',
+        'labId': 'labId',
+    }
+
+    # import HILIC pos & neg and drop extra rows & columns
+    data_pos = load_excel(metabolomics_id, 0)
+    data_pos = data_pos.iloc[:-135] # drop unknowns
+    data_pos = data_pos.drop(columns=['Blank_BEAT_AML_01_HILIC_POS',
+                                      'Blank_BEAT_AML_02_HILIC_POS',
+                                      'Blank_BEAT_AML_03_HILIC_POS',
+                                      'Blank_BEAT_AML_04_HILIC_POS',
+                                      'Blank_BEAT_AML_05_HILIC_POS']) # drop blanks
+    data_pos = data_pos.drop(columns=['m/z', 'RT [min]', 'Tags',
+                              'Standardized name', 'Super class',
+                              'Main class', 'Sub class', 'Formula',
+                              'Annot.DeltaMass[ppm]',
+                              'Annotation MW', 'Reference Ion'])
+
+    data_neg = load_excel(metabolomics_id, 1)
+    data_neg = data_neg.iloc[:-98] # drop unknowns
+    data_neg = data_neg.drop(columns=['Blank_BEAT_AML_01_HILIC_NEG_2uL_18Apr23_Olympic_WBEH-8588_r1.raw (F169)',
+                                      'Blank_BEAT_AML_02_HILIC_NEG_2uL_18Apr23_Olympic_WBEH-8588_r1_20230418144054.raw (F170)',
+                                      'Blank_BEAT_AML_02_HILIC_NEG',
+                                      'Blank_BEAT_AML_02_HILIC_NEG2',
+                                      'Blank_BEAT_AML_02_HILIC_NEG3',
+                                      'Blank_BEAT_AML_03_HILIC_NEG',
+                                      'Blank_BEAT_AML_04_HILIC_NEG',
+                                      'Blank_BEAT_AML_05_HILIC_NEG']) # drop blanks
+    data_neg = data.drop(columns=['m/z', 'RT [min]', 'Tags',
+                              'Standardized name', 'Super class',
+                              'Main class', 'Sub class', 'Formula',
+                              'Annot.DeltaMass[ppm]',
+                              'Annotation MW', 'Reference Ion'])
+
+    # reformat to long format, normalize, and combine pos & neg data
+    data_pos = pd.melt(data_pos, id_vars=['Name'], 
+                        var_name = 'labId', value_name='area')
+    data_pos['area'] = data_pos['area'] / data_pos['area'].abs().max()
+
+    data_neg = pd.melt(data_neg, id_vars=['Name'], 
+                        var_name = 'labId', value_name='area')
+    data_neg['area'] = data_neg['area'] / data_neg['area'].abs().max()
+
+    data = pd.concat([data_pos, data_neg])
+
+    # extract sample IDs from labID column
+    data['labId_og'] = data['labId']
+    data['labId'] = data['labId_og'].apply(lambda st: st[st.find("BEAT_AML_PNL_") + 1:st.find("_M")])
+    data['labId'] = pd.to_numeric(data['labId'], errors = 'coerce').astype(pd.Int16Dtype())
+    
+    # reformat data
+    subset = data.loc[:, cols]
+    subset.rename(mapper, axis=1, inplace=True)
+    subset['source'] = 'metabolomics'
+    subset['label'] = subset.gene_symbol + '_met'
+    return subset
+
+def prep_lipidomics():
+    cols = ['Name', 'labId',
+            'area']
+
+    mapper = {
+        'display_label': 'Name',
+        'area': 'area',
+        'labId': 'labId',
+    }
+
+    # import HILIC pos & neg and drop extra rows & columns
+    data_pos = load_excel(metabolomics_id, 0)
+    data_pos = data_pos.iloc[:-135] # drop unknowns
+    data_pos = data_pos.drop(columns=['Blank_BEAT_AML_01_HILIC_POS',
+                                      'Blank_BEAT_AML_02_HILIC_POS',
+                                      'Blank_BEAT_AML_03_HILIC_POS',
+                                      'Blank_BEAT_AML_04_HILIC_POS',
+                                      'Blank_BEAT_AML_05_HILIC_POS']) # drop blanks
+    data_pos = data_pos.drop(columns=['Alignment', 'Average Rt(min)',
+                                      'Average Mz'])
+
+    data_neg = load_excel(metabolomics_id, 1)
+    data_neg = data_neg.iloc[:-98] # drop unknowns
+    data_neg = data_neg.drop(columns=['Blank_BEAT_AML_01_HILIC_NEG_2uL_18Apr23_Olympic_WBEH-8588_r1.raw (F169)',
+                                      'Blank_BEAT_AML_02_HILIC_NEG_2uL_18Apr23_Olympic_WBEH-8588_r1_20230418144054.raw (F170)',
+                                      'Blank_BEAT_AML_02_HILIC_NEG',
+                                      'Blank_BEAT_AML_02_HILIC_NEG2',
+                                      'Blank_BEAT_AML_02_HILIC_NEG3',
+                                      'Blank_BEAT_AML_03_HILIC_NEG',
+                                      'Blank_BEAT_AML_04_HILIC_NEG',
+                                      'Blank_BEAT_AML_05_HILIC_NEG']) # drop blanks
+    data_neg = data.drop(columns=['m/z', 'RT [min]', 'Tags',
+                              'Standardized name', 'Super class',
+                              'Main class', 'Sub class', 'Formula',
+                              'Annot.DeltaMass[ppm]',
+                              'Annotation MW', 'Reference Ion'])
+
+    # reformat to long format, normalize, and combine pos & neg data
+    data_pos = pd.melt(data_pos, id_vars=['Name'], 
+                        var_name = 'labId', value_name='area')
+    data_pos['area'] = data_pos['area'] / data_pos['area'].abs().max()
+
+    data_neg = pd.melt(data_neg, id_vars=['Name'], 
+                        var_name = 'labId', value_name='area')
+    data_neg['area'] = data_neg['area'] / data_neg['area'].abs().max()
+
+    data = pd.concat([data_pos, data_neg])
+
+    # extract sample IDs from labID column
+    data['labId_og'] = data['labId']
+    data['labId'] = data['labId_og'].apply(lambda st: st[st.find("BEAT_AML_PNL_") + 1:st.find("_M")])
+    data['labId'] = pd.to_numeric(data['labId'], errors = 'coerce').astype(pd.Int16Dtype())
+    
+    # reformat data
+    subset = data.loc[:, cols]
+    subset.rename(mapper, axis=1, inplace=True)
+    subset['source'] = 'lipidomics'
+    subset['label'] = subset.gene_symbol + '_lip'
+    return subset
 
 def prep_phosph():
     pho_cols = ['Gene', 'SiteID', 'LogRatio',
