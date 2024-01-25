@@ -128,27 +128,27 @@ def prep_lipidomics():
                                       'CPTAC4_AML_WB_L_QC_05_Lumos_Pos_18Feb23_Crater-WCSH315305',
                                       'CPTAC4_AML_WB_L_QC_06_Lumos_Pos_18Feb23_Crater-WCSH315305',
                                       'CPTAC4_AML_WB_L_QC_07_Lumos_Pos_18Feb23_Crater-WCSH315305']) # drop CPTAC4
-    data_pos = data_pos.drop(columns=['Alignment', 'Average Rt(min)',
+    data_pos = data_pos.drop(columns=['Alignment ID', 'Average Rt(min)',
                                       'Average Mz', 'Adduct type',
                                       'Reference m/z', 'Formula', 
                                       'Ontology', 'MS/MS spectrum'])
 
     data_neg = load_excel(lipidomics_id, 0)
-    data_neg = data_neg.drop(columns=['CPTAC4_AML_BM_L_QC_01_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_BM_L_QC_02_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_BM_L_QC_03_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_BM_L_QC_04_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_BM_L_QC_05_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_BM_L_QC_06_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_BM_L_QC_07_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_WB_L_QC_01_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_WB_L_QC_02_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_WB_L_QC_03_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_WB_L_QC_04_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_WB_L_QC_05_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_WB_L_QC_06_Lumos_Pos_18Feb23_Crater-WCSH315305',
-                                      'CPTAC4_AML_WB_L_QC_07_Lumos_Pos_18Feb23_Crater-WCSH315305']) # drop CPTAC4
-    data_neg = data_neg.drop(columns=['Alignment', 'Average Rt(min)',
+    data_neg = data_neg.drop(columns=['CPTAC4_AML_BM_L_QC_01_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_02_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_03_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_04_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_05_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_06_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_BM_L_QC_07_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_01_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_02_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_03_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_04_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_05_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_06_Lumos_Neg_22Feb23_Crater-WCSH315305',
+                                      'CPTAC4_AML_WB_L_QC_07_Lumos_Neg_22Feb23_Crater-WCSH315305']) # drop CPTAC4
+    data_neg = data_neg.drop(columns=['Alignment ID', 'Average Rt(min)',
                                       'Average Mz', 'Adduct type',
                                       'Reference m/z', 'Formula', 
                                       'Ontology', 'MS/MS spectrum'])
