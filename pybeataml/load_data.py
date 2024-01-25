@@ -445,7 +445,7 @@ class AMLData(object):
 
         df_subset.dropna(
             axis=1,
-            how='any',
+            #how='any',
             thresh=n_features_remaining,
             inplace=True
         )
