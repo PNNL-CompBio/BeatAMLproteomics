@@ -66,7 +66,7 @@ def prep_metabolomics():
     data_neg = load_excel(metabolomics_id, 1)
     data_neg = data_neg.iloc[:-98] # drop unknowns
     data_neg = data_neg.drop(columns=['Blank_BEAT_AML_01_HILIC_NEG_2uL_18Apr23_Olympic_WBEH-8588_r1.raw (F169)',
-                                      'Blank_BEAT_AML_02_HILIC_NEG_2uL_18Apr23_Olympic_WBEH-8588_r1_20230418144054.raw (F170)',
+                                      'Blank_BEAT_AML_01_HILIC_NEG_2uL_18Apr23_Olympic_WBEH-8588_r1_20230418144054.raw (F170)',
                                       'Blank_BEAT_AML_02_HILIC_NEG',
                                       'Blank_BEAT_AML_02_HILIC_NEG2',
                                       'Blank_BEAT_AML_02_HILIC_NEG3',
