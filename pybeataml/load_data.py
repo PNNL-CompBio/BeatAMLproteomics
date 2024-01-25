@@ -73,7 +73,7 @@ def prep_metabolomics():
                                       'Blank_BEAT_AML_03_HILIC_NEG',
                                       'Blank_BEAT_AML_04_HILIC_NEG',
                                       'Blank_BEAT_AML_05_HILIC_NEG']) # drop blanks
-    data_neg = data.drop(columns=['m/z', 'RT [min]', 'Tags',
+    data_neg = data_neg.drop(columns=['m/z', 'RT [min]', 'Tags',
                               'Standardized name', 'Super class',
                               'Main class', ' Sub class', 'Formula',
                               'Annot. DeltaMass [ppm]',
@@ -113,7 +113,7 @@ def prep_lipidomics():
     }
 
     # import pos & neg and drop extra columns
-    data_pos = load_excel(metabolomics_id, 0)
+    data_pos = load_excel(lipidomics_id, 0)
     data_pos = data_pos.drop(columns=['CPTAC4_AML_BM_L_QC_01_Lumos_Pos_18Feb23_Crater-WCSH315305',
                                       'CPTAC4_AML_BM_L_QC_02_Lumos_Pos_18Feb23_Crater-WCSH315305',
                                       'CPTAC4_AML_BM_L_QC_03_Lumos_Pos_18Feb23_Crater-WCSH315305',
@@ -133,7 +133,7 @@ def prep_lipidomics():
                                       'Reference m/z', 'Formula', 
                                       'Ontology', 'MS/MS spectrum'])
 
-    data_neg = load_excel(metabolomics_id, 1)
+    data_neg = load_excel(lipidomics_id, 1)
     data_neg = data_neg.drop(columns=['CPTAC4_AML_BM_L_QC_01_Lumos_Pos_18Feb23_Crater-WCSH315305',
                                       'CPTAC4_AML_BM_L_QC_02_Lumos_Pos_18Feb23_Crater-WCSH315305',
                                       'CPTAC4_AML_BM_L_QC_03_Lumos_Pos_18Feb23_Crater-WCSH315305',
