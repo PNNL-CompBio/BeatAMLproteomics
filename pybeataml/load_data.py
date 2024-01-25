@@ -116,7 +116,7 @@ def prep_metabolomics():
     subset = data.loc[:, cols]
     subset.rename(mapper, axis=1, inplace=True)
     subset['source'] = 'metabolomics'
-    subset['label'] = subset.Name + '_met'
+    subset['label'] = subset.display_label + '_met'
     return subset
 
 def prep_lipidomics():
@@ -194,7 +194,7 @@ def prep_lipidomics():
     subset = data.loc[:, cols]
     subset.rename(mapper, axis=1, inplace=True)
     subset['source'] = 'lipidomics'
-    subset['label'] = subset['Metabolite name'] + '_lip'
+    subset['label'] = subset['display_label'] + '_lip'
     return subset
 
 def prep_phosph():
