@@ -59,8 +59,8 @@ def prep_metabolomics():
                                       'Blank_BEAT_AML_05_HILIC_POS']) # drop blanks
     data_pos = data_pos.drop(columns=['m/z', 'RT [min]', 'Tags',
                               'Standardized name', 'Super class',
-                              'Main class', 'Sub class', 'Formula',
-                              'Annot.DeltaMass[ppm]',
+                              'Main class', ' Sub class', 'Formula',
+                              'Annot. DeltaMass[ppm]',
                               'Annotation MW', 'Reference Ion'])
 
     data_neg = load_excel(metabolomics_id, 1)
@@ -75,8 +75,8 @@ def prep_metabolomics():
                                       'Blank_BEAT_AML_05_HILIC_NEG']) # drop blanks
     data_neg = data.drop(columns=['m/z', 'RT [min]', 'Tags',
                               'Standardized name', 'Super class',
-                              'Main class', 'Sub class', 'Formula',
-                              'Annot.DeltaMass[ppm]',
+                              'Main class', ' Sub class', 'Formula',
+                              'Annot. DeltaMass[ppm]',
                               'Annotation MW', 'Reference Ion'])
 
     # reformat to long format, normalize, and combine pos & neg data
