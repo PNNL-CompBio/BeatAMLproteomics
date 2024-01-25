@@ -57,6 +57,10 @@ def prep_rnaseq():
     return subset
 
 def prep_metabolomics():
+    f_name = 'data/metabolomics.csv'
+    f_name = os.path.join(os.path.dirname(__file__), f_name)
+    if os.path.exists(f_name):
+        return pd.read_csv(f_name)
     cols = ['Name', 'labId',
             'area']
 
@@ -117,9 +121,16 @@ def prep_metabolomics():
     subset.rename(mapper, axis=1, inplace=True)
     subset['source'] = 'metabolomics'
     subset['label'] = subset.display_label + '_met'
+    if not os.path.exists(f_name):
+        subset.to_csv(f_name)
     return subset
 
 def prep_lipidomics():
+    f_name = 'data/lipidomics.csv'
+    f_name = os.path.join(os.path.dirname(__file__), f_name)
+    if os.path.exists(f_name):
+        return pd.read_csv(f_name)    
+
     cols = ['Metabolite name', 'labId',
             'area']
 
@@ -195,6 +206,8 @@ def prep_lipidomics():
     subset.rename(mapper, axis=1, inplace=True)
     subset['source'] = 'lipidomics'
     subset['label'] = subset['display_label'] + '_lip'
+    if not os.path.exists(f_name):
+        subset.to_csv(f_name)
     return subset
 
 def prep_phosph():
