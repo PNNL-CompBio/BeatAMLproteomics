@@ -154,8 +154,8 @@ def prep_lipidomics():
                                       'Ontology', 'MS/MS spectrum'])
     
     # average across duplicate compound names
-    data_pos = data_pos.groupby(['Metabolite name']).mean()
-    data_neg = data_neg.groupby(['Metabolite name']).mean()
+    data_pos = data_pos.groupby(['Metabolite name'], as_index = False).mean()
+    data_neg = data_neg.groupby(['Metabolite name'], as_index = False).mean()
 
     # reformat to long format, normalize, and combine pos & neg data
     data_pos = pd.melt(data_pos, id_vars=['Metabolite name'], 
