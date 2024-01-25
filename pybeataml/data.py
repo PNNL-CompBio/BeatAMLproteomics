@@ -5,10 +5,7 @@ import numpy as np
 import pandas as pd
 from pandas.plotting import table
 
-from magine.data.base import BaseData
-from magine.data.tools import log2_normalize_df
-from magine.plotting import volcano_plots as v_plot
-from magine.plotting.species_plotting import plot_dataframe, plot_species
+flag = 'significant'
 
 # pandas.set_option('display.max_colwidth', -1)
 # column definitions
@@ -26,6 +23,225 @@ sample_id = 'sample_id'
 identifier = 'identifier'
 label = 'label'
 valid_cols = [exp_value, flag, p_val, species_type, sample_id]
+
+
+class BaseData(pd.DataFrame):
+    """
+    This class derived from pd.DataFrame
+    """
+    _index = None
+
+    def __init__(self, *args, **kwargs):
+        super(BaseData, self).__init__(*args, **kwargs)
+
+    @property
+    def _constructor(self):
+        return BaseData
+
+    @property
+    def sig(self):
+        """ terms with significant flag """
+        return self.loc[self[flag]].copy()
+
+    def pivoter(self, convert_to_log=False, columns='sample_id',
+                values='fold_change', index=None, fill_value=None, min_sig=0):
+        """ Pivot data on provided axis.
+
+        Parameters
+        ----------
+        convert_to_log : bool
+            Convert values column to log2
+        index : str
+            Index for pivot table
+        columns : str
+            Columns to pivot
+        values : str
+            Values of pivot table
+        fill_value : float, optional
+            Fill pivot table nans with
+        min_sig : int
+            Required number of significant terms to keep in a row, default 0
+
+        Returns
+        -------
+
+        """
+        d_copy = self.copy()
+        if index is None:
+            index = self._index
+
+        if convert_to_log:
+            d_copy.log2_normalize_df(values, inplace=True)
+
+        if min_sig:
+            if not isinstance(min_sig, int):
+                raise AssertionError()
+            if 'significant' not in d_copy.columns:
+                print('In order to filter based on minimum sig figs, '
+                      'please add a "significant" column')
+
+            d_copy.require_n_sig(index=index, columns=columns,
+                                 n_sig=min_sig,
+                                 inplace=True)
+            if not d_copy.shape[0]:
+                return pd.DataFrame()
+
+        array = pd.pivot_table(d_copy, index=index, fill_value=fill_value,
+                               columns=columns, values=values)
+        if isinstance(values, list):
+            return array
+        if isinstance(columns, list):
+            array.sort_values(
+                by=sorted(tuple(map(tuple, d_copy[columns].values))),
+                ascending=False, inplace=True
+            )
+        elif isinstance(columns, str):
+            array.sort_values(by=sorted(d_copy[columns].unique()),
+                              ascending=False, inplace=True)
+        return array
+
+    def require_n_sig(self, columns='sample_id', index=None,
+                      n_sig=3, inplace=False,
+                      verbose=False):
+        """ Filter index to have at least "min_terms" significant species.
+
+        Parameters
+        ----------
+        columns : str
+            Columns to consider
+        index : str, list
+            The column with which to filter by counts
+        n_sig : int
+            Number of terms required to not be filtered
+        inplace : bool
+            Filter in place or return a copy of the filtered data
+        verbose : bool
+
+        Returns
+        -------
+        new_data : BaseData
+        """
+        if index is None:
+            index = self._index
+        # create safe copy of array
+        new_data = self.copy()
+
+        # get list of columns
+        cols_to_check = list(new_data[columns].unique())
+        # convert boolean to numeric (didn't used to need to do this, but for some reason
+        # pandas changed?
+        new_data[flag] = pd.to_numeric(new_data[flag])
+
+        if flag not in new_data.columns:
+            raise AssertionError('Requires significant column')
+        # pivot
+        sig = pd.pivot_table(new_data,
+                             index=index,
+                             fill_value=0,
+                             values=flag,
+                             columns=columns
+                             )[cols_to_check]
+
+        # convert everything that's not 0 to 1
+        sig[sig > 0] = 1
+        sig = sig[sig.T.sum() >= n_sig]
+        if isinstance(index, list):
+            keepers = {i[0] for i in sig.index.values}
+            new_data = new_data[new_data[index[0]].isin(keepers)]
+        elif isinstance(index, str):
+            n_before = len(new_data[index].unique())
+            keepers = {i for i in sig.index.values}
+            new_data = new_data.loc[new_data[index].isin(keepers)]
+            n_after = len(new_data[index].unique())
+            if verbose:
+                print("Number in index went from {} to {}"
+                      "".format(n_before, n_after))
+        else:
+            print("Index is not a str or a list. What is it?")
+
+        if inplace:
+            self._update_inplace(new_data)
+        else:
+            return new_data
+
+    def present_in_all_columns(self, columns='sample_id',
+                               index=None, inplace=False):
+        """ Require index to be present in all columns
+
+        Parameters
+        ----------
+        columns : str
+            Columns to consider
+        index : str, list
+            The column with which to filter by counts
+        inplace : bool
+            Filter in place or return a copy of the filtered data
+
+        Returns
+        -------
+        new_data : BaseData
+        """
+        if index is None:
+            index = self._index
+        # create safe copy of array
+        new_data = self.copy()
+        n_before = len(new_data[index].unique())
+        # get list of columns
+        cols_to_check = list(new_data[columns].unique())
+
+        if flag not in new_data.columns:
+            raise AssertionError("Missing {} column in data".format(flag))
+
+        # pivot
+        pivoted_df = pd.pivot_table(new_data, index=index, fill_value=np.nan,
+                                    values=flag, columns=columns
+                                    )[cols_to_check]
+
+        # sig = pivoted_df.loc[~np.any(np.isnan(pivoted_df.values), axis=1)]
+        sig = pivoted_df.loc[~pivoted_df.isnull().T.any()]
+        if isinstance(index, list):
+            keepers = {i[0] for i in sig.index.values}
+            new_data = new_data[new_data[index[0]].isin(keepers)]
+        elif isinstance(index, str):
+            keepers = {i for i in sig.index.values}
+            new_data = new_data.loc[new_data[index].isin(keepers)]
+        else:
+            print("Index is not a str or a list. What is it?")
+        n_after = len(new_data[index].unique())
+
+        print("Number in index went from {} to {}".format(n_before, n_after))
+
+        if inplace:
+            self._update_inplace(new_data)
+        else:
+            return new_data
+
+    def log2_normalize_df(self, column='fold_change', inplace=False):
+        """ Convert "fold_change" column to log2.
+
+        Does so by taking log2 of all positive values and -log2 of all negative
+        values.
+
+        Parameters
+        ----------
+        column : str
+            Column to convert
+        inplace : bool
+            Where to apply log2 in place or return new dataframe
+
+        Returns
+        -------
+
+        """
+        new_data = self.copy()
+        greater = new_data[column] > 0
+        less = new_data[column] < 0
+        new_data.loc[greater, column] = np.log2(new_data[greater][column])
+        new_data.loc[less, column] = -np.log2(-new_data[less][column])
+        if inplace:
+            self._update_inplace(new_data)
+        else:
+            return new_data
 
 
 class Sample(BaseData):
@@ -133,249 +349,7 @@ class Sample(BaseData):
                 df = df.loc[df[exp_method].isin(exp_methods)]
         return df
 
-    def plot_pie_sig_ratio(self, save_name=None, ax=None, fig=None,
-                           figsize=None):
-        """
 
-        Parameters
-        ----------
-        save_name : str
-        ax : matplotlib.axes, optional
-        fig : matplotlib.figure
-        figsize : tuple
-            Size of figure
-
-        Returns
-        -------
-
-        """
-        x = len(self.id_list)
-        y = len(self.sig.id_list)
-        total = x + y
-        if fig is None and ax is None:
-            if figsize is None:
-                figsize = (3, 3)
-            fig = plt.figure(figsize=figsize)
-            ax = fig.add_subplot(111)
-        wedges, texts, autotexts = ax.pie(
-            [x, y],
-            explode=(0.05, 0.05),
-            textprops={'fontsize': 16},
-            autopct=lambda p: '{:.0f}'.format(p * total / 100),
-            shadow=True,
-            startangle=140
-        )
-
-        plt.setp(autotexts, size=20)
-        plt.axis('equal')
-        if save_name is not None:
-            plt.savefig('{}.png'.format(save_name), dpi=300,
-                        bbox_inches='tight')
-        return fig
-
-    def volcano_plot(self, save_name=None, out_dir=None, sig_column=False,
-                     p_value=0.1, fold_change_cutoff=1.5, x_range=None,
-                     y_range=None):
-        """ Create a volcano plot of data
-
-
-        Parameters
-        ----------
-        save_name: str
-            name to save figure
-        out_dir: str, directory
-            Location to save figure
-        sig_column: bool, optional
-            If to use significant flags of data
-        p_value: float, optional
-            Criteria for significant
-        fold_change_cutoff: float, optional
-            Criteria for significant
-        y_range: array_like
-            upper and lower bounds of plot in y direction
-        x_range: array_like
-            upper and lower bounds of plot in x direction
-
-        Returns
-        -------
-        matplotlib.Figure
-
-        """
-        fig = v_plot.volcano_plot(self, save_name=save_name, out_dir=out_dir,
-                                  sig_column=sig_column, p_value=p_value,
-                                  fold_change_cutoff=fold_change_cutoff,
-                                  x_range=x_range, y_range=y_range)
-        return fig
-
-    def volcano_by_sample(self, save_name=None, p_value=0.1,
-                          out_dir=None, fold_change_cutoff=1.5, y_range=None,
-                          x_range=None, sig_column=False):
-        """
-        Creates a figure of subplots of provided experimental method
-
-        Parameters
-        ----------
-        save_name: str
-            name to save figure
-        out_dir: str, directory
-            Location to save figure
-        sig_column: bool, optional
-            If to use significant flags of data
-        p_value: float, optional
-            Criteria for significant
-        fold_change_cutoff: float, optional
-            Criteria for significant
-        y_range: array_like
-            upper and lower bounds of plot in y direction
-        x_range: array_like
-            upper and lower bounds of plot in x direction
-
-        Returns
-        -------
-
-        """
-
-        data = self.copy()
-        n_sample = np.sort(data[sample_id].unique())
-
-        if len(n_sample) > 8:
-            n_cols = 3
-        else:
-            n_cols = 2
-        n_rows = int(np.rint(np.rint(len(n_sample) / float(n_cols))))
-        if n_cols * n_rows < len(n_sample):
-            if n_cols >= n_rows:
-                n_rows += 1
-            else:
-                n_cols += 1
-
-        fig = plt.figure(figsize=(4 * n_rows, 3 * n_cols))
-        for n, i in enumerate(n_sample):
-            sample = data[data[sample_id] == i].copy()
-
-            sample = sample.dropna(subset=[p_val])
-            sample = sample[np.isfinite(sample[exp_value])]
-            sample = sample.dropna(subset=[exp_value])
-            sec_0, sec_1, sec_2 = v_plot.create_mask(sample, sig_column,
-                                                     p_value,
-                                                     fold_change_cutoff)
-            ax = fig.add_subplot(n_rows, n_cols, n + 1)
-            ax.set_title(i)
-            v_plot.add_volcano_plot(ax, sec_0, sec_1, sec_2)
-            if not sig_column:
-                fc = np.log2(fold_change_cutoff)
-                log_p_val = -1 * np.log10(p_value)
-                ax.axvline(x=fc, linestyle='--')
-                ax.axvline(x=-1 * fc, linestyle='--')
-                ax.axhline(y=log_p_val, linestyle='--')
-            if y_range is not None:
-                ax.set_ylim(y_range[0], y_range[1])
-            if x_range is not None:
-                ax.set_xlim(x_range[0], x_range[1])
-        fig.tight_layout()
-        if save_name is not None:
-            v_plot.save_plot(fig, save_name=save_name, out_dir=out_dir)
-        return fig
-
-    def plot_species(self, species_list=None, subset_index=None,
-                     save_name=None, out_dir=None, title=None,
-                     plot_type='plotly', image_format='png'):
-        """
-        Create scatter plot of species list
-
-        Parameters
-        ----------
-        species_list : list
-            list of compounds
-        subset_index : list
-            Column to filter based on species_list
-        save_name : str
-            Name of html output file
-        out_dir : str
-            Location to place plots
-        title : str
-            Title for HTML page
-        plot_type : str
-            Type of plot outputs, can be "plotly" or "matplotlib"
-        image_format : str
-            pdf or png, only used if plot_type="matplotlib"
-
-        Returns
-        -------
-        matplotlib.Figure or plotly.Figure
-        """
-        df = self.copy()
-        if species_list is not None:
-            if subset_index is None:
-                subset_index = self._index
-            df = df.subset(species_list, index=subset_index)
-        return plot_species(
-            df, save_name=save_name, out_dir=out_dir, title=title,
-            plot_type=plot_type, image_format=image_format
-        )
-
-    def plot_all(self, html_file_name, out_dir='out',
-                 plot_type='plotly', run_parallel=False):
-        """
-        Creates a plot of all metabolites
-
-        Parameters
-        ----------
-        html_file_name : str
-            filename to save html of all plots
-        out_dir: str, path
-            Directory that will contain all proteins
-        plot_type : str
-            plotly or matplotlib output
-        run_parallel : bool
-            Create the plots in parallel
-        Returns
-        -------
-
-        """
-
-        plot_dataframe(self, html_filename=html_file_name,
-                       out_dir=out_dir, plot_type=plot_type,
-                       run_parallel=run_parallel)
-
-    def plot_histogram(self, save_name=None, y_range=None, out_dir=None):
-        """
-        Plots a histogram of data
-
-        Parameters
-        ----------
-        save_name: str
-            Name of figure
-        out_dir: str, path
-            Path to location to save figure
-        y_range: array_like
-            range of data
-
-
-        Returns
-        -------
-
-        """
-        data = self.copy()
-        data = data.dropna(subset=[p_val])
-        data = data[np.isfinite(data[exp_value])]
-        data = data.dropna(subset=[exp_value])
-
-        tmp = np.array(log2_normalize_df(data, exp_value)[exp_value])
-
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        ax.hist(tmp, 50, color='gray')
-        if y_range is not None:
-            plt.xlim(y_range[0], y_range[1])
-
-        ax.set_yscale('log', basey=10)
-        ax.set_xlabel('log$_2$ Fold Change', fontsize=16)
-        ax.set_ylabel('Count', fontsize=16)
-        fig.tight_layout()
-        if save_name is not None:
-            v_plot.save_plot(fig, save_name, out_dir)
-        return fig
 
 
 class ExperimentalData(object):
