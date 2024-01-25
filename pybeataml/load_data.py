@@ -113,7 +113,7 @@ def prep_lipidomics():
     }
 
     # import pos & neg and drop extra columns
-    data_pos = load_excel(lipidomics_id, 0)
+    data_pos = load_excel(lipidomics_id, 1)
     data_pos = data_pos.drop(columns=['CPTAC4_AML_BM_L_QC_01_Lumos_Pos_18Feb23_Crater-WCSH315305',
                                       'CPTAC4_AML_BM_L_QC_02_Lumos_Pos_18Feb23_Crater-WCSH315305',
                                       'CPTAC4_AML_BM_L_QC_03_Lumos_Pos_18Feb23_Crater-WCSH315305',
@@ -133,7 +133,7 @@ def prep_lipidomics():
                                       'Reference m/z', 'Formula', 
                                       'Ontology', 'MS/MS spectrum'])
 
-    data_neg = load_excel(lipidomics_id, 1)
+    data_neg = load_excel(lipidomics_id, 0)
     data_neg = data_neg.drop(columns=['CPTAC4_AML_BM_L_QC_01_Lumos_Pos_18Feb23_Crater-WCSH315305',
                                       'CPTAC4_AML_BM_L_QC_02_Lumos_Pos_18Feb23_Crater-WCSH315305',
                                       'CPTAC4_AML_BM_L_QC_03_Lumos_Pos_18Feb23_Crater-WCSH315305',
