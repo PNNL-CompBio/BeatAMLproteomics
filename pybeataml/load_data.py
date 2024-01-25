@@ -61,9 +61,9 @@ def prep_metabolomics():
             'area']
 
     mapper = {
-        'display_label': 'Name',
-        'area': 'area',
-        'labId': 'labId',
+        'Name': 'display_label',
+        'area': 'exp_value',
+        'labId': 'sample_id',
     }
 
     # import HILIC pos & neg and drop extra rows & columns
@@ -124,9 +124,9 @@ def prep_lipidomics():
             'area']
 
     mapper = {
-        'display_label': 'Metabolite name',
-        'area': 'area',
-        'labId': 'labId',
+        'Metabolite name': 'display_label',
+        'area': 'exp_value',
+        'labId': 'sample_id',
     }
 
     # import pos & neg and drop extra columns
@@ -351,8 +351,11 @@ class AMLData(object):
         self.rna = prep_rnaseq()
         self.functional = load_drug_response()
         self.wes = load_mutations()
+        self.metabolomics = prep_metabolomics()
+        self.lipidomics = prep_lipidomics()
         self.flat_data = pd.concat(
-            [self.phospho, self.proteomics, self.rna, self.wes]
+            [self.phospho, self.proteomics, self.rna, self.wes,
+             self.metabolomics, self.lipidomics]
         )
 
         self.meta = add_cluster_plus_meta()
