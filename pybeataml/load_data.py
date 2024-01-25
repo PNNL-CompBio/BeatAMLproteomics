@@ -435,7 +435,7 @@ class AMLData(object):
         # require 50% of the data be present for any given column
         df_subset.dropna(
             axis=0,
-            how='any',
+            #how='any',
             thresh=df_subset.shape[1] * .50,
             inplace=True
         )
