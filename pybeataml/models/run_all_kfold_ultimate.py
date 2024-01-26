@@ -8,6 +8,8 @@ from sklearn import metrics
 from sklearn.model_selection import RepeatedKFold
 
 from pybeataml.load_data import AMLData
+from pybeataml.load_data_from_synpase import load_file
+from datetime import date
 
 # point of access for all data
 data = AMLData()
@@ -245,6 +247,23 @@ if __name__ == '__main__':
     for l in range(len(all_sources) + 1):
         for subset in it.combinations(all_sources, l):
             data_sources = [data_sources, subset]
+    old_data_sources = [
+        'rna_seq',
+        'proteomics',
+        'phospho',
+        'wes',
+        ['proteomics', 'phospho'],
+        ['proteomics', 'rna_seq', ],
+        ['proteomics', 'wes'],
+        ['phospho', 'rna_seq', ],
+        ['phospho', 'wes'],
+        ['rna_seq', 'wes'],
+        ['phospho', 'rna_seq', 'wes'],
+        ['proteomics', 'rna_seq', 'wes'],
+        ['proteomics', 'phospho', 'wes'],
+        ['proteomics', 'phospho', 'rna_seq', 'wes'],
+    ]
+    data_sources = list(set(data_sources) - set(old_data_sources))
 
     models = []
     for i in reversed(sorted(good_drugs)):
@@ -255,5 +274,8 @@ if __name__ == '__main__':
     df = pd.concat(
         models,
     )
+    old_models = load_file('syn52299998')
+    df_final = pd.concat(df, old_models)
 
-    df.to_csv("regression_all_models_all_data_combos_cv_5v5.csv")
+    f_name = "regression_all_models_all_data_combos_cv_5v5" + date.today() + ".csv"
+    df_final.to_csv(f_name)
