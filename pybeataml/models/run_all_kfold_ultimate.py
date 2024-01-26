@@ -270,7 +270,7 @@ if __name__ == '__main__':
         ['proteomics', 'phospho', 'wes'],
         ['proteomics', 'phospho', 'rna_seq', 'wes'],
     ]
-    data_sources = list(set(data_sources) - set(old_data_sources))
+    data_sources = [i for i in data_sources if i not in old_data_sources]
         
     with Pool() as pool:
             all_models = pool.map(run_all_sources, reversed(sorted(good_drugs)))
