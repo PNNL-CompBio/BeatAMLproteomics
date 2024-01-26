@@ -33,6 +33,21 @@ clusters_id = 'syn26642544'
 clinical_summary_id = 'syn25796769'
 metabolomics_id = 'syn52224584'
 lipidomics_id = 'syn52121001'
+meta_file_id2 = 'syn25807733'
+
+def scale_col(my_col):
+    my_col = 2*(my_col - my_col.min()) / (my_col.max() - my_col.min()) - 1
+    return my_col
+
+def load_meta_for_ids():
+    f_name = 'data/meta_ids.csv'
+    f_name = os.path.join(os.path.dirname(__file__), f_name)
+    if os.path.exists(f_name):
+        return pd.read_csv(f_name)
+    ex10Metatdata_df = load_file(meta_file_id2)
+    if not os.path.exists(f_name):
+        ex10Metatdata_df.to_csv(f_name)
+    return ex10Metatdata_df
 
 def prep_rnaseq():
     f_name = 'data/rna.csv'
@@ -61,14 +76,8 @@ def prep_metabolomics():
     f_name = os.path.join(os.path.dirname(__file__), f_name)
     if os.path.exists(f_name):
         return pd.read_csv(f_name)
-    cols = ['Name', 'labId',
-            'area']
-
-    mapper = {
-        'Name': 'display_label',
-        'area': 'exp_value',
-        'labId': 'sample_id',
-    }
+    cols = ['display_label', 'sample_id',
+            'exp_value']
 
     # import HILIC pos & neg and drop extra rows & columns
     data_pos = load_excel(metabolomics_id, 0)
@@ -99,26 +108,44 @@ def prep_metabolomics():
                               'Main class', ' Sub class', 'Formula',
                               'Annot. DeltaMass [ppm]',
                               'Annotation MW', 'Reference Ion'])
+    
+    # normalize data
+    data_pos = data_pos.T
+    data_pos.columns = data_pos.iloc[0]
+    data_pos = data_pos[1:]
+    data_pos = data_pos.apply(pd.to_numeric, errors='coerce')
+    data_pos = data_pos.apply(scale_col)
+    
+    data_neg = data_neg.T
+    data_neg.columns = data_neg.iloc[0]
+    data_neg = data_neg[1:]
+    data_neg = data_neg.apply(pd.to_numeric, errors='coerce')
+    data_neg = data_neg.apply(scale_col)
 
     # reformat to long format, normalize, and combine pos & neg data
-    data_pos = pd.melt(data_pos, id_vars=['Name'], 
-                        var_name = 'labId', value_name='area')
-    data_pos['area'] = data_pos['area'] / data_pos['area'].abs().max()
-
-    data_neg = pd.melt(data_neg, id_vars=['Name'], 
-                        var_name = 'labId', value_name='area')
-    data_neg['area'] = data_neg['area'] / data_neg['area'].abs().max()
+    data_pos['SampleID.abbrev'] = data_pos.index
+    data_pos = pd.melt(data_pos, id_vars=['SampleID.abbrev'], 
+                        var_name = 'display_label', value_name='exp_value')
+    
+    data_neg['SampleID.abbrev'] = data_neg.index
+    data_neg = pd.melt(data_neg, id_vars=['SampleID.abbrev'], 
+                        var_name = 'display_label', value_name='exp_value')
 
     data = pd.concat([data_pos, data_neg])
 
     # extract sample IDs from labID column
-    data['labId_og'] = data['labId']
-    data['labId'] = data['labId_og'].apply(lambda st: st[st.find("BEAT_AML_PNL_") + 1:st.find("_M")])
-    data['labId'] = pd.to_numeric(data['labId'], errors = 'coerce').astype(pd.Int16Dtype())
-    
+    string1 = "BEAT_AML_PNL_"
+    data['SampleID.abbrev'] = data['SampleID.abbrev'].apply(lambda st: st[st.find(string1) + len(string1):st.find("_M")])
+    data['SampleID.abbrev'] = pd.to_numeric(data['SampleID.abbrev'], errors = 'coerce').astype(pd.Int16Dtype())
+
+    # convert sample IDs to barcode IDs
+    ex10Metatdata_df = load_meta_for_ids()
+    ex10Metatdata_df = ex10Metatdata_df[['SampleID.abbrev', 'Barcode.ID']]
+    data = pd.merge(data, ex10Metatdata_df)
+    data = data.rename(columns={'Barcode.ID': 'sample_id'})
+
     # reformat data
     subset = data.loc[:, cols]
-    subset.rename(mapper, axis=1, inplace=True)
     subset['source'] = 'metabolomics'
     subset['label'] = subset.display_label + '_met'
     if not os.path.exists(f_name):
@@ -129,16 +156,9 @@ def prep_lipidomics():
     f_name = 'data/lipidomics.csv'
     f_name = os.path.join(os.path.dirname(__file__), f_name)
     if os.path.exists(f_name):
-        return pd.read_csv(f_name)    
-
-    cols = ['Metabolite name', 'labId',
-            'area']
-
-    mapper = {
-        'Metabolite name': 'display_label',
-        'area': 'exp_value',
-        'labId': 'sample_id',
-    }
+        return pd.read_csv(f_name)  
+    cols = ['display_label', 'sample_id',
+            'exp_value']
 
     # import pos & neg and drop extra columns
     data_pos = load_excel(lipidomics_id, 1)
@@ -185,25 +205,43 @@ def prep_lipidomics():
     data_pos = data_pos.groupby(['Metabolite name'], as_index = False).mean()
     data_neg = data_neg.groupby(['Metabolite name'], as_index = False).mean()
 
-    # reformat to long format, normalize, and combine pos & neg data
-    data_pos = pd.melt(data_pos, id_vars=['Metabolite name'], 
-                        var_name = 'labId', value_name='area')
-    data_pos['area'] = data_pos['area'] / data_pos['area'].abs().max()
+    # normalize data
+    data_pos = data_pos.T
+    data_pos.columns = data_pos.iloc[0]
+    data_pos = data_pos[1:]
+    data_pos = data_pos.apply(pd.to_numeric, errors='coerce')
+    data_pos = data_pos.apply(scale_col)
+    
+    data_neg = data_neg.T
+    data_neg.columns = data_neg.iloc[0]
+    data_neg = data_neg[1:]
+    data_neg = data_neg.apply(pd.to_numeric, errors='coerce')
+    data_neg = data_neg.apply(scale_col)
 
-    data_neg = pd.melt(data_neg, id_vars=['Metabolite name'], 
-                        var_name = 'labId', value_name='area')
-    data_neg['area'] = data_neg['area'] / data_neg['area'].abs().max()
+    # reformat to long format, normalize, and combine pos & neg data
+    data_pos['SampleID.abbrev'] = data_pos.index
+    data_pos = pd.melt(data_pos, id_vars=['SampleID.abbrev'], 
+                        var_name = 'display_label', value_name='exp_value')
+    
+    data_neg['SampleID.abbrev'] = data_neg.index
+    data_neg = pd.melt(data_neg, id_vars=['SampleID.abbrev'], 
+                        var_name = 'display_label', value_name='exp_value')
 
     data = pd.concat([data_pos, data_neg])
 
     # extract sample IDs from labID column
-    data['labId_og'] = data['labId']
-    data['labId'] = data['labId_og'].apply(lambda st: st[st.find("BEAT_AML_PNL_") + 1:st.find("_L")])
-    data['labId'] = pd.to_numeric(data['labId'], errors = 'coerce').astype(pd.Int16Dtype())
+    string1 = "BEAT_AML_PNL_"
+    data['SampleID.abbrev'] = data['SampleID.abbrev'].apply(lambda st: st[st.find(string1) + len(string1):st.find("_L")])
+    data['SampleID.abbrev'] = pd.to_numeric(data['SampleID.abbrev'], errors = 'coerce').astype(pd.Int16Dtype())
+
+    # convert sample IDs to barcode IDs
+    ex10Metatdata_df = load_meta_for_ids()
+    ex10Metatdata_df = ex10Metatdata_df[['SampleID.abbrev', 'Barcode.ID']]
+    data = pd.merge(data, ex10Metatdata_df)
+    data = data.rename(columns={'Barcode.ID': 'sample_id'})
     
     # reformat data
     subset = data.loc[:, cols]
-    subset.rename(mapper, axis=1, inplace=True)
     subset['source'] = 'lipidomics'
     subset['label'] = subset['display_label'] + '_lip'
     if not os.path.exists(f_name):
