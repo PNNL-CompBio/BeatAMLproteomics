@@ -10,9 +10,9 @@ library(stringr)
 library(dplyr)
 library(PNNL.DMS.utils)
 
-path_to_global_study_design <- "Ex10_global_study_design/"
-path_to_phospho_study_design <- "Ex10_phospho_study_design/"
-path_to_acetyl_study_design <- "Ex10_acetyl_study_design/"
+path_to_global_study_design <- "study_design/Ex10_global_study_design/"
+path_to_phospho_study_design <- "study_design/Ex10_phospho_study_design/"
+path_to_acetyl_study_design <- "study_design/Ex10_acetyl_study_design/"
 
 global_data_package_num <- 3676
 phospho_data_package_num <- 3723
@@ -54,8 +54,8 @@ fractions <- job_records %>%
   mutate(PlexID = str_extract(Dataset, "Plex_\\d\\d"))
 head(fractions)
 
-write.table(fractions, file=file.path(path_to_acetyl_study_design, "fractions.txt"),
-            quote=F, sep="\t", row.names=F)
+write.table(fractions, file=paste0(path_to_acetyl_study_design, "fractions.txt"),
+            quote=F, sep="\t", row.names=FALSE)
 ```
 
 Samples and fractions table must be created from study-specific metadata. See `r help(read_study_design)` for more information.
