@@ -10,6 +10,7 @@ from sklearn.model_selection import RepeatedKFold
 from pybeataml.load_data import AMLData
 from pybeataml.load_data_from_synpase import load_file
 from datetime import date
+from multiprocessing import Pool
 
 # point of access for all data
 data = AMLData()
@@ -213,6 +214,12 @@ def run_model(d_sets, drug_name):
     all_results.feature_names = all_results.feature_names.str.join('|')
     return all_results
 
+def run_all_sources(my_drug, my_data_sources):
+    models = []
+    print(f"Working on {i}")
+    for j in data_sources:
+        models.append(run_model(j, i))
+    return models
 
 if __name__ == '__main__':
     table = data.auc_table[data.drug_names].copy()
@@ -264,16 +271,11 @@ if __name__ == '__main__':
         ['proteomics', 'phospho', 'rna_seq', 'wes'],
     ]
     data_sources = list(set(data_sources) - set(old_data_sources))
+        
+    with Pool() as pool:
+            all_models = pool.map(run_all_sources, reversed(sorted(good_drugs)))
+    df = pd.concat(all_models, )
 
-    models = []
-    for i in reversed(sorted(good_drugs)):
-        print(f"Working on {i}")
-        for j in data_sources:
-            models.append(run_model(j, i))
-
-    df = pd.concat(
-        models,
-    )
     old_models = load_file('syn52299998')
     df_final = pd.concat(df, old_models)
 
