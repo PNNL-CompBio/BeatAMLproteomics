@@ -233,7 +233,7 @@ def run_all_sources(my_drug):
     data_sources = [i for i in data_sources if i not in old_data_sources] # 48
     
     models = []
-    print(f"Working on {i}")
+    print(f"Working on {my_drug}")
     for j in data_sources:
         models.append(run_model(j, my_drug))
     return models
