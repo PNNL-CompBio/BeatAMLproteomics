@@ -114,13 +114,13 @@ def prep_metabolomics():
     data_pos.columns = data_pos.iloc[0]
     data_pos = data_pos[1:]
     data_pos = data_pos.apply(pd.to_numeric, errors='coerce')
-    data_pos = data_pos.apply(scale_col)
+    #data_pos = data_pos.apply(scale_col)
     
     data_neg = data_neg.T
     data_neg.columns = data_neg.iloc[0]
     data_neg = data_neg[1:]
     data_neg = data_neg.apply(pd.to_numeric, errors='coerce')
-    data_neg = data_neg.apply(scale_col)
+    #data_neg = data_neg.apply(scale_col)
 
     # reformat to long format, normalize, and combine pos & neg data
     data_pos['SampleID.abbrev'] = data_pos.index
@@ -132,6 +132,7 @@ def prep_metabolomics():
                         var_name = 'display_label', value_name='exp_value')
 
     data = pd.concat([data_pos, data_neg])
+    data['exp_value'] = scale_col(data['exp_value'])
 
     # extract sample IDs from labID column
     string1 = "BEAT_AML_PNL_"
@@ -210,13 +211,13 @@ def prep_lipidomics():
     data_pos.columns = data_pos.iloc[0]
     data_pos = data_pos[1:]
     data_pos = data_pos.apply(pd.to_numeric, errors='coerce')
-    data_pos = data_pos.apply(scale_col)
+    #data_pos = data_pos.apply(scale_col)
     
     data_neg = data_neg.T
     data_neg.columns = data_neg.iloc[0]
     data_neg = data_neg[1:]
     data_neg = data_neg.apply(pd.to_numeric, errors='coerce')
-    data_neg = data_neg.apply(scale_col)
+    #data_neg = data_neg.apply(scale_col)
 
     # reformat to long format, normalize, and combine pos & neg data
     data_pos['SampleID.abbrev'] = data_pos.index
@@ -228,6 +229,7 @@ def prep_lipidomics():
                         var_name = 'display_label', value_name='exp_value')
 
     data = pd.concat([data_pos, data_neg])
+    data['exp_value'] = scale_col(data['exp_value'])
 
     # extract sample IDs from labID column
     string1 = "BEAT_AML_PNL_"
