@@ -44,10 +44,10 @@ def load_meta_for_ids():
     f_name = os.path.join(os.path.dirname(__file__), f_name)
     if os.path.exists(f_name):
         return pd.read_csv(f_name)
-    ex10Metatdata_df = load_file(meta_file_id2)
+    ex10Metadata_df = load_file(meta_file_id2)
     if not os.path.exists(f_name):
-        ex10Metatdata_df.to_csv(f_name)
-    return ex10Metatdata_df
+        ex10Metadata_df.to_csv(f_name)
+    return ex10Metadata_df
 
 def prep_rnaseq():
     f_name = 'data/rna.csv'
@@ -139,9 +139,9 @@ def prep_metabolomics():
     data['SampleID.abbrev'] = pd.to_numeric(data['SampleID.abbrev'], errors = 'coerce').astype(pd.Int16Dtype())
 
     # convert sample IDs to barcode IDs
-    ex10Metatdata_df = load_meta_for_ids()
-    ex10Metatdata_df = ex10Metatdata_df[['SampleID.abbrev', 'Barcode.ID']]
-    data = pd.merge(data, ex10Metatdata_df)
+    ex10Metadata_df = load_meta_for_ids()
+    ex10Metadata_df = ex10Metadata_df[['SampleID.abbrev', 'Barcode.ID']]
+    data = pd.merge(data, ex10Metadata_df)
     data = data.rename(columns={'Barcode.ID': 'sample_id'})
 
     # reformat data
@@ -235,9 +235,9 @@ def prep_lipidomics():
     data['SampleID.abbrev'] = pd.to_numeric(data['SampleID.abbrev'], errors = 'coerce').astype(pd.Int16Dtype())
 
     # convert sample IDs to barcode IDs
-    ex10Metatdata_df = load_meta_for_ids()
-    ex10Metatdata_df = ex10Metatdata_df[['SampleID.abbrev', 'Barcode.ID']]
-    data = pd.merge(data, ex10Metatdata_df)
+    ex10Metadata_df = load_meta_for_ids()
+    ex10Metadata_df = ex10Metadata_df[['SampleID.abbrev', 'Barcode.ID']]
+    data = pd.merge(data, ex10Metadata_df)
     data = data.rename(columns={'Barcode.ID': 'sample_id'})
     
     # reformat data
