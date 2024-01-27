@@ -36,7 +36,8 @@ lipidomics_id = 'syn52121001'
 meta_file_id2 = 'syn25807733'
 
 def scale_col(my_col):
-    my_col = 2*(my_col - my_col.min()) / (my_col.max() - my_col.min()) - 1
+    #my_col = 2*(my_col - my_col.min()) / (my_col.max() - my_col.min()) - 1
+    my_col = (my_col - my_col.mean()) / my_col.std()
     return my_col
 
 def load_meta_for_ids():
