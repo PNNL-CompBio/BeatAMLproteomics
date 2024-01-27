@@ -214,11 +214,28 @@ def run_model(d_sets, drug_name):
     all_results.feature_names = all_results.feature_names.str.join('|')
     return all_results
 
-def run_all_sources(my_drug, my_data_sources):
+def run_all_sources(my_drug):
+    # generate all possible combinations of input data
+    all_sources = ['wes', 'rna_seq', 'proteomics', 'phospho', 'metabolomics', 'lipidomics']
+    data_sources = []
+    for l in range(len(all_sources) + 1):
+        for subset in it.combinations(all_sources, l):
+            data_sources.append(subset)
+    data_sources = data_sources[1:] # 63
+    
+    old_sources = ['wes', 'rna_seq', 'proteomics', 'phospho']
+    old_data_sources = []
+    for l in range(len(old_sources) + 1):
+        for subset in it.combinations(old_sources, l):
+            old_data_sources.append(subset)
+    old_data_sources = old_data_sources[1:] # 15
+    
+    data_sources = [i for i in data_sources if i not in old_data_sources] # 48
+    
     models = []
     print(f"Working on {i}")
     for j in data_sources:
-        models.append(run_model(j, i))
+        models.append(run_model(j, my_drug))
     return models
 
 if __name__ == '__main__':
@@ -247,30 +264,6 @@ if __name__ == '__main__':
     for i in drugs_to_focus:
         if i not in good_drugs:
             good_drugs.add(i)
-
-    # generate all possible combinations of input data
-    all_sources = ['wes', 'rna_seq', 'proteomics', 'phospho', 'metabolomics', 'lipidomics']
-    data_sources = []
-    for l in range(len(all_sources) + 1):
-        for subset in it.combinations(all_sources, l):
-            data_sources = [data_sources, subset]
-    old_data_sources = [
-        'rna_seq',
-        'proteomics',
-        'phospho',
-        'wes',
-        ['proteomics', 'phospho'],
-        ['proteomics', 'rna_seq', ],
-        ['proteomics', 'wes'],
-        ['phospho', 'rna_seq', ],
-        ['phospho', 'wes'],
-        ['rna_seq', 'wes'],
-        ['phospho', 'rna_seq', 'wes'],
-        ['proteomics', 'rna_seq', 'wes'],
-        ['proteomics', 'phospho', 'wes'],
-        ['proteomics', 'phospho', 'rna_seq', 'wes'],
-    ]
-    data_sources = [i for i in data_sources if i not in old_data_sources]
         
     with Pool() as pool:
             all_models = pool.map(run_all_sources, reversed(sorted(good_drugs)))
