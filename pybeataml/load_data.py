@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 
 from pybeataml.data import ExperimentalData
 from pybeataml.load_data_from_synpase import load_table, load_file, load_excel
@@ -36,11 +35,11 @@ metabolomics_id = 'syn52224584'
 lipidomics_id = 'syn52121001'
 meta_file_id2 = 'syn25807733'
 
-# def scale_col(my_col):
-#     #my_col = 2*(my_col - my_col.min()) / (my_col.max() - my_col.min()) - 1
-#     #my_col = (my_col - my_col.mean()) / my_col.std()
-#     #my_col = my_col / my_col.median()
-#     return my_col
+def scale_col(my_col):
+    #my_col = 2*(my_col - my_col.min()) / (my_col.max() - my_col.min()) - 1
+    my_col = (my_col - my_col.mean()) / my_col.std()
+    #my_col = my_col / my_col.median()
+    return my_col
 
 def load_meta_for_ids():
     f_name = 'data/meta_ids.csv'
@@ -113,21 +112,17 @@ def prep_metabolomics():
                               'Annotation MW', 'Reference Ion'])
     
     # normalize data
-    scale = StandardScaler()
-    
     data_pos = data_pos.T
     data_pos.columns = data_pos.iloc[0]
     data_pos = data_pos[1:]
     data_pos = data_pos.apply(pd.to_numeric, errors='coerce')
-    #data_pos = data_pos.apply(scale_col)
-    data_pos = scale.fit(data_pos)
+    data_pos = data_pos.apply(scale_col)
     
     data_neg = data_neg.T
     data_neg.columns = data_neg.iloc[0]
     data_neg = data_neg[1:]
     data_neg = data_neg.apply(pd.to_numeric, errors='coerce')
-    #data_neg = data_neg.apply(scale_col)
-    data_neg = scale.fit(data_neg)
+    data_neg = data_neg.apply(scale_col)
 
     # reformat to long format, normalize, and combine pos & neg data
     data_pos['SampleID.abbrev'] = data_pos.index
@@ -214,21 +209,17 @@ def prep_lipidomics():
     data_neg = data_neg.groupby(['Metabolite name'], as_index = False).mean()
 
     # normalize data
-    scale = StandardScaler()
-    
     data_pos = data_pos.T
     data_pos.columns = data_pos.iloc[0]
     data_pos = data_pos[1:]
     data_pos = data_pos.apply(pd.to_numeric, errors='coerce')
-    #data_pos = data_pos.apply(scale_col)
-    data_pos = scale.fit(data_pos)
+    data_pos = data_pos.apply(scale_col)
     
     data_neg = data_neg.T
     data_neg.columns = data_neg.iloc[0]
     data_neg = data_neg[1:]
     data_neg = data_neg.apply(pd.to_numeric, errors='coerce')
-    #data_neg = data_neg.apply(scale_col)
-    data_neg = scale.fit(data_neg)
+    data_neg = data_neg.apply(scale_col)
 
     # reformat to long format, normalize, and combine pos & neg data
     data_pos['SampleID.abbrev'] = data_pos.index
