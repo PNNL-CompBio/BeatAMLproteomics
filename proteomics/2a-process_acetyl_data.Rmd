@@ -1,11 +1,11 @@
 ---
-title: "PTRC Ex10 Phosphoproteomics pipeline"
+title: "PTRC Ex10 acetylproteomics pipeline"
 author: "Michael Nestor"
 date: "`r format(Sys.Date(), '%m/%d/%Y')`"
 output: rmarkdown::github_document
 ---
 
-The phospho proteomics pipeline uses the R package [PlexedPiper](https://github.com/vladpetyuk/PlexedPiper). It also requires a connection to the DMS to access data packages.
+The acetyl proteomics pipeline uses the R package [PlexedPiper](https://github.com/vladpetyuk/PlexedPiper). It also requires a connection to the DMS to access data packages.
 
 ```{r, echo=F}
 library(knitr)
@@ -17,8 +17,8 @@ t0 <- Sys.time(); print(t0)
 library(PlexedPiper)
 library(dplyr)
 
-data_package_num <- 3723
-data_folder <- "data/Ex10_phospho_data"
+data_package_num <- 5378
+data_folder <- "data/Ex10_acetyl_data"
 crosstab_prefix <- "ptrc_ex10"
 path_to_global_crosstab <- "data/Ex10_global_data/ptrc_ex10_crosstab_global_gene_original.txt"
 
@@ -32,11 +32,16 @@ if (!is_PNNL_DMS_connection_successful()) {
 Study design information in PlexedPiper is encoded in three tables: fractions, samples, and references. These tables can be made using metadata and should be stored on the DMS before processing.
 
 ```{r read_study_design}
-study_design <- get_study_design_by_dataset_package(data_package_num)
+study_design_path <- "study_design/Ex10_acetyl_study_design"
 
-fractions <- study_design$fractions
-samples <- study_design$samples
-references <- study_design$references
+fractions <- read.table(file.path(study_design_path, "fractions.txt"), 
+                        sep = "\t", header = TRUE)
+
+samples <- read.table(file.path(study_design_path, "samples.txt"), 
+                      sep = "\t", header = TRUE)
+
+references <- read.table(file.path(study_design_path, "references.txt"), 
+                         sep = "\t", header = TRUE)
 ```
 
 ## 2 Processing MS-GF+ data
@@ -49,7 +54,7 @@ msgf_data_path <- file.path(data_folder, "msgfData_original.RData")
 if (file.exists(msgf_data_path)) {
   load(msgf_data_path)
 } else {
-  msnid <- read_msms_data_from_DMS(data_package_num)
+  msnid <- read_msgf_data_from_DMS(data_package_num)
   save(msnid, file=msgf_data_path)
 }
 
@@ -59,7 +64,7 @@ show(msnid)
 ### 2.1 AScore
 
 ```{r ascore}
-ascore <- get_AScore_results(data_package_num)
+ascore <- read_AScore_results_from_DMS(data_package_num)
 msnid <- best_PTM_location_by_ascore(msnid, ascore)
 msnid <- apply_filter(msnid, "grepl(\"\\\\*\", peptide)")
 ```
@@ -142,7 +147,7 @@ msnid <- map_mod_sites(msnid, fst,
                        peptide_mod_col = "peptide", 
                        mod_char = "*",
                        site_delimiter = "lower")
-msnid <- apply_filter(msnid, "!is.na(PepLocFirst)")
+#msnid <- apply_filter(msnid, "!is.na(PepLocFirst)")
 head(psms(msnid))
 
 save(msnid, file=file.path(data_folder, "msgfData_filtered.RData"))
@@ -181,13 +186,16 @@ The quantitative crosstab combines MS/MS identifications with reporter ion inten
 
 ```{r create_global_gene_crosstab}
 aggregation_level <- c("SiteID")
+
+samples[grepl("Reference", samples$MeasurementName), ]$MeasurementName <- NA
+
 crosstab <- create_crosstab(msnid, masic_data,
                             aggregation_level,
                             fractions, samples, references)
 dim(crosstab)
 
 write.table(signif(crosstab, 3),
-            file=file.path(data_folder, paste(crosstab_prefix, "crosstab_phospho_siteID_original.txt", sep="_")),
+            file=file.path(data_folder, paste(crosstab_prefix, "crosstab_acetyl_siteID_original.txt", sep="_")),
             quote=F, sep="\t")
 ```
 
@@ -199,7 +207,7 @@ crosstab <- create_crosstab(msnid, masic_data,
 dim(crosstab)
 
 write.table(signif(crosstab, 3),
-            file=file.path(data_folder, paste(crosstab_prefix, "crosstab_phospho_peptide_original.txt", sep="_")),
+            file=file.path(data_folder, paste(crosstab_prefix, "crosstab_acetyl_peptide_original.txt", sep="_")),
             quote=F, sep="\t")
 
 t1 <- Sys.time(); print(t1); print(t1 - t0)

@@ -63,8 +63,9 @@ Samples and fractions table must be created from study-specific metadata. See `r
 ```{r}
 library(readxl)
 
-samples <- read_xlsx("data/TMTmappingTable.xlsx") %>%
-  select(ReporterAlias=`Sample ID \r\n(abbrev)`,
+samples <- read_xlsx("data/TMTmappingTable.xlsx") 
+samples <- samples %>%
+  select(ReporterAlias=`sampleID`,
          PlexID=Plex,
          ReporterName=Channel) %>%
   mutate(QuantBlock=1, MeasurementName = if_else(ReporterAlias=="Ref",
@@ -75,7 +76,7 @@ samples <- read_xlsx("data/TMTmappingTable.xlsx") %>%
 head(samples)
 
 references <- samples %>%
-  filter(is.na(MeasurementName)) %>%
+  filter(grepl("Reference", MeasurementName)) %>%
   select(PlexID, QuantBlock, Reference=ReporterAlias)
 head(references)
 

@@ -6,7 +6,9 @@ output: html_document
 ---
 
 ```{r setup}
-library(vp.misc)
+# devtools::install_github("vladpetyuk/vp.misc")
+# BiocManager::install("sva")
+#library(vp.misc)
 library(sva)
 library(dplyr)
 library(tibble)
@@ -19,34 +21,36 @@ source("../dataProcessing/proteomicsNormalizationMethods.R")
 # Load metadata
 
 ```{r load_metadata}
-library(readxl)
+# library(readxl)
+# 
+# phenodata <- read_xlsx("./data/TMTmappingTable.xlsx") %>%
+#   as.data.frame() %>%
+#   mutate(Plex = as.factor(Plex)) %>%
+#   filter(`Sample ID \r\n(abbrev)` != "Ref")
+# 
+# names(phenodata) <- make.names(names(phenodata))
+# 
+# phenodata <- read_xlsx("data/CPTAC_FLT3cohort_UniquePatients_BestSamples_wYield.xlsx") %>%
+#   select(lab_id, specimen_type, specimen_location, Specimen_access_group_concatenated) %>%
+#   mutate(InitialAMLDiagnosis = grepl("Initial Acute Leukemia Diagnosis", Specimen_access_group_concatenated),
+#          PostChemotherapy    = grepl("Post-Chemotherapy", Specimen_access_group_concatenated)) %>%
+#   left_join(phenodata, ., by = c("Barcode.ID" = "lab_id")) %>%
+#   dplyr::rename(SampleID.full = Sample.ID..full.,
+#                 SampleID.abbrev = Sample.ID....abbrev.)
+# 
+# phenodata <- phenodata %>%
+#   select(-New.Top.ID..for.Labeling,
+#          -Total.peptide....µg.,
+#          -Volume...uL.,
+#          -PlexMass)
+# names(phenodata) <- gsub("_", "\\.", names(phenodata)) 
+# 
+# rownames(phenodata) <- phenodata$`Sample ID \r\n(abbrev)`
+# 
+# write.table(phenodata, file="data/Ex10_metadata.txt",
+#             quote=F,sep="\t",row.names=F)
 
-phenodata <- read_xlsx("./data/TMTmappingTable.xlsx") %>%
-  as.data.frame() %>%
-  mutate(Plex = as.factor(Plex)) %>%
-  filter(`Sample ID \r\n(abbrev)` != "Ref")
-
-names(phenodata) <- make.names(names(phenodata))
-
-phenodata <- read_xlsx("data/CPTAC_FLT3cohort_UniquePatients_BestSamples_wYield.xlsx") %>%
-  select(lab_id, specimen_type, specimen_location, Specimen_access_group_concatenated) %>%
-  mutate(InitialAMLDiagnosis = grepl("Initial Acute Leukemia Diagnosis", Specimen_access_group_concatenated),
-         PostChemotherapy    = grepl("Post-Chemotherapy", Specimen_access_group_concatenated)) %>%
-  left_join(phenodata, ., by = c("Barcode.ID" = "lab_id")) %>%
-  dplyr::rename(SampleID.full = Sample.ID..full.,
-                SampleID.abbrev = Sample.ID....abbrev.)
-
-phenodata <- phenodata %>%
-  select(-New.Top.ID..for.Labeling,
-         -Total.peptide....µg.,
-         -Volume...uL.,
-         -PlexMass)
-names(phenodata) <- gsub("_", "\\.", names(phenodata)) 
-
-rownames(phenodata) <- phenodata$`Sample ID \r\n(abbrev)`
-
-write.table(phenodata, file="data/Ex10_metadata.txt",
-            quote=F,sep="\t",row.names=F)
+phenodata <- read.table("data/Ex10_metadata.txt", sep = "\t", header = TRUE)
 ```
 
 # Normalize and batch correct global data
@@ -90,7 +94,8 @@ normalize_global_data <- function(path_to_crosstab, path_to_phenodata, n.sigfig=
 
 ```{r normalize_phospho_data}
 normalize_phospho_data <- function(path_to_crosstab, path_to_phenodata,
-                                   path_to_global_crosstab, n.sigfig=3) {
+                                   path_to_global_crosstab, n.sigfig=3, 
+                                   type="phospho") {
   # Make MSnSet
   crosstab <- read.table(path_to_crosstab, check.names = F)
   m <- MSnSet(as.matrix(crosstab))
@@ -135,7 +140,7 @@ normalize_phospho_data <- function(path_to_crosstab, path_to_phenodata,
   
   # Normalize by phospho coefficients
   m <- normalizeByMedpolish(m)
-  new_path_to_crosstab <- sub("_original", "_medpolish_phospho_coeffs", path_to_crosstab)
+  new_path_to_crosstab <- sub("_original", paste0("_medpolish_", type, "_coeffs"), path_to_crosstab)
   write.table(signif(exprs(m), n.sigfig),
               file = new_path_to_crosstab,
               quote=F, sep="\t")
@@ -151,10 +156,94 @@ normalize_phospho_data <- function(path_to_crosstab, path_to_phenodata,
   
   # Medpolish and save
   m <- normalizeByMedpolish(m)
-  new_path_to_crosstab <- sub("_original", "_corrected_phospho_coeffs", path_to_crosstab)
+  new_path_to_crosstab <- sub("_original", paste0("_corrected_",type,"_coeffs"), path_to_crosstab)
   write.table(signif(exprs(m), n.sigfig),
               file = new_path_to_crosstab,
               quote=F, sep="\t")
+}
+
+```
+
+```{r normalize_acetyl_data}
+normalize_acetyl_data <- function(path_to_crosstab, path_to_phenodata,
+                                   path_to_global_crosstab, n.sigfig=3, 
+                                  type="acetyl", batch_correct = FALSE) {
+  # Make MSnSet
+  crosstab <- read.table(path_to_crosstab, sep = "\t", header = TRUE, fill = TRUE, row.names = NULL)
+  crosstab <- dplyr::distinct(crosstab)
+  row.names(crosstab) <- crosstab$row.names
+  crosstab$row.names <- NULL
+  crosstab <- crosstab[rowSums(is.na(crosstab)) != ncol(crosstab), ]
+  m <- MSnSet(as.matrix(crosstab))
+  phenodata <- read.table(path_to_phenodata, colClasses="character", sep = "\t", header = TRUE, fill = TRUE)
+  phenodata$`Loading.Mass` <- as.numeric(phenodata$`Loading.Mass`)
+  rownames(phenodata) <- phenodata$SampleID.full
+  pData(m) <- phenodata[sampleNames(m),]
+  
+  # Fetch global sample medians
+  global_crosstab <- read.table(path_to_global_crosstab, sep = "\t", header = TRUE, fill = TRUE)
+  global_coeffs <- apply(global_crosstab,
+                         MARGIN = 2, FUN = median, na.rm = T)
+  
+  # Normalize by global sample medians
+  exprs(m) <- sweep(exprs(m), 2, global_coeffs)
+  m <- normalizeByMedpolish(m)
+  new_path_to_crosstab <- sub("_original", "_medpolish", path_to_crosstab)
+  write.table(signif(exprs(m), n.sigfig),
+              file = new_path_to_crosstab,
+              quote=F, sep="\t")
+  
+  if (batch_correct) {
+    # Missing value filter
+  m <- m %>%
+      filterByProportionMissingValues(least_proportion_threshold = 0.5) %>%
+      filterByMissingPerBatch("Plex", least_count_threshold = 1L)
+      
+  # Batch correction
+  removed_covariates <- c("Plex", "Loading.Mass")
+  m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
+  
+  # Medpolish and save
+  m <- normalizeByMedpolish(m)
+  new_path_to_crosstab <- sub("_original", "_corrected", path_to_crosstab)
+  write.table(signif(exprs(m), n.sigfig),
+              file = new_path_to_crosstab,
+              quote=F, sep="\t")
+  }
+  
+    # Make MSnSet
+  crosstab <- read.table(path_to_crosstab, sep = "\t", header = TRUE, fill = TRUE, row.names = NULL)
+  crosstab <- dplyr::distinct(crosstab)
+  row.names(crosstab) <- crosstab$row.names
+  crosstab$row.names <- NULL
+  crosstab <- crosstab[rowSums(is.na(crosstab)) != ncol(crosstab), ]
+  m <- MSnSet(as.matrix(crosstab))
+  pData(m) <- phenodata[sampleNames(m),]
+  
+  # Normalize by phospho coefficients
+  m <- normalizeByMedpolish(m)
+  new_path_to_crosstab <- sub("_original", paste0("_medpolish_", type, "_coeffs"), path_to_crosstab)
+  write.table(signif(exprs(m), n.sigfig),
+              file = new_path_to_crosstab,
+              quote=F, sep="\t")
+  
+  if (batch_correct) {
+   # Missing value filter
+  m <- m %>%
+      filterByProportionMissingValues(least_proportion_threshold = 0.5) %>%
+      filterByMissingPerBatch("Plex", least_count_threshold = 1L)
+      
+  # Batch correction
+  removed_covariates <- c("Plex", "Loading.Mass")
+  m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
+  
+  # Medpolish and save
+  m <- normalizeByMedpolish(m)
+  new_path_to_crosstab <- sub("_original", paste0("_corrected_",type,"_coeffs"), path_to_crosstab)
+  write.table(signif(exprs(m), n.sigfig),
+              file = new_path_to_crosstab,
+              quote=F, sep="\t") 
+  }
 }
 
 ```
@@ -174,6 +263,17 @@ lapply(list.files("data/Ex10_phospho_data/", "_original.txt",
        normalize_phospho_data,
        path_to_phenodata = "data/Ex10_phenodata.txt",
        path_to_global_crosstab="data/Ex10_global_data/ptrc_ex10_crosstab_global_gene_original.txt")
+
+setwd("~/OneDrive - PNNL/Documents/GitHub/BeatAMLproteomics/proteomics/")
+lapply(list.files("data/Ex10_acetyl_data", "_original.txt",
+                  full.names=TRUE),
+       normalize_acetyl_data,
+       path_to_phenodata = "data/Ex10_metadata.txt",
+       path_to_global_crosstab="data/Ex10_global_data/ptrc_ex10_crosstab_global_gene_original.txt")
+
+# cannot do batch correction for acetyl because of error:
+# Error in solve.default(prior.covar) : 
+#   system is computationally singular: reciprocal condition number = 4.53981e-21
 
 t0 <- Sys.time(); print(t0)
 
