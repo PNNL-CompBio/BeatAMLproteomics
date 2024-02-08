@@ -6,10 +6,9 @@ output: html_document
 
 ```{r login}
 library(amlresistancenetworks)
-library(reticulate)
+library(synapser)
 
-syn = reticulate::import("synapseclient")
-sync = syn$login()
+synapser::synLogin()
 ```
 
 ```{r upload_phenodata}
@@ -20,6 +19,16 @@ synapseStore(path="data/Ex10_metadata.txt",
 ```{r upload_crosstabs}
 synapse_id_map <- c("syn25714186" = "data/Ex10_global_data/",
                     "syn25714185" = "data/Ex10_phospho_data/")
+
+for (i in seq_along(synapse_id_map)) {
+  crosstabs <- list.files(path = synapse_id_map[i],
+                          pattern = "crosstab.*.txt",
+                          full.names = T)
+  lapply(crosstabs, synapseStore,
+         parentId = names(synapse_id_map)[i])
+}
+
+synapse_id_map <- c("syn53484023" = "data/Ex10_acetyl_data/")
 
 for (i in seq_along(synapse_id_map)) {
   crosstabs <- list.files(path = synapse_id_map[i],
