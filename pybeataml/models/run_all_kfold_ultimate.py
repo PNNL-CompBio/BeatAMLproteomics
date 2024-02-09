@@ -213,17 +213,16 @@ def run_model(d_sets, drug_name):
     all_results.feature_names = all_results.feature_names.str.join('|')
     return all_results
 
-def run_all_sources(my_drug):
+def run_all_sources(my_drug, all_sources = ['wes', 'rna_seq', 'proteomics', 'phospho', 'acetyl',
+               'metabolomics_HILIC', 'metabolomics_RP', 'lipidomics'],
+                    old_sources = ['wes', 'rna_seq', 'proteomics', 'phospho']):
     # generate all possible combinations of input data
-    all_sources = ['wes', 'rna_seq', 'proteomics', 'phospho', 'acetyl',
-                   'metabolomics_HILIC', 'metabolomics_RP', 'lipidomics']
     data_sources = []
     for l in range(len(all_sources) + 1):
         for subset in it.combinations(all_sources, l):
             data_sources.append(subset)
     data_sources = data_sources[1:] # 63
     
-    old_sources = ['wes', 'rna_seq', 'proteomics', 'phospho']
     old_data_sources = []
     for l in range(len(old_sources) + 1):
         for subset in it.combinations(old_sources, l):
