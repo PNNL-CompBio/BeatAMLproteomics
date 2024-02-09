@@ -37,7 +37,7 @@ lipidomics_id = 'syn52121001'
 meta_file_id2 = 'syn25807733'
 acetyl_id = 'syn53484994'
 
-def scale_col(my_col, method = "median_sub"):
+def scale_col(my_col, method = "z"):
     if method == "median_sub":
         my_col = my_col - my_col.median()
     elif method == "median_div":
@@ -179,7 +179,7 @@ def prep_metabolomics_RP(confidence="high"):
 
     # import HILIC pos & neg and drop extra rows & columns
     data_pos = load_excel(metabolomics_id, 2)
-    data_pos = data_pos.iloc[:-135] # drop unknowns
+    data_pos = data_pos.iloc[:-76] # drop unknowns
     data_pos = data_pos.drop(columns=['Blank_BEAT_AML_01_RP_Pos_14Apr23_Olympic_HGold-8527_r1.raw (F82)',
                                       'Blank_BEAT_AML_01_RP_Pos_14Apr23_Olympic_HGold-8527_r1_20230414144819.raw (F83)',
                                       'Blank_BEAT_AML_01_RP_Pos_14Apr23_Olympic_HGold-8527_r2.raw (F84)',
@@ -194,7 +194,7 @@ def prep_metabolomics_RP(confidence="high"):
                               'Annotation MW', 'Reference Ion'])
 
     data_neg = load_excel(metabolomics_id, 3)
-    data_neg = data_neg.iloc[:-98] # drop unknowns
+    data_neg = data_neg.iloc[:-56] # drop unknowns
     data_neg = data_neg.drop(columns=['Blank_BEAT_AML_01_RP_Neg',
                                       'Blank_BEAT_AML_02_RP_Neg',
                                       'Blank_BEAT_AML_02_RP_Neg2',
@@ -225,7 +225,7 @@ def prep_metabolomics_RP(confidence="high"):
     data_neg = data_neg.apply(pd.to_numeric, errors='coerce')
     data_neg = data_neg.apply(scale_col)
 
-    # reformat to long format, normalize, and combine pos & neg data
+    # reformat to long format and combine pos & neg data
     data_pos['SampleID.abbrev'] = data_pos.index
     data_pos = pd.melt(data_pos, id_vars=['SampleID.abbrev'], 
                         var_name = 'display_label', value_name='exp_value')
@@ -322,7 +322,7 @@ def prep_lipidomics():
     data_neg = data_neg.apply(pd.to_numeric, errors='coerce')
     data_neg = data_neg.apply(scale_col)
 
-    # reformat to long format, normalize, and combine pos & neg data
+    # reformat to long format and combine pos & neg data
     data_pos['SampleID.abbrev'] = data_pos.index
     data_pos = pd.melt(data_pos, id_vars=['SampleID.abbrev'], 
                         var_name = 'display_label', value_name='exp_value')
@@ -380,22 +380,26 @@ def prep_acetyl():
     f_name = os.path.join(os.path.dirname(__file__), f_name)
     if os.path.exists(f_name):
         return pd.read_csv(f_name)
-    acetyl_cols = ['Gene', 'SiteID', 'LogRatio',
-                'SampleID.full', 'Barcode.ID']
-    acetyl_mapper = {
-        'Gene': 'gene_symbol',
-        'SiteID': 'label',
-        'LogRatio': 'exp_value',
-        'SampleID.full': 'sample_id_full',
-        'Barcode.ID': 'sample_id',
-    }
-    acetyl_data = load_table(acetyl_id)
+    acetyl_cols = ['gene_symbol', 'label', 'exp_value',
+                'sample_id_full', 'sample_id']
+    acetyl_data = load_file(acetyl_id)
+    
+    # melt into long format
+    acetyl_data['label'] = acetyl_data.index
+    acetyl_data = pd.melt(acetyl_data, id_vars=['label'], 
+                        var_name = 'SampleID.full', value_name='exp_value')
     
     # extract Gene from SiteID
-    acetyl_data['Gene'] = acetyl_data['SiteID'].split('-', 1)[0]
+    acetyl_data['gene_symbol'] = acetyl_data['label'].str.split('-', expand = True)[0]
+    
+    # convert sample IDs to barcode IDs
+    ex10Metadata_df = load_meta_for_ids()
+    ex10Metadata_df = ex10Metadata_df[['SampleID.full', 'Barcode.ID']]
+    acetyl_data = pd.merge(acetyl_data, ex10Metadata_df)
+    acetyl_data = acetyl_data.rename(columns={'Barcode.ID': 'sample_id',
+                                              'SampleID.full': 'sample_id_full'})
     
     acetyl_subset = acetyl_data.loc[:, acetyl_cols]
-    acetyl_subset.rename(acetyl_mapper, axis=1, inplace=True)
     acetyl_subset['source'] = 'acetyl'
     if not os.path.exists(f_name):
         acetyl_subset.to_csv(f_name)
