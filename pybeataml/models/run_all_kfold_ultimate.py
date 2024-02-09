@@ -10,7 +10,6 @@ from sklearn.model_selection import RepeatedKFold
 from pybeataml.load_data import AMLData
 from pybeataml.load_data_from_synpase import load_file
 from datetime import date
-from multiprocessing import Pool
 
 # point of access for all data
 data = AMLData()
@@ -216,7 +215,8 @@ def run_model(d_sets, drug_name):
 
 def run_all_sources(my_drug):
     # generate all possible combinations of input data
-    all_sources = ['wes', 'rna_seq', 'proteomics', 'phospho', 'metabolomics', 'lipidomics']
+    all_sources = ['wes', 'rna_seq', 'proteomics', 'phospho', 'acetyl',
+                   'metabolomics_HILIC', 'metabolomics_RP', 'lipidomics']
     data_sources = []
     for l in range(len(all_sources) + 1):
         for subset in it.combinations(all_sources, l):
@@ -264,10 +264,11 @@ if __name__ == '__main__':
     for i in drugs_to_focus:
         if i not in good_drugs:
             good_drugs.add(i)
-        
-    with Pool() as pool:
-            all_models = pool.map(run_all_sources, reversed(sorted(good_drugs)))
-    df = pd.concat(all_models, )
+    
+    new_models = []
+    for i in good_drugs:
+            new_models.append(run_all_sources(good_drugs[i]))
+    df = pd.concat(new_models, )
 
     old_models = load_file('syn52299998')
     df_final = pd.concat(df, old_models)
