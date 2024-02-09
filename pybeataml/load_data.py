@@ -47,7 +47,7 @@ def scale_col(my_col, method = "z"):
     elif method == "maxMin":
         my_col = 2*(my_col - my_col.min()) / (my_col.max() - my_col.min()) - 1
     else:
-        warnings.warn("column was not scaled. method must be either 'median', 'maxMin', or 'z'")
+        warnings.warn("column was not scaled. method must be either 'z', 'median_sub', 'median_div', or 'maxMin'")
     return my_col
 
 def load_meta_for_ids():
