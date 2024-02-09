@@ -23,9 +23,11 @@ source("../util/synapseUtil.R")
 ## Selecting original global and phospho data
 phenodata.syn <- "syn25807733"
 phospho.syn <- "syn25714936"
+acetyl.syn <- "syn53484041"
+acetyl.peptide.syn <- "syn53484037"
 global.syn <- "syn25714254"
 
-syn <- synapseLogin()
+#syn <- synapser::synLogin()
 
 phenodata <- read.table(syn$get(phenodata.syn)$path, sep = "\t",
                          header = TRUE, colClasses = "character") %>%
@@ -34,10 +36,17 @@ phenodata$Plex <- as.character(phenodata$Plex)
 phenodata$Loading.Mass <- as.numeric(phenodata$Loading.Mass)
 
 crosstab <- read.table(syn$get(phospho.syn)$path, check.names = F, sep = "\t")
+acetyl_crosstab <- read.table(syn$get(acetyl.syn)$path, check.names = F, sep = "\t")
+acetyl_peptide_crosstab <- read.table(syn$get(acetyl.peptide.syn)$path, check.names = F, sep = "\t", fill = TRUE, row.names = NULL)
+acetyl_peptide_crosstab <- dplyr::distinct(acetyl_peptide_crosstab)
+row.names(acetyl_peptide_crosstab) <- acetyl_peptide_crosstab$row.names
+acetyl_peptide_crosstab$row.names <- NULL
 
 global_crosstab <- read.table(syn$get(global.syn)$path, check.names = F, sep = "\t")
 
 path_to_crosstab <- "data/Batch Correction/ptrc_ex10_crosstab_phospho_siteID_original_relaxed.txt"
+acetyl_path_to_crosstab <- "data/Ex10_acetyl_data/ptrc_ex10_crosstab_acetyl_siteID_original_relaxed.txt"
+acetyl_peptide_path_to_crosstab <- "data/Ex10_acetyl_data/ptrc_ex10_crosstab_acetyl_peptide_original_relaxed.txt"
 
 # corrected.synapse <- read.table("data/Batch Correction/ptrc_ex10_crosstab_phospho_siteID_corrected.txt",
 #                                 check.names = F, sep = "\t")
@@ -134,7 +143,159 @@ data <- exprs(m) %>%
   filter(!is.na(LogRatio)) %>%
   left_join(meta, by = "Sample")
 
-synTableStore(data, "BeatAML Phosphoproteomics relaxed_filter_v2_corrected", parentId = 'syn22128879')
+# synTableStore(data, "BeatAML Phosphoproteomics relaxed_filter_v2_corrected", parentId = 'syn22128879') # seems like this is actually syn26477193 as of 20240208
+
+```
+
+```{r normalize_acetyl_data}
+## Performing the exact same normalization and correction steps, with the "sufficiently present" features
+## filter considerably relaxed, allowing no more than 4 plexes to be missing per SiteID.
+n.sigfig <- 3
+n.plexes <- 10
+
+m <- MSnSet(as.matrix(acetyl_crosstab))
+row.names(phenodata) <- phenodata$SampleID.full
+pData(m) <- phenodata[sampleNames(m),]
+
+# Fetch global sample medians
+global_coeffs <- apply(global_crosstab, MARGIN = 2, FUN = median, na.rm = T)
+
+# Normalize by global sample medians
+exprs(m) <- sweep(exprs(m), 2, global_coeffs)
+m <- normalizeByMedpolish(m) # Warning: medpolish() did not converge in 100 iterations
+new_path_to_crosstab <- sub("_original", "_medpolish", path_to_crosstab)
+write.table(signif(exprs(m), n.sigfig),
+            file = new_path_to_crosstab,
+            quote=F, sep="\t")
+
+meta <- phenodata %>%
+  select(Plex) %>%
+  rownames_to_column("Sample")
+
+m.medpolish <- m
+
+## Filtering by missing batches, no more than 4 allowed
+xx <- as.data.frame(exprs(m)) %>%
+  mutate(SiteID = rownames(.)) %>%
+  pivot_longer(-SiteID, names_to = "Sample", values_to = "LogRatio") %>%
+  left_join(meta, by = "Sample") %>%
+  group_by(SiteID, Plex) %>%
+  mutate(count = sum(!is.na(LogRatio))) %>%
+  ungroup(Plex, SiteID) %>%
+  group_by(SiteID) %>%
+  summarise(`Plexes missing` = sum(count == 0)/10)
+
+chosen <- xx %>%
+  filter(`Plexes missing` <= n.plexes) 
+
+chosen <- chosen$SiteID
+m <- m[chosen, ]
+
+## Filering by no more than 50% missing per feature (different than above)
+m <- filterByProportionMissingValues(m, least_proportion_threshold = 0.5)
+    
+# Batch correction
+removed_covariates <- c("Plex", "Loading.Mass")
+
+########################### NOTE #############################
+# m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
+## The regression (used to estimate batch and loading mass effect) fails for 4125
+## Phosphosites. Reason has to do with the design matrix in regression not having full rank.
+## To see what the sites are, debug WGCNA::empiricalBayesLM and proceed past line 250. This ensures 
+## the regression has run for all sites. Then we can save the sites which failed to a new table using
+## write.table(colnames(data)[which(regressionValid == FALSE)], "Failed acetyl Regression.txt", row.names = F)
+#######################################################
+# debug(WGCNA::empiricalBayesLM)
+failed.sites <- read.table("../proteomics/Failed acetyl Regression.txt")[-1, ]
+m2 <- m[!(rownames(m) %in% failed.sites), ]
+m3 <- correct_batch_effect_empiricalBayesLM(m2, removed_covariates) # Warning: Found missing and/or non-finite data. These will be removed.
+
+# Medpolish and save
+m3 <- normalizeByMedpolish(m3)
+new_path_to_crosstab <- sub("_original", "_corrected", acetyl_path_to_crosstab)
+write.table(signif(exprs(m3), n.sigfig),
+            file = new_path_to_crosstab,
+            quote=F, sep="\t")
+syn.file <- synapser::File(new_path_to_crosstab, parent = "syn53484023")
+synapser::synStore(syn.file)
+
+```
+
+
+```{r normalize_acetyl_peptide_data}
+## Performing the exact same normalization and correction steps, with the "sufficiently present" features
+## filter considerably relaxed, allowing no more than 4 plexes to be missing per SiteID.
+n.sigfig <- 3
+n.plexes <- 10
+
+m <- MSnSet(as.matrix(acetyl_peptide_crosstab))
+row.names(phenodata) <- phenodata$SampleID.full
+pData(m) <- phenodata[sampleNames(m),]
+
+# Fetch global sample medians
+global_coeffs <- apply(global_crosstab, MARGIN = 2, FUN = median, na.rm = T)
+
+# Normalize by global sample medians
+exprs(m) <- sweep(exprs(m), 2, global_coeffs)
+m <- normalizeByMedpolish(m) # Warning: medpolish() did not converge in 100 iterations
+new_path_to_crosstab <- sub("_original", "_medpolish", path_to_crosstab)
+write.table(signif(exprs(m), n.sigfig),
+            file = new_path_to_crosstab,
+            quote=F, sep="\t")
+
+meta <- phenodata %>%
+  select(Plex) %>%
+  rownames_to_column("Sample")
+
+m.medpolish <- m
+
+## Filtering by missing batches, no more than 4 allowed
+xx <- as.data.frame(exprs(m)) %>%
+  mutate(SiteID = rownames(.)) %>%
+  pivot_longer(-SiteID, names_to = "Sample", values_to = "LogRatio") %>%
+  left_join(meta, by = "Sample") %>%
+  group_by(SiteID, Plex) %>%
+  mutate(count = sum(!is.na(LogRatio))) %>%
+  ungroup(Plex, SiteID) %>%
+  group_by(SiteID) %>%
+  summarise(`Plexes missing` = sum(count == 0)/10)
+
+chosen <- xx %>%
+  filter(`Plexes missing` <= n.plexes) 
+
+chosen <- chosen$SiteID
+m <- m[chosen, ]
+
+## Filering by no more than 50% missing per feature (different than above)
+m <- filterByProportionMissingValues(m, least_proportion_threshold = 0.5)
+    
+# Batch correction
+removed_covariates <- c("Plex", "Loading.Mass")
+
+########################### NOTE #############################
+# m <- correct_batch_effect_empiricalBayesLM(m, removed_covariates)
+## The regression (used to estimate batch and loading mass effect) fails for 4125
+## Phosphosites. Reason has to do with the design matrix in regression not having full rank.
+## To see what the sites are, debug(WGCNA::empiricalBayesLM) and proceed past line 250. This ensures 
+## the regression has run for all sites. Then we can save the sites which failed to a new table using
+## write.table(colnames(data)[which(regressionValid == FALSE)], "Failed acetyl peptide Regression.txt", row.names = F)
+#######################################################
+# debug(WGCNA::empiricalBayesLM)
+failed.sites <- read.table("../proteomics/Failed acetyl peptide Regression.txt")[-1, ]
+m2 <- m[!(rownames(m) %in% failed.sites), ]
+m3 <- correct_batch_effect_empiricalBayesLM(m2, removed_covariates) # Warning: Found missing and/or non-finite data. These will be removed.
+# Error in solve.default(prior.covar) : 
+#  system is computationally singular: reciprocal condition number = 1.28073e-22
+# Error occurred at i = 84
+
+# # Medpolish and save
+# m3 <- normalizeByMedpolish(m3)
+# new_path_to_crosstab <- sub("_original", "_corrected", acetyl_peptide_path_to_crosstab)
+# write.table(signif(exprs(m3), n.sigfig),
+#             file = new_path_to_crosstab,
+#             quote=F, sep="\t")
+# syn.file <- synapser::File(new_path_to_crosstab, parent = "syn53484023")
+# synapser::synStore(syn.file)
 
 ```
 
