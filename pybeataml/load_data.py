@@ -11,6 +11,7 @@ import os
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import warnings
 from sklearn.model_selection import train_test_split
 
 from pybeataml.data import ExperimentalData
@@ -34,11 +35,19 @@ clinical_summary_id = 'syn25796769'
 metabolomics_id = 'syn52224584'
 lipidomics_id = 'syn52121001'
 meta_file_id2 = 'syn25807733'
+acetyl_id = 'syn53484035'
 
-def scale_col(my_col):
-    #my_col = 2*(my_col - my_col.min()) / (my_col.max() - my_col.min()) - 1
-    my_col = (my_col - my_col.mean()) / my_col.std()
-    #my_col = my_col / my_col.median()
+def scale_col(my_col, method = "median_sub"):
+    if method == "median_sub":
+        my_col = my_col - my_col.median()
+    elif method == "median_div":
+        my_col = my_col / my_col.median()
+    elif method == "z":
+        my_col = (my_col - my_col.mean()) / my_col.std()
+    elif method == "maxMin":
+        my_col = 2*(my_col - my_col.min()) / (my_col.max() - my_col.min()) - 1
+    else:
+        warnings.warn("column was not scaled. method must be either 'median', 'maxMin', or 'z'")
     return my_col
 
 def load_meta_for_ids():
@@ -73,8 +82,8 @@ def prep_rnaseq():
         subset.to_csv(f_name)
     return subset
 
-def prep_metabolomics():
-    f_name = 'data/metabolomics.csv'
+def prep_metabolomics_HILIC(confidence="high"):
+    f_name = 'data/metabolomics_HILIC.csv'
     f_name = os.path.join(os.path.dirname(__file__), f_name)
     if os.path.exists(f_name):
         return pd.read_csv(f_name)
@@ -110,6 +119,11 @@ def prep_metabolomics():
                               'Main class', ' Sub class', 'Formula',
                               'Annot. DeltaMass [ppm]',
                               'Annotation MW', 'Reference Ion'])
+    
+    # drop rows not meeting confidence threshold
+    if confidence == "high":
+        data_pos = data_pos.iloc[:-54]
+        data_neg = data_neg.iloc[:-35]
     
     # normalize data
     data_pos = data_pos.T
@@ -149,8 +163,95 @@ def prep_metabolomics():
 
     # reformat data
     subset = data.loc[:, cols]
-    subset['source'] = 'metabolomics'
-    subset['label'] = subset.display_label + '_met'
+    subset['source'] = 'metabolomics_HILIC'
+    subset['label'] = subset.display_label + '_met_HILIC'
+    if not os.path.exists(f_name):
+        subset.to_csv(f_name)
+    return subset
+
+def prep_metabolomics_RP(confidence="high"):
+    f_name = 'data/metabolomics_RP.csv'
+    f_name = os.path.join(os.path.dirname(__file__), f_name)
+    if os.path.exists(f_name):
+        return pd.read_csv(f_name)
+    cols = ['display_label', 'sample_id',
+            'exp_value']
+
+    # import HILIC pos & neg and drop extra rows & columns
+    data_pos = load_excel(metabolomics_id, 2)
+    data_pos = data_pos.iloc[:-135] # drop unknowns
+    data_pos = data_pos.drop(columns=['Blank_BEAT_AML_01_RP_Pos_14Apr23_Olympic_HGold-8527_r1.raw (F82)',
+                                      'Blank_BEAT_AML_01_RP_Pos_14Apr23_Olympic_HGold-8527_r1_20230414144819.raw (F83)',
+                                      'Blank_BEAT_AML_01_RP_Pos_14Apr23_Olympic_HGold-8527_r2.raw (F84)',
+                                      'Blank_BEAT_AML_02_RP_Pos',
+                                      'Blank_BEAT_AML_03_RP_Pos',
+                                      'Blank_BEAT_AML_04_RP_Pos',
+                                      'Blank_BEAT_AML_05_RP_Pos']) # drop blanks
+    data_pos = data_pos.drop(columns=['m/z', 'RT [min]', 'Tags',
+                              'Standardized name', 'Super class',
+                              'Main class', ' Sub class', 'Formula',
+                              'Annot. DeltaMass [ppm]',
+                              'Annotation MW', 'Reference Ion'])
+
+    data_neg = load_excel(metabolomics_id, 3)
+    data_neg = data_neg.iloc[:-98] # drop unknowns
+    data_neg = data_neg.drop(columns=['Blank_BEAT_AML_01_RP_Neg',
+                                      'Blank_BEAT_AML_02_RP_Neg',
+                                      'Blank_BEAT_AML_02_RP_Neg2',
+                                      'Blank_BEAT_AML_03_RP_Neg',
+                                      'Blank_BEAT_AML_04_RP_Neg',
+                                      'Blank_BEAT_AML_05_RP_Neg']) # drop blanks
+    data_neg = data_neg.drop(columns=['m/z', 'RT [min]', 'Tags',
+                              'Standardized name', 'Super class',
+                              'Main class', ' Sub class', 'Formula',
+                              'Annot. DeltaMass [ppm]',
+                              'Annotation MW', 'Reference Ion'])
+    
+    # drop rows not meeting confidence threshold
+    if confidence == "high":
+        data_pos = data_pos.iloc[:-37]
+        data_neg = data_neg.iloc[:-13]
+    
+    # normalize data
+    data_pos = data_pos.T
+    data_pos.columns = data_pos.iloc[0]
+    data_pos = data_pos[1:]
+    data_pos = data_pos.apply(pd.to_numeric, errors='coerce')
+    data_pos = data_pos.apply(scale_col)
+    
+    data_neg = data_neg.T
+    data_neg.columns = data_neg.iloc[0]
+    data_neg = data_neg[1:]
+    data_neg = data_neg.apply(pd.to_numeric, errors='coerce')
+    data_neg = data_neg.apply(scale_col)
+
+    # reformat to long format, normalize, and combine pos & neg data
+    data_pos['SampleID.abbrev'] = data_pos.index
+    data_pos = pd.melt(data_pos, id_vars=['SampleID.abbrev'], 
+                        var_name = 'display_label', value_name='exp_value')
+    
+    data_neg['SampleID.abbrev'] = data_neg.index
+    data_neg = pd.melt(data_neg, id_vars=['SampleID.abbrev'], 
+                        var_name = 'display_label', value_name='exp_value')
+
+    data = pd.concat([data_pos, data_neg])
+    #data['exp_value'] = scale_col(data['exp_value'])
+
+    # extract sample IDs from labID column
+    string1 = "BEAT_AML_PNL_"
+    data['SampleID.abbrev'] = data['SampleID.abbrev'].apply(lambda st: st[st.find(string1) + len(string1):st.find("_M")])
+    data['SampleID.abbrev'] = pd.to_numeric(data['SampleID.abbrev'], errors = 'coerce').astype(pd.Int16Dtype())
+
+    # convert sample IDs to barcode IDs
+    ex10Metadata_df = load_meta_for_ids()
+    ex10Metadata_df = ex10Metadata_df[['SampleID.abbrev', 'Barcode.ID']]
+    data = pd.merge(data, ex10Metadata_df)
+    data = data.rename(columns={'Barcode.ID': 'sample_id'})
+
+    # reformat data
+    subset = data.loc[:, cols]
+    subset['source'] = 'metabolomics_RP'
+    subset['label'] = subset.display_label + '_met_RP'
     if not os.path.exists(f_name):
         subset.to_csv(f_name)
     return subset
@@ -274,6 +375,31 @@ def prep_phosph():
         phosph_subset.to_csv(f_name)
     return phosph_subset
 
+def prep_acetyl():
+    f_name = 'data/acetyl.csv'
+    f_name = os.path.join(os.path.dirname(__file__), f_name)
+    if os.path.exists(f_name):
+        return pd.read_csv(f_name)
+    acetyl_cols = ['Gene', 'SiteID', 'LogRatio',
+                'SampleID.full', 'Barcode.ID']
+    acetyl_mapper = {
+        'Gene': 'gene_symbol',
+        'SiteID': 'label',
+        'LogRatio': 'exp_value',
+        'SampleID.full': 'sample_id_full',
+        'Barcode.ID': 'sample_id',
+    }
+    acetyl_data = load_table(acetyl_id)
+    
+    # extract Gene from SiteID
+    acetyl_data['Gene'] = acetyl_data['SiteID'].split('-', 1)[0]
+    
+    acetyl_subset = acetyl_data.loc[:, acetyl_cols]
+    acetyl_subset.rename(acetyl_mapper, axis=1, inplace=True)
+    acetyl_subset['source'] = 'acetyl'
+    if not os.path.exists(f_name):
+        acetyl_subset.to_csv(f_name)
+    return acetyl_subset
 
 def prep_proteomics():
     f_name = 'data/global.csv'
@@ -406,11 +532,14 @@ class AMLData(object):
         self.rna = prep_rnaseq()
         self.functional = load_drug_response()
         self.wes = load_mutations()
-        self.metabolomics = prep_metabolomics()
+        self.metabolomics_HILIC = prep_metabolomics_HILIC()
+        self.metabolomics_RP = prep_metabolomics_RP()
         self.lipidomics = prep_lipidomics()
+        self.acetyl = prep_acetyl()
         self.flat_data = pd.concat(
             [self.phospho, self.proteomics, self.rna, self.wes,
-             self.metabolomics, self.lipidomics]
+             self.metabolomics_HILIC, self.metabolomics_RP, 
+             self.lipidomics, self.acetyl]
         )
 
         self.meta = add_cluster_plus_meta()
