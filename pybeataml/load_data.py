@@ -35,7 +35,7 @@ clinical_summary_id = 'syn25796769'
 metabolomics_id = 'syn52224584'
 lipidomics_id = 'syn52121001'
 meta_file_id2 = 'syn25807733'
-acetyl_id = 'syn53484035'
+acetyl_id = 'syn53484994'
 
 def scale_col(my_col, method = "median_sub"):
     if method == "median_sub":
