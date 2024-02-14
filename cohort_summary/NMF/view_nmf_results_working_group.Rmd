@@ -1,0 +1,444 @@
+---
+title: "NMF Clustering on combined data"
+author: "Camilo Posso"
+date: "01/17/22"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+```{r load data, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(NMF)
+library(pheatmap)
+library(openxlsx)
+library(survminer)
+
+source("NMF_helper.R")
+source("../../util/make_plots_util.R")
+source("../../util/mutational_analysis_helper.R")
+```
+
+
+
+```{r compute cophenetic, eval=FALSE, include=FALSE}
+
+prefix <- "wg"
+folder <- "nmf_wg/"
+files <- list.files(folder, prefix) %>%
+  paste0(folder, .)
+files <- grep(files, pattern='rds', invert=FALSE, value=TRUE)
+results <- lapply(files, readRDS)
+
+
+ranks <- sapply(results, function(x){
+  y <- x[[1]]
+  y <- y@fit@H
+  return(dim(y)[[1]])
+  })
+names(results) <- as.numeric(ranks)
+
+results <- results[as.character(sort(as.numeric(names(results))))]
+
+coph_correlation <- sapply(results, cophcor) %>%
+  data.frame(coph.cor = ., k = 2:10)
+  # filter(k <= 8)
+coph_correlation
+```
+
+```{r show cophenetic}
+sample_cluster_assignment <- get.clusters(results) %>%
+  select(Barcode.ID, everything())
+fname <- paste0('nmf_wg/', prefix, '_cluster_assignments.txt', sep='')
+rownames(sample_cluster_assignment) <- sample_cluster_assignment$Barcode.ID
+write.table(sample_cluster_assignment, fname, sep = "\t", quote = F)
+```
+
+
+
+
+```{r show cophenetic}
+
+adjacencies <- lapply(results, consensus)
+
+
+p <- ggplot(coph_correlation, aes(x = k, y = coph.cor)) +
+        geom_line() +
+        ylab("Cophenetic correlation") +
+        scale_x_continuous(breaks = 2:10)
+
+fname <- paste0("nmf_wg/", prefix, '_cophenetic_correlation.pdf')
+ggsave(p, filename = fname, width=4, height=4, dpi=300)
+fname <- paste0("nmf_wg/", prefix, '_cophenetic_correlation.png')
+ggsave(p, filename =fname, width=4, height=4, dpi=300)
+
+# upload.plot("Data/cophenetic_correlation.pdf", "syn26529350")
+
+```
+
+
+
+
+```{r show cophenetic}
+
+titles <- paste("Consensus map k =", 2:10)
+
+paths <- paste0("nmf_wg/", prefix, titles, '.png') %>%
+         sub("= ", "", .) %>%
+         gsub(" ", "_", .)
+
+n_clusters <- c('2', '3', '4', '5', '6', '7', '8', '9', '10')
+
+plots <- lapply(n_clusters, function(i){
+  print(i)
+  counter <- strtoi(i)-1
+  subset <- adjacencies[[counter]]
+  f_name <- paths[[counter]]
+  print(f_name)
+  hc_cluster <- hclust(as.dist(1-subset), method = "average")
+  pheatmap(
+          subset,
+          filename = f_name,
+           height = 18, width = 16, format = "png",
+           cluster_rows = hc_cluster, cluster_cols = hc_cluster,
+           treeheight_row = 40, treeheight_col = 40, fontsize = 15
+  )
+
+})
+
+```
+
+$$\\[0.1in]$$
+
+As the cophenetic correlation is quite close between these, I selected 4 in particular
+which have high cophenetic correlation and/or agreement the FLT3 or Chemotherapy status.
+
+We summarize the results of for each \(k\) value below.
+Each one is the result of averaging 50 individual NMF clusters, and  is represented as a heatmap.  
+Both the rows and columns are samples. For a pair of samples \((S_1, S_2)\), the value seen plotted is 
+the proportion of times the two samples are assigned to the same cluster by the algorithm. They can
+also be interpreted as the probability that the samples belong to the same cluster. 
+Red blocks correspond to the various clusters, while a darker color (red or blue) indicates more 
+consensus among the clustering results.
+
+We also annotate the FLT3, Chemotherapy, RAS, and NPM1 status of the patients, to see if 
+these coincide with the clusters. On the rows, we color the samples according to the
+enrichment of FLT3, Chemotherapy, RAS and NPM1 in that cluster. Note we use a negative 
+logarithmic scale, with \(2 = -log_{10}(0.01)\) indicating a p-value of 0.01.
+
+
+```{r eval=FALSE, include=FALSE}
+### If k = 2 picture is not showing up, run the chunks to make the plots first, then knit. 
+### Seems to be a bug that is preventing the first plot (k = 2) from saving properly.
+
+samples.common <- colnames(adjacencies[[1]])
+titles <- paste("Consensus map k =", 2:10)
+paths <- paste0("nmf_wg/", prefix, titles) %>% sub("= ", "", .) %>% gsub(" ", "_", .)
+
+
+n_clusters <- c('2', '3', '4', '5', '6', '7', '8', '9', '10')
+
+### Run this to make the plots shown.
+plots <- lapply(n_clusters, function(i){
+  print(i)
+  xx <- enrichment[[i]]
+  p.labels <- xx %>%
+    left_join(get.clusters.individual(results[[i]]),
+              by = "Cluster") %>% 
+    column_to_rownames("Barcode.ID") %>%
+    select(everything(), -Cluster) %>% 
+    as.data.frame()
+  
+  ## slimming down annotations
+  p.labels <- p.labels %>%
+    select(-`Enrichment in NPM1`, -`Enrichment in PostChemotherapy`)
+  xx <- xx[, -c(1, 3, 5)] 
+  
+  xx.colors <- lapply(colnames(xx), function(category){
+    p.max <- max(xx[category]) %>% ceiling()
+    p.min <- min(xx[category]) %>% floor()
+    
+    ### This is to make the scale of "white to purple" uniform, even across
+    ### different categories with different ranges to color, for instance [0, 2] and [4, 13].
+    c(colors.wp[[p.min*10 + 1]], colors.wp[[p.max*10 + 1]])
+  })
+  
+  names(xx.colors) <- colnames(xx)
+  xx.colors <- append(ann.colors, xx.colors)
+  
+  k.col <- paste0("k", i)
+  
+  cluster.assignment <- kaplan.df.full %>%
+    select(Barcode.ID, sym(k.col))
+  colnames(cluster.assignment)[[2]] <- "Cluster"
+  n.levels <- length(unique(cluster.assignment$Cluster))
+  
+  ## This is exactly how the NMF hclust objects are computed within the function determining the
+  ## cluster assignment.
+  hc_cluster <- hclust(as.dist(1-adjacencies[[i]]), method = "average")
+  
+  ## Working on arranging the order by cluster
+  # sample_order <- ann.labels %>%
+  #   mutate(Barcode.ID = rownames(.)) %>%
+  #   merge(cluster.assignment, by = "Barcode.ID")
+  # rownames(sample_order) <- sample_order$Barcode.ID
+  # sample_order <- sample_order[rownames(ann.labels), ]
+  # sample_order <- sample_order[hc_cluster$order, ]
+  # sample_order <- sample_order %>%
+  #   arrange(Cluster)
+  
+  heatmap_mat <- adjacencies[[i]]
+  # heatmap_mat <- heatmap_mat[sample_order$Barcode.ID, sample_order$Barcode.ID]
+  
+  p.labels <- p.labels %>%
+    mutate(Barcode.ID = rownames(.)) %>%
+    left_join(cluster.assignment, by = "Barcode.ID") %>%
+    mutate(Cluster = factor(Cluster, levels = 1:n.levels)) %>%
+    column_to_rownames("Barcode.ID")
+  
+  xx.colors[["Cluster"]] = chosen.colors[1:length(unique(p.labels$Cluster))]
+  names(xx.colors[["Cluster"]]) <- as.character(1:n.levels)
+  custom_ann <- cbind(ann.labels, p.labels[rownames(ann.labels),])
+  
+  counter <- strtoi(i)-2
+  
+  make.pheatmap(heatmap_mat, filename = paths[[counter]], parentId = NULL,
+                annotation_col = ann.labels, annotation_colors = xx.colors,
+                show_rownames = FALSE, show_colnames = FALSE, main = titles[[counter]],
+                annotation_row = p.labels, height = 18, width = 16, format = "png",
+                cluster_rows = hc_cluster, cluster_cols = hc_cluster, treeheight_row = 40,
+                treeheight_col = 40, fontsize = 15)
+
+  make.pheatmap(heatmap_mat, filename = paths[[counter]], parentId = parentID,
+                annotation_col = ann.labels, annotation_colors = xx.colors,
+                show_rownames = FALSE, show_colnames = FALSE, main = titles[[counter]],
+                annotation_row = p.labels, height = 18, width = 16, format = "pdf",
+                cluster_rows = hc_cluster, cluster_cols = hc_cluster, treeheight_row = 40,
+                treeheight_col = 40, fontsize = 15)
+  
+  return("Done")
+})
+
+
+```
+
+
+```{r}
+
+## Chunk to upload the sample to cluster assignment
+sample_cluster_assignment <- get.clusters(results) %>%
+  select(Barcode.ID, everything())
+
+rownames(sample_cluster_assignment) <- sample_cluster_assignment$Barcode.ID
+write.table(sample_cluster_assignment, "Data/sample_to_cluster_assignments.txt", sep = "\t", quote = F)
+# synapseStore("Data/sample_to_cluster_assignments.txt", parentId = "syn26529350")
+
+```
+
+
+### \(k = 3\) 
+
+
+```{r, out.height = "1000px", out.width = "1000px"}
+
+knitr::include_graphics("Data/consensus_map_k_3.png")
+
+```
+
+
+
+
+$$\\[0.1in]$$
+
+### \(k = 4\) 
+
+
+```{r, out.height = "1000px", out.width = "1000px"}
+knitr::include_graphics("Data/consensus_map_k_4.png")
+
+```
+
+
+
+
+$$\\[0.1in]$$
+
+### \(k = 5\) 
+
+
+```{r, out.height = "1000px", out.width = "1000px"}
+knitr::include_graphics("Data/consensus_map_k_5.png")
+
+```
+
+
+
+
+$$\\[0.1in]$$
+
+### \(k = 8\) 
+
+
+```{r, out.height = "1000px", out.width = "1000px"}
+knitr::include_graphics("Data/consensus_map_k_8.png")
+
+```
+
+
+
+## uploading to synapse
+
+
+```{r}
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k2)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
+
+name <- "Data/survival_plots_by_cluster_k_2.pdf"
+ggsurvplot(sfit, palette = chosen.colors[1:2])$plot + 
+  ggtitle("Survival by cluster, k = 2") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
+ggsave(file = name, height = 7, width = 7)
+
+
+```
+
+```{r}
+
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k3)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
+
+name <- "Data/survival_plots_by_cluster_k_3.pdf"
+ggsurvplot(sfit, palette = chosen.colors[1:3])$plot + 
+  ggtitle("Survival by cluster, k = 3") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
+ggsave(file = name, height = 7, width = 7)
+
+```
+
+```{r}
+
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k4)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
+
+name <- "Data/survival_plots_by_cluster_k_4.pdf"
+ggsurvplot(sfit, palette = chosen.colors[1:4])$plot + 
+  ggtitle("Survival by cluster, k = 4") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
+ggsave(file = name, height = 7, width = 7)
+
+
+
+```
+
+```{r}
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k5)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
+
+name <- "Data/survival_plots_by_cluster_k_5.pdf"
+ggsurvplot(sfit, palette = chosen.colors[1:5])$plot + 
+  ggtitle("Survival by cluster, k = 5") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
+ggsave(file = name, height = 7, width = 7)
+
+```
+
+```{r}
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k6)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
+
+name <- "Data/survival_plots_by_cluster_k_6.pdf"
+ggsurvplot(sfit, palette = chosen.colors[1:6])$plot + 
+  ggtitle("Survival by cluster, k = 6") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
+ggsave(file = name, height = 7, width = 7)
+
+```
+
+
+```{r}
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k7)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
+
+name <- "Data/survival_plots_by_cluster_k_7.pdf"
+ggsurvplot(sfit, palette = chosen.colors[1:7])$plot + 
+  ggtitle("Survival by cluster, k = 7") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
+ggsave(file = name, height = 7, width = 7)
+
+
+```
+
+```{r}
+surv_df <- kaplan.df.full %>%
+  dplyr::rename(Cluster = k8)
+sfit <- survfit(Surv(overallSurvival, vitalStatus) ~ Cluster, data = surv_df)
+
+name <- "Data/survival_plots_by_cluster_k_8.pdf"
+ggsurvplot(sfit, palette = chosen.colors[1:8])$plot + 
+  ggtitle("Survival by cluster, k = 8") +
+  theme(legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 12, color = "black")) 
+ggsave(file = name, height = 7, width = 7)
+
+```
+
+
+
+```{r}
+folder <- "../../cohort_summary/NMF/Data/"
+files_survival_plots <- list.files(folder, "survival_plots_") %>%
+  paste0(folder, .)
+
+lapply(files_survival_plots, upload.plot, "syn26529350")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

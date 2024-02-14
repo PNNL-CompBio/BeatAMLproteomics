@@ -1,0 +1,132 @@
+---
+title: "R Notebook"
+output: html_document
+---
+
+The [R plugin](https://www.jetbrains.com/help/pycharm/r-plugin-support.html) for IntelliJ-based IDEs provides
+handy capabilities to work with the [R Markdown](https://www.jetbrains.com/help/pycharm/r-markdown.html) files.
+To [add](https://www.jetbrains.com/help/pycharm/r-markdown.html#add-code-chunk) a new R chunk,
+```{r}
+
+library(MSnSet.utils)
+library(NMF)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(BBmisc)
+library(DreamAI)
+#source("../../util/synapseUtil.R")
+#source("../../util/loading_data.R")
+source("NMF_helper.R")
+
+```
+position the caret at any line or the code chunk, then click "+".
+
+The code chunk appears:
+```{r}
+
+prep_nmf_mat <- function(datasets) {
+  samples <- Reduce(intersect, lapply(datasets, colnames))
+  datasets <- lapply(datasets, function(dataset){
+    ## KNN imputation
+    if (any(rowSums(is.na(dataset)) > 0)){
+      dataset <- DreamAI(dataset, k=10, maxiter_MF = 10, ntree = 100,
+                         maxnodes = NULL, maxiter_ADMIN = 30, tol = 10^(-2),
+                         gamma_ADMIN = 0, gamma = 50, CV = FALSE, fillmethod = "row_mean",
+                         maxiter_RegImpute = 10,conv_nrmse = 1e-6, iter_SpectroFM = 40,
+                         method = "KNN", out="Ensemble")$Ensemble
+      return(dataset)
+    } else {
+      dataset
+      return(dataset)
+    }
+  })
+  mat <- Reduce(rbind, lapply(datasets, function(dataset){dataset[, samples]}))
+
+  # mat <- normalize(mat, method='standardize')
+  means <- apply(mat, 1, mean)
+  mat <- sweep(mat, 1, means, FUN = '-')
+  sds <- apply(mat, 1, sd)
+  mat <- sweep(mat, 1, sds, FUN = '/')
+
+  mat.plus <- mat
+  mat.plus[mat.plus < 0] <- 0
+  mat.minus <- mat
+  mat.minus[mat.minus > 0] <- 0
+  mat.minus <- -mat.minus
+  mat.nmf <- rbind(mat.plus, mat.minus)
+
+  return(mat.nmf)
+}
+
+
+make_msnset <- function(data, feature_col, sample_col = "Barcode.ID",
+                        value_col = "LogRatio") {
+  mat <- data %>%
+    dplyr::select(sym(sample_col), sym(feature_col), sym(value_col)) %>%
+    pivot_wider(names_from = sym(sample_col), values_from = sym(value_col)) %>%
+    column_to_rownames(feature_col) %>%
+    as.matrix()
+
+  m <- MSnSet(exprs = mat)
+  return(m)
+}
+
+
+run_nmf_clustering <- function(
+        mat,
+        n_clusters = c(3,4,5),
+        n_trials = 50,
+        prefix)
+{
+  results <- list()
+  for (k in n_clusters){
+    start <- Sys.time()
+    message(paste0("Working on k = ", k))
+    message(start)
+    name <- paste(prefix, "NMF_k_", k, "_ntrials_", n_trials, "_runs.RDS")
+
+    nmf.result <- nmf(mat, k, nrun = n_trials, seed = 117117,
+                      .options = list(keep.all = TRUE, parallel = TRUE))
+    saveRDS(nmf.result, name)
+    results <- append(results, list(nmf.result))
+  }
+
+  return(results)
+}
+```
+
+```{r}
+prot_id <- "syn51082494"
+phospho_id <- "syn51425620"
+
+rna_mat <- read.csv2(
+  "rna_mat.csv",
+  row.names='ID',
+  sep =",",
+  na.strings=c("NA","NaN", ""),
+)
+
+
+protein_mat <- read.csv2(
+  "global_mat.csv",
+  row.names='label',
+  sep=",",
+  na.strings=c("NA","NaN", ""),
+)
+
+protein_mat <- mutate_all(protein_mat, function(x) as.numeric(as.character(x)))
+rna_mat <- mutate_all(rna_mat, function(x) as.numeric(as.character(x)))
+mat <- prep_nmf_mat(list(protein_mat, rna_mat))
+mat[mat < 0] <- 0
+min(mat)
+```
+```{r}
+
+
+n_clusters <- c(2, 3, 4)
+
+
+results <- run_nmf_clustering(mat, n_clusters, n_trials = 5, prefix = "WG_NMF")
+
+```
