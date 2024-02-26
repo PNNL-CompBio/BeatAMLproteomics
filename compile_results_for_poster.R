@@ -71,6 +71,20 @@ bp <- barplot(n.features$N_features, ylab = "# of Features", xlab = "Data Type",
         cex.names = 1)
 text(x=bp, y = ifelse(n.features$N_features < 20000, n.features$N_features + 1000, 21500), labels = n.features$N_features)
 
+n.features[n.features$Data_source=="Lipid",]$Data_source <- "Lipidomics"
+n.features[n.features$Data_source=="RNA",]$Data_source <- "RNA_Seq"
+#n.features[n.features$Data_source=="Met_HILIC",]$Data_source <- "Metabolomics_HILIC"
+#n.features[n.features$Data_source=="Met_HILIC",]$Data_source <- "Metabolomics_HILIC"
+
+n.features[n.features$Data_source=="Lipidomics",]$Data_source <- "Lipid"
+n.features[n.features$Data_source=="RNA_Seq",]$Data_source <- "RNA"
+
+bp <- barplot(n.features$N_features, ylab = "# of Features", xlab = "Data Type", 
+              names.arg = n.features$Data_source, horiz = FALSE, 
+              #las = 1, 
+              cex.names = 1)
+text(x=bp, y = ifelse(n.features$N_features < 20000, n.features$N_features + 1000, 21500), labels = n.features$N_features)
+
 #bar.feat <- ggplot2::ggplot(all.data, aes(x=Source)) + ggplot2::geom_bar() + bg.theme2
 
 # venn diagram of shared gene_symbols
@@ -91,6 +105,10 @@ venn.list <- list("Acetyl" = unique(na.omit(all.data[all.data$Source == "Acetyl"
                   )
 ggvenn::ggvenn(venn.list)
 ggplot2::ggsave("Gene_symbol_venn_diagram_w_phospho.pdf")
+ggvenn::ggvenn(venn.list, show_percentage = FALSE)
+ggplot2::ggsave("Gene_symbol_venn_diagram_w_phospho_wo_percentages.pdf")
+ggvenn::ggvenn(venn.list, show_percentage = FALSE, set_name_size = 4)
+ggplot2::ggsave("Gene_symbol_venn_diagram_w_phospho_wo_percentages_smallerFont.pdf")
 
 #### compile newest results ####
 setwd("model_results")
@@ -103,6 +121,7 @@ new.results <- data.table::rbindlist(result.list, use.names = TRUE, fill = TRUE)
 new.results$X <- NULL
 new.results.kmax15 <- new.results[new.results$k < 15, ]
 write.csv(new.results.kmax15, "Results_kmax15_2024-02-21.csv", row.names = FALSE)
+new.results.kmax15 <- read.csv("Results_kmax15_2024-02-21.csv")
 data.types <- unique(new.results.kmax15$data_type)
 
 ### save pearson results (max, avg, median, sd)
@@ -111,28 +130,32 @@ pearson.agg <- plyr::ddply(new.results.kmax15, .(drug_name, data_type), summariz
                            sd_pearson = sd(pearson, na.rm = TRUE),
                            max_pearson = max(pearson, na.rm = TRUE),
                            min_pearson = min(pearson, na.rm = TRUE),
-                           median_pearson = median(pearson, na.rm = TRUE))
+                           median_pearson = median(pearson, na.rm = TRUE),
+                           feature_importance_most_to_least = paste0(sort(table(
+                             stringr::str_split(feature_names,"[|]")[[1]]), decreasing = TRUE), collapse = "|"),
+                           features_most_to_least_important = paste0(names(sort(table(
+                             stringr::str_split(feature_names,"[|]")[[1]]), decreasing = TRUE)), collapse = "|"))
 pearson.agg$minusLogSD_pearson <- -log(pearson.agg$sd_pearson, 10)
-write.csv(pearson.agg, "pearson_kMax15.csv", row.names = FALSE)
+write.csv(pearson.agg, paste0("pearson_kMax15_", Sys.Date(), ".csv"), row.names = FALSE)
 pearson.median <- reshape2::dcast(pearson.agg, drug_name ~ data_type, value.var = "median_pearson", fill = NA)
-write.csv(pearson.median, "median_pearson_kMax15.csv", row.names = FALSE)
+write.csv(pearson.median, paste0("median_pearson_kMax15_", Sys.Date(), ".csv"), row.names = FALSE)
 pearson.minusLogSD <- reshape2::dcast(pearson.agg, drug_name ~ data_type, value.var = "minusLogSD_pearson", fill = NA)
-write.csv(pearson.minusLogSD, "minusLogSD_pearson_kMax15.csv", row.names = FALSE)
+write.csv(pearson.minusLogSD, paste0("minusLogSD_pearson_kMax15_", Sys.Date(), ".csv"), row.names = FALSE)
 
 # save results in all data_types
 setwd(base.path)
 setwd("data")
 setwd("analysis_BG")
-write.csv(pearson.median[, colSums(is.na(pearson.median)) == 0], "median_pearson_kMax15_noMissing.csv", row.names = FALSE)
-write.csv(pearson.minusLogSD[, colSums(is.na(pearson.minusLogSD)) == 0], "minusLogSD_pearson_kMax15_noMissing.csv", row.names = FALSE)
+write.csv(pearson.median[, colSums(is.na(pearson.median)) == 0], paste0("median_pearson_kMax15_noMissing_", Sys.Date(), ".csv"), row.names = FALSE)
+write.csv(pearson.minusLogSD[, colSums(is.na(pearson.minusLogSD)) == 0], paste0("minusLogSD_pearson_kMax15_noMissing_", Sys.Date(), ".csv"), row.names = FALSE)
 
 ### look at # of drugs for which each source is the best predictor
 ind_data_types <- c("proteomics", "rna_seq", "phospho", "acetyl", "metabolomics_HILIC", "metabolomics_RP", "lipidomics", "wes")
 #individual.results <- na.omit(new.results.kmax15[new.results.kmax15$data_type %in% ind_data_types, ])
 ind.pearson.median <- pearson.median[ , c("drug_name", ind_data_types)]
 ind.pearson.sd <- pearson.minusLogSD[ , c("drug_name", ind_data_types)]
-write.csv(ind.pearson.median, "median_pearson_kMax15_individualSourcesOnly.csv", row.names = FALSE)
-write.csv(ind.pearson.sd, "minusLogSD_pearson_kMax15_individualSourcesOnly.csv", row.names = FALSE)
+write.csv(ind.pearson.median, paste0("median_pearson_kMax15_individualSourcesOnly_", Sys.Date(), ".csv"), row.names = FALSE)
+write.csv(ind.pearson.sd, paste0("minusLogSD_pearson_kMax15_individualSourcesOnly_", Sys.Date(), ".csv"), row.names = FALSE)
 
 best.df <- data.frame(ind_data_types)
 best.df$best_drugs_by_median_pearson <- NA
@@ -197,12 +220,22 @@ write.csv(best.results.df, paste0("Best_source_results_for_each_drug_", Sys.Date
 write.csv(best.ind.results.df, paste0("Best_individual_source_results_for_each_drug_", Sys.Date() ,".csv"), row.names = FALSE)
 write.csv(n.best, paste0("Drugs_best_predicted_by_each_source_", Sys.Date() ,".csv"), row.names = FALSE)
 
+best.df <- read.csv("Best_sources_for_each_drug_2024-02-21.csv")
+best.results.df <- read.csv("Best_source_results_for_each_drug_2024-02-21.csv")
+best.ind.results.df <- read.csv("Best_individual_source_results_for_each_drug_2024-02-21.csv")
+n.best <- read.csv("Drugs_best_predicted_by_each_source_2024-02-21.csv")
+
 # # create pie chart for best individual sources
+# order n.best.ind by alphabetical order of omics type so colors match with violin plot
+n.best.ind <- n.best[n.best$all.sources %in% ind_data_types, ]
+n.best.ind <- n.best.ind[order(n.best.ind$all.sources), ]
+n.best.ind.nonZero <- n.best.ind[n.best.ind$N_drugs > 0, ]
 library(RColorBrewer)
-my.labels <- paste0(n.best.ind$best.ind.sources, " (", n.best.ind$N_drugs, ")")
-pie(n.best.ind$N_drugs, labels = my.labels, border = "white",
+my.labels <- paste0(n.best.ind.nonZero$all.sources, " (", n.best.ind.nonZero$N_drugs, ")")
+pie(n.best.ind.nonZero$N_drugs, labels = my.labels, border = "white",
     init.angle=90,
-    col = brewer.pal(5, "Set2"))
+    cex=1.5,
+    col = brewer.pal(length(my.labels), "Set2"))
 
 # 
 # # create pie chart for best sources
@@ -239,8 +272,8 @@ new.results.kmax15 <- read.csv("Results_kmax15_2024-02-21.csv")
 
 
 # sort by median_pearson
-drug_order <- unique(best.df[order(best.df$best_median_pearson), ]$drug_name)
-ind_drug_order <- unique(best.df[order(best.df$best_ind_median_pearson), ]$drug_name)
+drug_order <- unique(best.df[order(best.df$best_median_pearson), ]$drug)
+ind_drug_order <- unique(best.df[order(best.df$best_ind_median_pearson), ]$drug)
 
 ## violin plot: best sources
 my.pal <- colorRampPalette(RColorBrewer::brewer.pal(8, "Set2"))
@@ -269,7 +302,7 @@ best.violin <- ggplot2::ggplot(best.ind.results.df,
   theme(axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + 
   #ggtitle("Individual Omics Most Predictive of Each Drug") +
   xlab("Drug") + ylab("Pearson Estimate")
-ggsave("Best_individual_omics_for_each_drug_v5.pdf")
+ggsave("Best_individual_omics_for_each_drug_v11.pdf")
 
 #+
   # theme(legend.position = "bottom") + 
@@ -357,3 +390,31 @@ pano.violin <- ggplot2::ggplot(pano.data,
   #ggtitle("Individual Omics Most Predictive of Each Drug") +
   xlab("Drug") + ylab("Pearson Estimate")
 ggsave("Panobinostat_210patients.pdf")
+
+# make a table of the top 5 features for each individual omics type's best drug predictions
+best.feat <- merge(best.ind.results.df, pearson.agg)
+best.feat <- plyr::ddply(best.feat, .(data_type), summarize,
+                         feature_importance_most_to_least = paste0(sort(table(
+                           stringr::str_split(feature_names,"[|]")[[1]]), decreasing = TRUE), collapse = "|"),
+                         features_most_to_least_important = paste0(names(sort(table(
+                           stringr::str_split(feature_names,"[|]")[[1]]), decreasing = TRUE)), collapse = "|"),
+                         top_5_features = paste0(names(sort(table(
+                           stringr::str_split(feature_names,"[|]")[[1]]), decreasing = TRUE)[1:5]), collapse = "|"))
+
+# # remove data_type tags
+# tag.map <- list("acetyl" = "",
+#                 "lipidomics" = "_lip",
+#                 "phospho" = "",
+#                 "proteomics" = "_prot",
+#                 "rna_seq" = "_rna",
+#                 "metabolomics_HILIC" = "_met_HILIC",
+#                 "metabolomics_RP" = "_met_RP")
+# for (i in 1:nrow(best.feat)) {
+#   temp.omics <- best.feat$data_type[i]
+#   temp.tag <- tag.map[[temp.omics]]
+#   temp.features <- stringr::str_split(best.feat$top_5_features, "[|]")
+#   best.feat$top_5_features[i] <- paste0(sub(temp.tag, "", temp.features), collapse = ", ")
+# }
+# #best.feat$top_5_features2 <- gsub("^.*_", "", best.feat$top_5_features) # remove data_type tag
+# #best.feat[grepl("met", best.feat$top_5_features)]
+write.csv(best.feat, "Best_features_for_individual_omics_for_best_drug_predictions.csv", row.names = FALSE)
