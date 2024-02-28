@@ -13,6 +13,7 @@ library(sva)
 library(dplyr)
 library(tibble)
 library(tidyr)
+library(MSnSet.utils)
 
 library(devtools)
 source("../dataProcessing/proteomicsNormalizationMethods.R")
@@ -169,11 +170,13 @@ normalize_acetyl_data <- function(path_to_crosstab, path_to_phenodata,
                                    path_to_global_crosstab, n.sigfig=3, 
                                   type="acetyl", batch_correct = FALSE) {
   # Make MSnSet
-  crosstab <- read.table(path_to_crosstab, sep = "\t", header = TRUE, fill = TRUE, row.names = NULL)
+  #crosstab <- read.table(path_to_crosstab, sep = "\t", header = TRUE, fill = TRUE, row.names = NULL)
+  crosstab <- read.csv(path_to_crosstab)
   crosstab <- dplyr::distinct(crosstab)
-  row.names(crosstab) <- crosstab$row.names
-  crosstab$row.names <- NULL
+  row.names(crosstab) <- crosstab$SUB_SITE
+  crosstab$SUB_SITE <- NULL
   crosstab <- crosstab[rowSums(is.na(crosstab)) != ncol(crosstab), ]
+  #crosstab <- crosstab[ , colSums(is.na(crosstab)) != nrow(crosstab)]
   m <- MSnSet(as.matrix(crosstab))
   phenodata <- read.table(path_to_phenodata, colClasses="character", sep = "\t", header = TRUE, fill = TRUE)
   phenodata$`Loading.Mass` <- as.numeric(phenodata$`Loading.Mass`)
@@ -189,6 +192,7 @@ normalize_acetyl_data <- function(path_to_crosstab, path_to_phenodata,
   exprs(m) <- sweep(exprs(m), 2, global_coeffs)
   m <- normalizeByMedpolish(m)
   new_path_to_crosstab <- sub("_original", "_medpolish", path_to_crosstab)
+  new_path_to_crosstab <- sub("csv", "txt", new_path_to_crosstab)
   write.table(signif(exprs(m), n.sigfig),
               file = new_path_to_crosstab,
               quote=F, sep="\t")
@@ -206,16 +210,20 @@ normalize_acetyl_data <- function(path_to_crosstab, path_to_phenodata,
   # Medpolish and save
   m <- normalizeByMedpolish(m)
   new_path_to_crosstab <- sub("_original", "_corrected", path_to_crosstab)
+  new_path_to_crosstab <- sub("csv", "txt", new_path_to_crosstab)
   write.table(signif(exprs(m), n.sigfig),
               file = new_path_to_crosstab,
               quote=F, sep="\t")
   }
   
     # Make MSnSet
-  crosstab <- read.table(path_to_crosstab, sep = "\t", header = TRUE, fill = TRUE, row.names = NULL)
+  #crosstab <- read.table(path_to_crosstab, sep = "\t", header = TRUE, fill = TRUE, row.names = NULL)
+  crosstab <- read.csv(path_to_crosstab)
   crosstab <- dplyr::distinct(crosstab)
-  row.names(crosstab) <- crosstab$row.names
-  crosstab$row.names <- NULL
+  #row.names(crosstab) <- crosstab$row.names
+  #crosstab$row.names <- NULL
+  row.names(crosstab) <- crosstab$SUB_SITE
+  crosstab$SUB_SITE <- NULL
   crosstab <- crosstab[rowSums(is.na(crosstab)) != ncol(crosstab), ]
   m <- MSnSet(as.matrix(crosstab))
   pData(m) <- phenodata[sampleNames(m),]
@@ -223,6 +231,7 @@ normalize_acetyl_data <- function(path_to_crosstab, path_to_phenodata,
   # Normalize by phospho coefficients
   m <- normalizeByMedpolish(m)
   new_path_to_crosstab <- sub("_original", paste0("_medpolish_", type, "_coeffs"), path_to_crosstab)
+  new_path_to_crosstab <- sub("csv", "txt", new_path_to_crosstab)
   write.table(signif(exprs(m), n.sigfig),
               file = new_path_to_crosstab,
               quote=F, sep="\t")
@@ -240,6 +249,7 @@ normalize_acetyl_data <- function(path_to_crosstab, path_to_phenodata,
   # Medpolish and save
   m <- normalizeByMedpolish(m)
   new_path_to_crosstab <- sub("_original", paste0("_corrected_",type,"_coeffs"), path_to_crosstab)
+  new_path_to_crosstab <- sub("csv", "txt", new_path_to_crosstab)
   write.table(signif(exprs(m), n.sigfig),
               file = new_path_to_crosstab,
               quote=F, sep="\t") 
@@ -265,7 +275,7 @@ lapply(list.files("data/Ex10_phospho_data/", "_original.txt",
        path_to_global_crosstab="data/Ex10_global_data/ptrc_ex10_crosstab_global_gene_original.txt")
 
 setwd("~/OneDrive - PNNL/Documents/GitHub/BeatAMLproteomics/proteomics/")
-lapply(list.files("data/Ex10_acetyl_data", "_original.txt",
+lapply(list.files("data/Ex10_acetyl_data", "_original.csv",
                   full.names=TRUE),
        normalize_acetyl_data,
        path_to_phenodata = "data/Ex10_metadata.txt",
