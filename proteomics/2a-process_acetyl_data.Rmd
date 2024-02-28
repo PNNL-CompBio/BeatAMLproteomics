@@ -65,8 +65,20 @@ show(msnid)
 
 ```{r ascore}
 ascore <- read_AScore_results_from_DMS(data_package_num)
-msnid <- best_PTM_location_by_ascore(msnid, ascore)
-msnid <- apply_filter(msnid, "grepl(\"\\\\*\", peptide)")
+msnid <- best_PTM_location_by_ascore(msnid, ascore) # should we do this for acetyl? after this step: 126 spectrum files, 1721488 PSMs at 34% FDR, 572245 peptides at 79% FDR, 101939 accessions at 92% FDR
+#msnid <- apply_filter(msnid, "grepl(\"\\\\*\", peptide)") # changed on Feb 28, 2024
+msnid <- apply_filter(msnid, "grepl(\"[\\\\#]\", peptide)")
+# if don't do best_PTM_location_by_ascore:
+#Spectrum Files:  126 
+#PSMs: 2140365 at 49 % FDR
+#peptides: 858665 at 88 % FDR
+#accessions: 99070 at 93 % FDR
+
+# if we do best_PTM_location_by_ascore:
+#Spectrum Files:  126 
+#PSMs: 1165523 at 28 % FDR
+#peptides: 333922 at 74 % FDR
+#accessions: 82702 at 86 % FDR
 ```
 
 ### 2.1 Remap accessions
@@ -145,7 +157,7 @@ fst <- readAAStringSet(path_to_FASTA_gene)
 msnid <- map_mod_sites(msnid, fst, 
                        accession_col = "accession", 
                        peptide_mod_col = "peptide", 
-                       mod_char = "*",
+                       mod_char = "#",
                        site_delimiter = "lower")
 #msnid <- apply_filter(msnid, "!is.na(PepLocFirst)")
 head(psms(msnid))
