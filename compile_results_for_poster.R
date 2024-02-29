@@ -29,63 +29,35 @@ setwd("data")
 
 #### look at features ####
 data.files <- list.files(pattern = ".*.csv", full.names = TRUE)
-setwd("z_scaled_cols")
-met.files <- list.files(pattern = ".*.csv", full.names = TRUE)
 
 non.omics.files <- c("./meta_ids.csv", "./cluster_pred.csv", "./meta_labels.csv", "./drug_response.csv")
-all.files <- sort(c(data.files[!(data.files %in% non.omics.files)], met.files))
+all.files <- sort(data.files[!(data.files %in% non.omics.files)])
 data.sources <- c("Acetyl", "Global", "Lipid", "Met_HILIC", "Met_RP", "Phospho", "RNA", "WES")
-met.sources <- c("Lipid", "Met_HILIC", "Met_RP")
 
 # load data
 data.list <- list()
 setwd(base.path)
 setwd("data")
 for (i in 1:length(all.files)) {
-  if (data.sources[i] %in% met.sources) {
-    setwd("z_scaled_cols")
-    data.list[[data.sources[i]]] <- read.csv(all.files[i])
-    setwd(file.path(base.path, "data"))
-  } else {
-    data.list[[data.sources[i]]] <- read.csv(all.files[i]) 
-  }
+  data.list[[data.sources[i]]] <- read.csv(all.files[i]) 
 }
-all.data <- data.table::rbindlist(data.list, use.names = TRUE, fill = TRUE, idcol = "Source")
+all.data <- data.table::rbindlist(data.list, use.names = TRUE, fill = TRUE, idcol = "plotLabel")
 
 # count number of features
-Data_source <- data.sources
-n.features <- data.frame(Data_source)
-n.features$N_features <- NA
-for (i in 1:length(data.sources)) {
-  n.features$N_features[i] <- length(unique(na.omit(data.list[[data.sources[i]]]$label)))
-}
-n.features <- n.features %>% arrange(desc(N_features))
-n.features$Thousand_features <- n.features$N_features/1000
-n.features$Log_features <- log(n.features$N_features, 10)
+n.features <- plyr::ddply(all.data, .(plotLabel), summarize,
+                          N_features = length(unique(na.omit(label))))
 n.features <- n.features[order(n.features$N_features), ]
 
+dir.create("analysis_BG")
+setwd("analysis_BG")
+
 # bar plot of N features
-bp <- barplot(n.features$N_features, ylab = "# of Features", xlab = "Data Type", 
-        names.arg = n.features$Data_source, horiz = FALSE, 
+bp <- barplot(n.features$N_features, ylab = "# of Features", xlab = "Omics Type", 
+        names.arg = n.features$plotLabel, horiz = FALSE, 
         #las = 1, 
-        cex.names = 1)
-text(x=bp, y = ifelse(n.features$N_features < 20000, n.features$N_features + 1000, 21500), labels = n.features$N_features)
-
-n.features[n.features$Data_source=="Lipid",]$Data_source <- "Lipidomics"
-n.features[n.features$Data_source=="RNA",]$Data_source <- "RNA_Seq"
-#n.features[n.features$Data_source=="Met_HILIC",]$Data_source <- "Metabolomics_HILIC"
-#n.features[n.features$Data_source=="Met_HILIC",]$Data_source <- "Metabolomics_HILIC"
-
-n.features[n.features$Data_source=="Lipidomics",]$Data_source <- "Lipid"
-n.features[n.features$Data_source=="RNA_Seq",]$Data_source <- "RNA"
-
-bp <- barplot(n.features$N_features, ylab = "# of Features", xlab = "Data Type", 
-              names.arg = n.features$Data_source, horiz = FALSE, 
-              #las = 1, 
-              cex.names = 1)
-text(x=bp, y = ifelse(n.features$N_features < 20000, n.features$N_features + 1000, 21500), labels = n.features$N_features)
-
-#bar.feat <- ggplot2::ggplot(all.data, aes(x=Source)) + ggplot2::geom_bar() + bg.theme2
+        cex.names = 1,
+        cex.lab = 1.5)
+text(x=bp, y = ifelse(n.features$N_features < 20000, n.features$N_features + 2000, 21000), labels = n.features$N_features, cex=1.5)
 
 # venn diagram of shared gene_symbols
 venn.list <- list("Acetyl" = unique(na.omit(all.data[all.data$Source == "Acetyl", ]$gene_symbol)),
@@ -107,8 +79,10 @@ ggvenn::ggvenn(venn.list)
 ggplot2::ggsave("Gene_symbol_venn_diagram_w_phospho.pdf")
 ggvenn::ggvenn(venn.list, show_percentage = FALSE)
 ggplot2::ggsave("Gene_symbol_venn_diagram_w_phospho_wo_percentages.pdf")
-ggvenn::ggvenn(venn.list, show_percentage = FALSE, set_name_size = 4)
+ggvenn::ggvenn(venn.list, show_percentage = FALSE, set_name_size = 5)
 ggplot2::ggsave("Gene_symbol_venn_diagram_w_phospho_wo_percentages_smallerFont.pdf")
+ggvenn::ggvenn(venn.list, show_percentage = FALSE, set_name_size = 5.5, text_size = 5.5)
+ggplot2::ggsave("Gene_symbol_venn_diagram_w_phospho_wo_percentages_biggerFont.pdf")
 
 #### compile newest results ####
 setwd("model_results")
@@ -328,7 +302,7 @@ for (i in 1:length(drugs)) {
 ## find equivalent wo acetyl
 
 ### look at effect of # of patients
-setwd(file.path(base.path, "data", "model_results", "actyl_results"))
+setwd(file.path(base.path, "data", "model_results", "wo_lipid_met_for_210_patients"))
 # load results w 210 patients
 all.files210 <- list.files(pattern = ".*.csv", full.names = TRUE)
 data.list210 <- list()
