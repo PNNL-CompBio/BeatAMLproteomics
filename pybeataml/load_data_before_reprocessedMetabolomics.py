@@ -32,7 +32,7 @@ meta_file_id = 'syn26534982'
 wes_id = 'syn26428827'
 clusters_id = 'syn26642544'
 clinical_summary_id = 'syn25796769'
-metabolomics_id = 'syn53678273'
+metabolomics_id = 'syn52224584'
 lipidomics_id = 'syn52121001'
 meta_file_id2 = 'syn25807733'
 acetyl_id = 'syn53484994'
@@ -92,10 +92,9 @@ def prep_metabolomics_HILIC(confidence="high"):
 
     # import HILIC pos & neg and drop extra rows & columns
     data_pos = load_excel(metabolomics_id, 0)
-    data_pos = data_pos.iloc[:-570] # drop unknowns
-    data_pos = data_pos.drop(columns=['Blank_BEAT_AML_01_HILIC_Pos',
+    data_pos = data_pos.iloc[:-135] # drop unknowns
+    data_pos = data_pos.drop(columns=['Blank_BEAT_AML_01_HILIC_POS',
                                       'Blank_BEAT_AML_02_HILIC_POS',
-                                      'Blank_BEAT_AML_02_HILIC_Pos2',
                                       'Blank_BEAT_AML_03_HILIC_POS',
                                       'Blank_BEAT_AML_04_HILIC_POS',
                                       'Blank_BEAT_AML_05_HILIC_POS']) # drop blanks
@@ -106,9 +105,9 @@ def prep_metabolomics_HILIC(confidence="high"):
                               'Annotation MW', 'Reference Ion'])
 
     data_neg = load_excel(metabolomics_id, 1)
-    data_neg = data_neg.iloc[:-336] # drop unknowns
-    data_neg = data_neg.drop(columns=['Blank_BEAT_AML_01_HILIC_NEG',
-                                      'Blank_BEAT_AML_01_HILIC_NEG2',
+    data_neg = data_neg.iloc[:-98] # drop unknowns
+    data_neg = data_neg.drop(columns=['Blank_BEAT_AML_01_HILIC_NEG_2uL_18Apr23_Olympic_WBEH-8588_r1.raw (F169)',
+                                      'Blank_BEAT_AML_01_HILIC_NEG_2uL_18Apr23_Olympic_WBEH-8588_r1_20230418144054.raw (F170)',
                                       'Blank_BEAT_AML_02_HILIC_NEG',
                                       'Blank_BEAT_AML_02_HILIC_NEG2',
                                       'Blank_BEAT_AML_02_HILIC_NEG3',
@@ -123,8 +122,8 @@ def prep_metabolomics_HILIC(confidence="high"):
     
     # drop rows not meeting confidence threshold
     if confidence == "high":
-        data_pos = data_pos.iloc[:-131]
-        data_neg = data_neg.iloc[:-75]
+        data_pos = data_pos.iloc[:-54]
+        data_neg = data_neg.iloc[:-35]
     
     # normalize data
     data_pos = data_pos.T
@@ -164,7 +163,7 @@ def prep_metabolomics_HILIC(confidence="high"):
 
     # reformat data
     subset = data.loc[:, cols]
-    subset['source'] = 'metabolomics'
+    subset['source'] = 'metabolomics_HILIC'
     subset['label'] = subset.display_label + '_met_HILIC'
     if not os.path.exists(f_name):
         subset.to_csv(f_name)
@@ -180,10 +179,10 @@ def prep_metabolomics_RP(confidence="high"):
 
     # import HILIC pos & neg and drop extra rows & columns
     data_pos = load_excel(metabolomics_id, 2)
-    data_pos = data_pos.iloc[:-280] # drop unknowns
-    data_pos = data_pos.drop(columns=['Blank_BEAT_AML_01_RP_Pos',
-                                      'Blank_BEAT_AML_01_RP_Pos3',
-                                      'Blank_BEAT_AML_01_RP_Pos2',
+    data_pos = data_pos.iloc[:-76] # drop unknowns
+    data_pos = data_pos.drop(columns=['Blank_BEAT_AML_01_RP_Pos_14Apr23_Olympic_HGold-8527_r1.raw (F82)',
+                                      'Blank_BEAT_AML_01_RP_Pos_14Apr23_Olympic_HGold-8527_r1_20230414144819.raw (F83)',
+                                      'Blank_BEAT_AML_01_RP_Pos_14Apr23_Olympic_HGold-8527_r2.raw (F84)',
                                       'Blank_BEAT_AML_02_RP_Pos',
                                       'Blank_BEAT_AML_03_RP_Pos',
                                       'Blank_BEAT_AML_04_RP_Pos',
@@ -195,10 +194,10 @@ def prep_metabolomics_RP(confidence="high"):
                               'Annotation MW', 'Reference Ion'])
 
     data_neg = load_excel(metabolomics_id, 3)
-    data_neg = data_neg.iloc[:-163] # drop unknowns
+    data_neg = data_neg.iloc[:-56] # drop unknowns
     data_neg = data_neg.drop(columns=['Blank_BEAT_AML_01_RP_Neg',
                                       'Blank_BEAT_AML_02_RP_Neg',
-                                      'Blank_BEAT_AML_02_RP_Neg_',
+                                      'Blank_BEAT_AML_02_RP_Neg2',
                                       'Blank_BEAT_AML_03_RP_Neg',
                                       'Blank_BEAT_AML_04_RP_Neg',
                                       'Blank_BEAT_AML_05_RP_Neg']) # drop blanks
@@ -210,8 +209,8 @@ def prep_metabolomics_RP(confidence="high"):
     
     # drop rows not meeting confidence threshold
     if confidence == "high":
-        data_pos = data_pos.iloc[:-157]
-        data_neg = data_neg.iloc[:-57]
+        data_pos = data_pos.iloc[:-37]
+        data_neg = data_neg.iloc[:-13]
     
     # normalize data
     data_pos = data_pos.T
@@ -251,23 +250,11 @@ def prep_metabolomics_RP(confidence="high"):
 
     # reformat data
     subset = data.loc[:, cols]
-    subset['source'] = 'metabolomics'
+    subset['source'] = 'metabolomics_RP'
     subset['label'] = subset.display_label + '_met_RP'
     if not os.path.exists(f_name):
         subset.to_csv(f_name)
     return subset
-
-# def prep_metabolomics():
-#     cols = ['display_label', 'sample_id',
-#             'exp_value', 'source', 'label']
-    
-#     met_HILIC = prep_metabolomics_HILIC()
-#     met_RP = prep_metabolomics_RP()
-#     met = pd.concat([met_HILIC, met_RP])
-#     met = met.groupby(cols)['exp_value'].agg('mean')
-#     met = met.rename(columns={'mean': 'exp_value'})
-#     return met
-    
 
 def prep_lipidomics():
     f_name = 'data/lipidomics.csv'
